@@ -46,7 +46,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     
     # Initialize LiveKit connection
     livekit_service = container.get_livekit_service()
-    logger.info(f"🎥 LiveKit health check: {'✅ Connected' if livekit_service.health_check() else '❌ Failed'}")
+    livekit_healthy = await livekit_service.health_check()
+    logger.info(f"🎥 LiveKit health check: {'✅ Connected' if livekit_healthy else '❌ Failed'}")
     
     logger.info("🎯 VoiceApp Backend started successfully!")
     
