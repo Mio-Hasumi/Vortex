@@ -71,12 +71,12 @@ class LiveKitService:
         """Check if using mock client"""
         return isinstance(self.client, MockLiveKitClient)
     
-    def health_check(self) -> bool:
+    async def health_check(self) -> bool:
         """Check LiveKit health"""
         try:
             if isinstance(self.client, MockLiveKitClient):
                 return True
-            rooms = self.client.room.list_rooms(ListRoomsRequest())
+            rooms = await self.client.room.list_rooms(ListRoomsRequest())
             return True
         except Exception:
             return False
