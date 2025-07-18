@@ -66,15 +66,23 @@ class FirebaseAdminService:
                     import base64
                     import json
                     
+                    logger.info("🔍 Attempting to decode Base64 Firebase credentials...")
                     # Decode Base64 to get JSON string
                     decoded_bytes = base64.b64decode(settings.FIREBASE_CREDENTIALS_BASE64)
                     decoded_json = decoded_bytes.decode('utf-8')
                     cred_dict = json.loads(decoded_json)
                     
+                    # Validate required fields
+                    required_fields = ['type', 'project_id', 'private_key', 'client_email']
+                    missing_fields = [field for field in required_fields if field not in cred_dict]
+                    if missing_fields:
+                        raise ValueError(f"Missing required fields: {missing_fields}")
+                    
                     cred = credentials.Certificate(cred_dict)
                     logger.info("✅ Using Base64 encoded Firebase credentials")
                 except Exception as e:
                     logger.error(f"❌ Failed to decode Base64 credentials: {e}")
+                    logger.error(f"Base64 length: {len(settings.FIREBASE_CREDENTIALS_BASE64) if settings.FIREBASE_CREDENTIALS_BASE64 else 0}")
             
             # Method 2: JSON string credentials (Railway/Production)
             elif hasattr(settings, 'FIREBASE_CREDENTIALS') and settings.FIREBASE_CREDENTIALS:
@@ -113,13 +121,18 @@ class FirebaseAdminService:
                     'projectId': settings.FIREBASE_PROJECT_ID,
                     'storageBucket': getattr(settings, 'RECORDING_BUCKET_NAME', 'voiceapp-recordings')
                 })
+                logger.info("✅ Firebase app initialized successfully with credentials")
             else:
-                # Development: use default credentials
-                self._app = firebase_admin.initialize_app({
+                # Check if we have at least a project ID
+                if not settings.FIREBASE_PROJECT_ID:
+                    raise ValueError("❌ No Firebase credentials available and no project ID set")
+                
+                logger.warning("⚠️  No credentials available, attempting to use Application Default Credentials")
+                # Development: use default credentials (no credential object needed)
+                self._app = firebase_admin.initialize_app(options={
                     'projectId': settings.FIREBASE_PROJECT_ID
                 })
-            
-            logger.info("✅ Firebase app initialized successfully")
+                logger.info("✅ Firebase app initialized with default credentials")
         except Exception as e:
             logger.error(f"❌ Failed to initialize Firebase app: {e}")
             raise
