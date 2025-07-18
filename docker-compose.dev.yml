@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
+      - DEBUG=true
+      - FIREBASE_CREDENTIALS_PATH=/app/voiceapp-8f09a-firebase-adminsdk-fbsvc-4f84f483d1.json
+      - LIVEKIT_API_KEY=APIQgCgiwHnYkue
+      - LIVEKIT_API_SECRET=Reqvp9rjEeLAe9XZOsdjGwPFs4qJcp5VEKTVIUpn40hA
+      - LIVEKIT_SERVER_URL=wss://voodooo-5oh49lvx.livekit.cloud
+    volumes:
+      - ./voiceapp-8f09a-firebase-adminsdk-fbsvc-4f84f483d1.json:/app/voiceapp-8f09a-firebase-adminsdk-fbsvc-4f84f483d1.json:ro
+      - .:/app  # Mount source code for development
+    restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+volumes:
+  redis_data:
+    driver: local 

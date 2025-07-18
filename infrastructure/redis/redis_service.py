@@ -1,0 +1,340 @@
+"""
+Redis Service for queue management and caching
+"""
+
+import json
+import redis
+from typing import Any, Dict, List, Optional, Union
+from uuid import UUID
+import asyncio
+from datetime import datetime, timedelta
+import logging
+
+from infrastructure.config import Settings
+
+logger = logging.getLogger(__name__)
+
+class RedisService:
+    """Redis service for queue management and caching"""
+    
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.redis_client: Optional[redis.Redis] = None
+        self.async_redis_client: Optional[redis.asyncio.Redis] = None
+        self.is_mock = False
+        
+    def connect(self) -> None:
+        """Initialize Redis connection"""
+        try:
+            redis_url = getattr(self.settings, 'REDIS_URL', 'redis://localhost:6379/0')
+            
+            # Synchronous client
+            self.redis_client = redis.from_url(
+                redis_url,
+                decode_responses=True,
+                socket_keepalive=True,
+                socket_keepalive_options={},
+                health_check_interval=30
+            )
+            
+            # Asynchronous client
+            self.async_redis_client = redis.asyncio.from_url(
+                redis_url,
+                decode_responses=True,
+                socket_keepalive=True,
+                socket_keepalive_options={},
+                health_check_interval=30
+            )
+            
+            # Test connection
+            self.redis_client.ping()
+            logger.info("✅ Redis connection established successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to connect to Redis: {e}")
+            # Create mock client for development
+            self.redis_client = MockRedisClient()
+            self.async_redis_client = MockAsyncRedisClient()
+            self.is_mock = True
+            logger.warning("⚠️ Using mock Redis client for development")
+    
+    def disconnect(self) -> None:
+        """Close Redis connection"""
+        if self.redis_client:
+            self.redis_client.close()
+        if self.async_redis_client:
+            asyncio.create_task(self.async_redis_client.close())
+        logger.info("Redis connection closed")
+    
+    def health_check(self) -> bool:
+        """Check Redis health"""
+        try:
+            return self.redis_client.ping()
+        except Exception:
+            return False
+    
+    # Queue Management
+    def enqueue(self, queue_name: str, item: Dict[str, Any], priority: int = 0) -> bool:
+        """Add item to queue with priority"""
+        try:
+            # Add timestamp
+            item['enqueued_at'] = datetime.utcnow().isoformat()
+            item['priority'] = priority
+            
+            # Use sorted set for priority queue
+            score = priority * 1000000 + int(datetime.utcnow().timestamp())
+            return self.redis_client.zadd(queue_name, {json.dumps(item): score})
+        except Exception as e:
+            logger.error(f"Failed to enqueue item: {e}")
+            return False
+    
+    def dequeue(self, queue_name: str) -> Optional[Dict[str, Any]]:
+        """Remove and return highest priority item from queue"""
+        try:
+            # Get highest priority item (lowest score)
+            result = self.redis_client.zpopmin(queue_name)
+            if result:
+                item_json, score = result[0]
+                return json.loads(item_json)
+            return None
+        except Exception as e:
+            logger.error(f"Failed to dequeue item: {e}")
+            return None
+    
+    def peek_queue(self, queue_name: str, count: int = 1) -> List[Dict[str, Any]]:
+        """Peek at queue items without removing them"""
+        try:
+            results = self.redis_client.zrange(queue_name, 0, count - 1, withscores=True)
+            return [json.loads(item) for item, score in results]
+        except Exception as e:
+            logger.error(f"Failed to peek queue: {e}")
+            return []
+    
+    def get_queue_size(self, queue_name: str) -> int:
+        """Get queue size"""
+        try:
+            return self.redis_client.zcard(queue_name)
+        except Exception as e:
+            logger.error(f"Failed to get queue size: {e}")
+            return 0
+    
+    def remove_from_queue(self, queue_name: str, item: Dict[str, Any]) -> bool:
+        """Remove specific item from queue"""
+        try:
+            return self.redis_client.zrem(queue_name, json.dumps(item))
+        except Exception as e:
+            logger.error(f"Failed to remove from queue: {e}")
+            return False
+    
+    def clear_queue(self, queue_name: str) -> bool:
+        """Clear entire queue"""
+        try:
+            return self.redis_client.delete(queue_name)
+        except Exception as e:
+            logger.error(f"Failed to clear queue: {e}")
+            return False
+    
+    # Caching
+    def set_cache(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+        """Set cache value with optional TTL"""
+        try:
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value)
+            
+            if ttl:
+                return self.redis_client.setex(key, ttl, value)
+            else:
+                return self.redis_client.set(key, value)
+        except Exception as e:
+            logger.error(f"Failed to set cache: {e}")
+            return False
+    
+    def get_cache(self, key: str) -> Optional[Any]:
+        """Get cache value"""
+        try:
+            value = self.redis_client.get(key)
+            if value:
+                try:
+                    return json.loads(value)
+                except json.JSONDecodeError:
+                    return value
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get cache: {e}")
+            return None
+    
+    def delete_cache(self, key: str) -> bool:
+        """Delete cache value"""
+        try:
+            return self.redis_client.delete(key)
+        except Exception as e:
+            logger.error(f"Failed to delete cache: {e}")
+            return False
+    
+    def exists(self, key: str) -> bool:
+        """Check if key exists"""
+        try:
+            return self.redis_client.exists(key)
+        except Exception as e:
+            logger.error(f"Failed to check key existence: {e}")
+            return False
+    
+    # User Session Management
+    def set_user_online(self, user_id: UUID, ttl: int = 3600) -> bool:
+        """Mark user as online"""
+        return self.set_cache(f"user:online:{user_id}", True, ttl)
+    
+    def set_user_offline(self, user_id: UUID) -> bool:
+        """Mark user as offline"""
+        return self.delete_cache(f"user:online:{user_id}")
+    
+    def is_user_online(self, user_id: UUID) -> bool:
+        """Check if user is online"""
+        return self.exists(f"user:online:{user_id}")
+    
+    def get_online_users(self) -> List[str]:
+        """Get list of online users"""
+        try:
+            keys = self.redis_client.keys("user:online:*")
+            return [key.replace("user:online:", "") for key in keys]
+        except Exception as e:
+            logger.error(f"Failed to get online users: {e}")
+            return []
+    
+    # Matching Queue Specific Methods
+    def add_to_matching_queue(self, user_id: UUID, preferences: Dict[str, Any]) -> bool:
+        """Add user to matching queue"""
+        queue_item = {
+            'user_id': str(user_id),
+            'preferences': preferences,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        return self.enqueue('matching_queue', queue_item, priority=0)
+    
+    def remove_from_matching_queue(self, user_id: UUID) -> bool:
+        """Remove user from matching queue"""
+        try:
+            # Find and remove user from queue
+            queue_items = self.redis_client.zrange('matching_queue', 0, -1, withscores=True)
+            for item_json, score in queue_items:
+                item = json.loads(item_json)
+                if item.get('user_id') == str(user_id):
+                    return self.redis_client.zrem('matching_queue', item_json)
+            return False
+        except Exception as e:
+            logger.error(f"Failed to remove user from matching queue: {e}")
+            return False
+    
+    def get_matching_queue_position(self, user_id: UUID) -> int:
+        """Get user's position in matching queue"""
+        try:
+            queue_items = self.redis_client.zrange('matching_queue', 0, -1)
+            for i, item_json in enumerate(queue_items):
+                item = json.loads(item_json)
+                if item.get('user_id') == str(user_id):
+                    return i + 1
+            return 0
+        except Exception as e:
+            logger.error(f"Failed to get queue position: {e}")
+            return 0
+    
+    def get_matching_queue_size(self) -> int:
+        """Get matching queue size"""
+        return self.get_queue_size('matching_queue')
+    
+    def peek_matching_queue(self, count: int = 10) -> List[Dict[str, Any]]:
+        """Peek at matching queue"""
+        return self.peek_queue('matching_queue', count)
+
+
+class MockRedisClient:
+    """Mock Redis client for development"""
+    
+    def __init__(self):
+        self.data = {}
+        self.queues = {}
+        logger.info("🔧 Mock Redis client initialized")
+    
+    def ping(self) -> bool:
+        return True
+    
+    def close(self) -> None:
+        pass
+    
+    def zadd(self, name: str, mapping: Dict[str, float]) -> int:
+        if name not in self.queues:
+            self.queues[name] = []
+        for item, score in mapping.items():
+            self.queues[name].append((item, score))
+        self.queues[name].sort(key=lambda x: x[1])
+        return len(mapping)
+    
+    def zpopmin(self, name: str, count: int = 1) -> List[tuple]:
+        if name not in self.queues or not self.queues[name]:
+            return []
+        items = self.queues[name][:count]
+        self.queues[name] = self.queues[name][count:]
+        return items
+    
+    def zrange(self, name: str, start: int, end: int, withscores: bool = False) -> List:
+        if name not in self.queues:
+            return []
+        items = self.queues[name][start:end+1] if end != -1 else self.queues[name][start:]
+        if withscores:
+            return items
+        return [item for item, score in items]
+    
+    def zcard(self, name: str) -> int:
+        return len(self.queues.get(name, []))
+    
+    def zrem(self, name: str, *values) -> int:
+        if name not in self.queues:
+            return 0
+        original_length = len(self.queues[name])
+        self.queues[name] = [(item, score) for item, score in self.queues[name] if item not in values]
+        return original_length - len(self.queues[name])
+    
+    def delete(self, *names) -> int:
+        count = 0
+        for name in names:
+            if name in self.data:
+                del self.data[name]
+                count += 1
+            if name in self.queues:
+                del self.queues[name]
+                count += 1
+        return count
+    
+    def set(self, name: str, value: Any) -> bool:
+        self.data[name] = value
+        return True
+    
+    def setex(self, name: str, time: int, value: Any) -> bool:
+        self.data[name] = value
+        return True
+    
+    def get(self, name: str) -> Optional[Any]:
+        return self.data.get(name)
+    
+    def exists(self, name: str) -> bool:
+        return name in self.data
+    
+    def keys(self, pattern: str) -> List[str]:
+        if pattern.endswith('*'):
+            prefix = pattern[:-1]
+            return [key for key in self.data.keys() if key.startswith(prefix)]
+        return [key for key in self.data.keys() if key == pattern]
+
+
+class MockAsyncRedisClient:
+    """Mock async Redis client for development"""
+    
+    def __init__(self):
+        self.sync_client = MockRedisClient()
+        logger.info("🔧 Mock async Redis client initialized")
+    
+    async def close(self) -> None:
+        pass
+    
+    async def ping(self) -> bool:
+        return True 
