@@ -45,7 +45,7 @@ class FirebaseAdminService:
             cls._instance._init_app()
         return cls._instance
 
-    def _init_app(self) -> None:
+    def _init_app(self):
         """
         Initialize Firebase Admin SDK app
         """
@@ -57,82 +57,39 @@ class FirebaseAdminService:
             self._app = firebase_admin.get_app()
             logger.info("✅ Using existing Firebase app")
         except ValueError:
-            # Create new app with credentials
-            cred = None
+            # Create new app with Base64 credentials
+            import base64
+            import json
             
-            # Method 1: Base64 encoded credentials (Railway/Production)
-            if hasattr(settings, 'FIREBASE_CREDENTIALS_BASE64') and settings.FIREBASE_CREDENTIALS_BASE64:
-                try:
-                    import base64
-                    import json
-                    
-                    logger.info("🔍 Attempting to decode Base64 Firebase credentials...")
-                    # Decode Base64 to get JSON string
-                    decoded_bytes = base64.b64decode(settings.FIREBASE_CREDENTIALS_BASE64)
-                    decoded_json = decoded_bytes.decode('utf-8')
-                    cred_dict = json.loads(decoded_json)
-                    
-                    # Validate required fields
-                    required_fields = ['type', 'project_id', 'private_key', 'client_email']
-                    missing_fields = [field for field in required_fields if field not in cred_dict]
-                    if missing_fields:
-                        raise ValueError(f"Missing required fields: {missing_fields}")
-                    
-                    cred = credentials.Certificate(cred_dict)
-                    logger.info("✅ Using Base64 encoded Firebase credentials")
-                except Exception as e:
-                    logger.error(f"❌ Failed to decode Base64 credentials: {e}")
-                    logger.error(f"Base64 length: {len(settings.FIREBASE_CREDENTIALS_BASE64) if settings.FIREBASE_CREDENTIALS_BASE64 else 0}")
+            if not hasattr(settings, 'FIREBASE_CREDENTIALS_BASE64') or not settings.FIREBASE_CREDENTIALS_BASE64:
+                raise ValueError("❌ FIREBASE_CREDENTIALS_BASE64 environment variable is required")
             
-            # Method 2: JSON string credentials (Railway/Production)
-            elif hasattr(settings, 'FIREBASE_CREDENTIALS') and settings.FIREBASE_CREDENTIALS:
-                try:
-                    import json
-                    cred_dict = json.loads(settings.FIREBASE_CREDENTIALS)
-                    cred = credentials.Certificate(cred_dict)
-                    logger.info("✅ Using JSON string Firebase credentials")
-                except Exception as e:
-                    logger.error(f"❌ Failed to parse JSON credentials: {e}")
+            logger.info("🔍 Decoding Base64 Firebase credentials...")
             
-            # Method 3: Individual fields (fallback)
-            elif settings.FIREBASE_PROJECT_ID and settings.FIREBASE_PRIVATE_KEY:
-                try:
-                    cred_dict = {
-                        "type": "service_account",
-                        "project_id": settings.FIREBASE_PROJECT_ID,
-                        "private_key_id": settings.FIREBASE_PRIVATE_KEY_ID,
-                        "private_key": settings.FIREBASE_PRIVATE_KEY.replace('\\n', '\n'),
-                        "client_email": settings.FIREBASE_CLIENT_EMAIL,
-                        "client_id": settings.FIREBASE_CLIENT_ID,
-                        "auth_uri": settings.FIREBASE_AUTH_URI,
-                        "token_uri": settings.FIREBASE_TOKEN_URI,
-                        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                        "client_x509_cert_url": settings.FIREBASE_CLIENT_X509_CERT_URL
-                    }
-                    
-                    cred = credentials.Certificate(cred_dict)
-                    logger.info("✅ Using individual field Firebase credentials")
-                except Exception as e:
-                    logger.error(f"❌ Failed to create credentials from individual fields: {e}")
+            # Decode Base64 to get JSON
+            decoded_bytes = base64.b64decode(settings.FIREBASE_CREDENTIALS_BASE64)
+            decoded_json = decoded_bytes.decode('utf-8')
+            cred_dict = json.loads(decoded_json)
             
-            # Initialize Firebase app
-            if cred:
-                self._app = firebase_admin.initialize_app(cred, {
+            # Validate required fields
+            required_fields = ['type', 'project_id', 'private_key', 'client_email']
+            missing_fields = [field for field in required_fields if field not in cred_dict]
+            if missing_fields:
+                raise ValueError(f"Missing required fields in credentials: {missing_fields}")
+            
+            # Create credential object
+            cred = credentials.Certificate(cred_dict)
+            logger.info("✅ Base64 credentials decoded successfully")
+            
+            # Initialize Firebase app with credential object
+            self._app = firebase_admin.initialize_app(
+                cred,
+                {
                     'projectId': settings.FIREBASE_PROJECT_ID,
                     'storageBucket': getattr(settings, 'RECORDING_BUCKET_NAME', 'voiceapp-recordings')
-                })
-                logger.info("✅ Firebase app initialized successfully with credentials")
-            else:
-                # Check if we have at least a project ID
-                if not settings.FIREBASE_PROJECT_ID:
-                    raise ValueError("❌ No Firebase credentials available and no project ID set")
-                
-                logger.warning("⚠️  No credentials available, attempting to use Application Default Credentials")
-                # Development: use default credentials (no credential object needed)
-                self._app = firebase_admin.initialize_app(options={
-                    'projectId': settings.FIREBASE_PROJECT_ID
-                })
-                logger.info("✅ Firebase app initialized with default credentials")
+                }
+            )
+            logger.info("✅ Firebase app initialized successfully")
         except Exception as e:
             logger.error(f"❌ Failed to initialize Firebase app: {e}")
             raise
