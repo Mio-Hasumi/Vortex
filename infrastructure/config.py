@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     
     # Firebase credentials from environment (for Railway)
     FIREBASE_CREDENTIALS: str = ""
+    FIREBASE_CREDENTIALS_BASE64: str = ""
     
     # Legacy Firebase fields (for backward compatibility)
     GOOGLE_CLOUD_PROJECT: str = ""

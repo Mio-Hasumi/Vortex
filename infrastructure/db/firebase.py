@@ -58,25 +58,60 @@ class FirebaseAdminService:
             logger.info("✅ Using existing Firebase app")
         except ValueError:
             # Create new app with credentials
-            if settings.FIREBASE_PROJECT_ID:
-                # Production: use service account credentials
-                cred_dict = {
-                    "type": "service_account",
-                    "project_id": settings.FIREBASE_PROJECT_ID,
-                    "private_key_id": settings.FIREBASE_PRIVATE_KEY_ID,
-                    "private_key": settings.FIREBASE_PRIVATE_KEY.replace('\\n', '\n'),
-                    "client_email": settings.FIREBASE_CLIENT_EMAIL,
-                    "client_id": settings.FIREBASE_CLIENT_ID,
-                    "auth_uri": settings.FIREBASE_AUTH_URI,
-                    "token_uri": settings.FIREBASE_TOKEN_URI,
-                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                    "client_x509_cert_url": settings.FIREBASE_CLIENT_X509_CERT_URL
-                }
-                
-                cred = credentials.Certificate(cred_dict)
+            cred = None
+            
+            # Method 1: Base64 encoded credentials (Railway/Production)
+            if hasattr(settings, 'FIREBASE_CREDENTIALS_BASE64') and settings.FIREBASE_CREDENTIALS_BASE64:
+                try:
+                    import base64
+                    import json
+                    
+                    # Decode Base64 to get JSON string
+                    decoded_bytes = base64.b64decode(settings.FIREBASE_CREDENTIALS_BASE64)
+                    decoded_json = decoded_bytes.decode('utf-8')
+                    cred_dict = json.loads(decoded_json)
+                    
+                    cred = credentials.Certificate(cred_dict)
+                    logger.info("✅ Using Base64 encoded Firebase credentials")
+                except Exception as e:
+                    logger.error(f"❌ Failed to decode Base64 credentials: {e}")
+            
+            # Method 2: JSON string credentials (Railway/Production)
+            elif hasattr(settings, 'FIREBASE_CREDENTIALS') and settings.FIREBASE_CREDENTIALS:
+                try:
+                    import json
+                    cred_dict = json.loads(settings.FIREBASE_CREDENTIALS)
+                    cred = credentials.Certificate(cred_dict)
+                    logger.info("✅ Using JSON string Firebase credentials")
+                except Exception as e:
+                    logger.error(f"❌ Failed to parse JSON credentials: {e}")
+            
+            # Method 3: Individual fields (fallback)
+            elif settings.FIREBASE_PROJECT_ID and settings.FIREBASE_PRIVATE_KEY:
+                try:
+                    cred_dict = {
+                        "type": "service_account",
+                        "project_id": settings.FIREBASE_PROJECT_ID,
+                        "private_key_id": settings.FIREBASE_PRIVATE_KEY_ID,
+                        "private_key": settings.FIREBASE_PRIVATE_KEY.replace('\\n', '\n'),
+                        "client_email": settings.FIREBASE_CLIENT_EMAIL,
+                        "client_id": settings.FIREBASE_CLIENT_ID,
+                        "auth_uri": settings.FIREBASE_AUTH_URI,
+                        "token_uri": settings.FIREBASE_TOKEN_URI,
+                        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                        "client_x509_cert_url": settings.FIREBASE_CLIENT_X509_CERT_URL
+                    }
+                    
+                    cred = credentials.Certificate(cred_dict)
+                    logger.info("✅ Using individual field Firebase credentials")
+                except Exception as e:
+                    logger.error(f"❌ Failed to create credentials from individual fields: {e}")
+            
+            # Initialize Firebase app
+            if cred:
                 self._app = firebase_admin.initialize_app(cred, {
                     'projectId': settings.FIREBASE_PROJECT_ID,
-                    'storageBucket': settings.RECORDING_BUCKET_NAME
+                    'storageBucket': getattr(settings, 'RECORDING_BUCKET_NAME', 'voiceapp-recordings')
                 })
             else:
                 # Development: use default credentials
