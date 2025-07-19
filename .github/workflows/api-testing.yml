@@ -26,6 +26,17 @@ jobs:
     name: 🧪 Basic Setup and Test
     runs-on: ubuntu-latest
     
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
     steps:
     - name: 📥 Checkout Code
       uses: actions/checkout@v4
@@ -42,13 +53,39 @@ jobs:
         pip install -r requirements.txt
         pip install pytest pytest-asyncio aiohttp websockets requests
     
+    - name: ⚙️ Setup Test Environment
+      run: |
+        echo "REDIS_URL=redis://localhost:6379" > .env
+        echo "DEBUG=true" >> .env
+        echo "TESTING=true" >> .env
+        echo "PORT=8000" >> .env
+    
     - name: 🧪 Run Basic Tests
       run: |
         python -m pytest tests/test_basic.py -v
     
+    - name: 🚀 Start Server for Documentation
+      run: |
+        python main.py &
+        echo $! > server.pid
+        sleep 10  # Wait for server to start
+        
+        # Check if server is running
+        curl -f http://localhost:8000/ || (echo "Server failed to start" && exit 1)
+      env:
+        PYTHONUNBUFFERED: 1
+    
     - name: 📚 Generate Basic Documentation
       run: |
         python scripts/generate_docs.py --base-url http://localhost:8000 --output-dir ./docs
+    
+    - name: 🛑 Stop Server
+      if: always()
+      run: |
+        if [ -f server.pid ]; then
+          kill $(cat server.pid) || true
+          rm server.pid
+        fi
     
     - name: 📁 Upload Documentation
       uses: actions/upload-artifact@v4
