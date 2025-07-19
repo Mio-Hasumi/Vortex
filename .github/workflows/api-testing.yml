@@ -70,7 +70,7 @@ jobs:
         python scripts/generate_docs.py --base-url http://localhost:8000 --output-dir ./docs
     
     - name: 📁 Upload Documentation
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # Updated to v4
       with:
         name: api-documentation
         path: docs/
