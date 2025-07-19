@@ -25,7 +25,7 @@ class LiveKitPort(Protocol):
     由 interface/gateways/livekit_adapter.py 实现。
     """
     def create_room_if_not_exists(self, room_name: str) -> None: ...
-    # TODO
+    
     def build_access_token(
         self,
         room: str,

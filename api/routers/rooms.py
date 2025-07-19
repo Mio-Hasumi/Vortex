@@ -53,6 +53,18 @@ def get_room_repository():
 def get_user_repository():
     return container.get_user_repository()
 
+def get_topic_repository():
+    return container.get_topic_repository()
+
+# Helper functions
+def get_topic_name(topic_id: UUID, topic_repo) -> str:
+    """Get topic name by ID, fallback to 'General' if not found"""
+    try:
+        topic = topic_repo.find_by_id(topic_id)
+        return topic.name if topic else "General"
+    except:
+        return "General"
+
 # Helper function to create a room for API
 def create_room_entity(name: str, topic: str, created_by: UUID, max_participants: int = 10, is_private: bool = False) -> Room:
     """Create a room entity for API usage"""
@@ -115,26 +127,54 @@ async def create_room(
         )
 
 @router.post("/join", response_model=RoomResponse)
-async def join_room(request: JoinRoomRequest):
+async def join_room(
+    request: JoinRoomRequest,
+    room_repo = Depends(get_room_repository),
+    current_user: User = Depends(get_current_user)
+):
     """
     Join an existing room
     """
     try:
-        # TODO: Implement room joining
-        # 1. Check room availability
-        # 2. Add user to room
-        # 3. Generate LiveKit token
+        room_id = UUID(request.room_id)
+        current_user_id = current_user.id
+        
+        # Check if room exists
+        room = room_repo.find_by_id(room_id)
+        if not room:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Room not found"
+            )
+        
+        # Add user to room
+        if not room_repo.add_participant(room_id, current_user_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to join room (room might be full)"
+            )
+        
+        # Get updated room info
+        updated_room = room_repo.find_by_id(room_id)
+        
+        # Get topic repository for topic name lookup
+        topic_repo = container.get_topic_repository()
         
         return RoomResponse(
-            id=request.room_id,
-            name="Tech Discussion",
-            topic="Technology",
-            participants=["user-1", "user-2"],
-            max_participants=10,
-            status="active",
-            created_at="2023-12-01T10:00:00Z",
-            livekit_room_name=request.room_id,
-            livekit_token="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
+            id=str(updated_room.id),
+            name=updated_room.name,
+            topic=get_topic_name(updated_room.topic_id, topic_repo),
+            participants=[str(p) for p in updated_room.current_participants],
+            max_participants=updated_room.max_participants,
+            status=updated_room.status.name.lower(),
+            created_at=updated_room.created_at.isoformat(),
+            livekit_room_name=updated_room.livekit_room_name,
+            livekit_token=room_repo.generate_livekit_token(room_id, current_user_id)
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid room ID format"
         )
     except Exception as e:
         raise HTTPException(
@@ -143,17 +183,35 @@ async def join_room(request: JoinRoomRequest):
         )
 
 @router.post("/{room_id}/leave")
-async def leave_room(room_id: str):
+async def leave_room(
+    room_id: str,
+    room_repo = Depends(get_room_repository),
+    current_user: User = Depends(get_current_user)
+):
     """
     Leave a room
     """
     try:
-        # TODO: Implement room leaving
-        # 1. Remove user from room
-        # 2. Update room status if needed
-        # 3. Notify other participants
+        room_uuid = UUID(room_id)
+        current_user_id = current_user.id
+        
+        # Check if room exists
+        room = room_repo.find_by_id(room_uuid)
+        if not room:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Room not found"
+            )
+        
+        # Remove user from room
+        room_repo.remove_participant(room_uuid, current_user_id)
         
         return {"message": "Left room successfully"}
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid room ID format"
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -161,22 +219,44 @@ async def leave_room(room_id: str):
         )
 
 @router.get("/{room_id}", response_model=RoomResponse)
-async def get_room(room_id: str):
+async def get_room(
+    room_id: str,
+    room_repo = Depends(get_room_repository),
+    current_user: User = Depends(get_current_user)
+):
     """
     Get room details
     """
     try:
-        # TODO: Implement room retrieval
+        room_uuid = UUID(room_id)
+        current_user_id = current_user.id
+        
+        # Find room by ID
+        room = room_repo.find_by_id(room_uuid)
+        if not room:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Room not found"
+            )
+        
+        # Get topic repository for topic name lookup
+        topic_repo = container.get_topic_repository()
+        
         return RoomResponse(
-            id=room_id,
-            name="Tech Discussion",
-            topic="Technology",
-            participants=["user-1", "user-2"],
-            max_participants=10,
-            status="active",
-            created_at="2023-12-01T10:00:00Z",
-            livekit_room_name=room_id,
-            livekit_token="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
+            id=str(room.id),
+            name=room.name,
+            topic=get_topic_name(room.topic_id, topic_repo),
+            participants=[str(p) for p in room.current_participants],
+            max_participants=room.max_participants,
+            status=room.status.name.lower(),
+            created_at=room.created_at.isoformat(),
+            livekit_room_name=room.livekit_room_name,
+            livekit_token=room_repo.generate_livekit_token(room_uuid, current_user_id)
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid room ID format"
         )
     except Exception as e:
         raise HTTPException(
@@ -185,28 +265,44 @@ async def get_room(room_id: str):
         )
 
 @router.get("/{room_id}/participants", response_model=List[ParticipantResponse])
-async def get_room_participants(room_id: str):
+async def get_room_participants(
+    room_id: str,
+    room_repo = Depends(get_room_repository),
+    user_repo = Depends(get_user_repository)
+):
     """
     Get room participants
     """
     try:
-        # TODO: Implement participant retrieval
-        return [
-            ParticipantResponse(
-                user_id="user-1",
-                display_name="Alice",
-                joined_at="2023-12-01T10:00:00Z",
-                is_speaking=True,
-                connection_quality="excellent"
-            ),
-            ParticipantResponse(
-                user_id="user-2",
-                display_name="Bob",
-                joined_at="2023-12-01T10:02:00Z",
-                is_speaking=False,
-                connection_quality="good"
+        room_uuid = UUID(room_id)
+        
+        # Find room by ID
+        room = room_repo.find_by_id(room_uuid)
+        if not room:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Room not found"
             )
-        ]
+        
+        # Get participant details
+        participants = []
+        for participant_id in room.current_participants:
+            user = user_repo.find_by_id(participant_id)
+            if user:
+                participants.append(ParticipantResponse(
+                    user_id=str(user.id),
+                    display_name=user.display_name,
+                    joined_at=room.created_at.isoformat(),  # Simplified - could track individual join times
+                    is_speaking=False,  # Would need LiveKit integration for real-time status
+                    connection_quality="good"  # Would need LiveKit integration for real status
+                ))
+        
+        return participants
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid room ID format"
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -219,24 +315,30 @@ async def get_rooms(
     topic: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
-    room_repo = Depends(get_room_repository)
+    room_repo = Depends(get_room_repository),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Get available rooms
     """
     try:
+        current_user_id = current_user.id
+        
         # Get rooms from repository
         if status == "active":
             rooms = room_repo.find_active_rooms(limit=limit)
         else:
             rooms = room_repo.find_active_rooms(limit=limit)  # Default to active rooms
         
+        # Get topic repository for topic name lookup
+        topic_repo = container.get_topic_repository()
+        
         room_responses = []
         for room in rooms:
             room_responses.append(RoomResponse(
                 id=str(room.id),
                 name=room.name,
-                topic="General",  # TODO: Get topic name from topic_id
+                topic=get_topic_name(room.topic_id, topic_repo),
                 participants=[str(p) for p in room.current_participants],
                 max_participants=room.max_participants,
                 status=room.status.name.lower(),

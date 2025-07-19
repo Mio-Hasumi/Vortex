@@ -8,10 +8,14 @@ from typing import List, Optional
 from uuid import UUID
 import asyncio
 import json
+import logging
+from datetime import datetime
 
 from infrastructure.container import container
 from infrastructure.middleware.firebase_auth_middleware import get_current_user
 from domain.entities import MatchStatus, User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -37,6 +41,29 @@ class QueueStatusResponse(BaseModel):
 # Dependency injection
 def get_matching_repository():
     return container.get_matching_repository()
+
+def get_topic_repository():
+    return container.get_topic_repository()
+
+def get_websocket_manager():
+    return container.get_websocket_manager()
+
+def get_event_broadcaster():
+    return container.get_event_broadcaster()
+
+# Helper functions
+def get_topic_name_for_match(match, topic_repo) -> str:
+    """Get topic name for a match, fallback to 'General' if not found"""
+    try:
+        # Try to get topic from the first preferred topic if available
+        # This is simplified - in production you might store the actual matched topic
+        if hasattr(match, 'preferred_topics') and match.preferred_topics:
+            topic_id = UUID(match.preferred_topics[0])
+            topic = topic_repo.find_by_id(topic_id)
+            return topic.name if topic else "General"
+        return "General"
+    except:
+        return "General"
 
 # Matching endpoints
 @router.post("/request", response_model=MatchResponse)
@@ -147,11 +174,14 @@ async def get_match_history(
         # Get matches from repository
         matches = matching_repo.find_matches_by_user_id(current_user_id, limit=limit)
         
+        # Get topic repository for name lookup
+        topic_repo = container.get_topic_repository()
+        
         match_history = []
         for match in matches:
             match_history.append({
                 "match_id": str(match.id),
-                "topic": "General",  # TODO: Get topic name from preferred_topics
+                "topic": get_topic_name_for_match(match, topic_repo),
                 "participants": [str(match.user_id)] + [str(u) for u in match.matched_users],
                 "created_at": match.created_at.isoformat(),
                 "status": match.status.name.lower()
@@ -169,30 +199,119 @@ async def get_match_history(
 
 # WebSocket endpoint for real-time matching updates
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_matching(websocket: WebSocket):
     """
     WebSocket endpoint for real-time matching updates
     """
-    await websocket.accept()
+    websocket_manager = get_websocket_manager()
     
     try:
-        while True:
-            # TODO: Implement real-time matching updates
-            # 1. Listen for queue position changes
-            # 2. Send match found notifications
-            # 3. Handle connection management
-            
-            # For now, send periodic updates
-            await asyncio.sleep(5)
+        # Get user_id from query parameters if available
+        user_id_param = websocket.query_params.get("user_id")
+        
+        if not user_id_param:
+            # Accept connection to send error message
+            await websocket.accept()
             await websocket.send_text(json.dumps({
-                "type": "queue_update",
-                "position": 3,
-                "estimated_wait_time": 90
+                "type": "error",
+                "message": "user_id query parameter required (e.g., ws://localhost:8000/api/matching/ws?user_id=your-uuid)"
             }))
+            await websocket.close(code=1008)
+            return
+        
+        try:
+            user_id = UUID(user_id_param)
+        except ValueError:
+            await websocket.accept()
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "Invalid user_id format. Must be a valid UUID"
+            }))
+            await websocket.close(code=1008)
+            return
+        
+        # Register connection with WebSocket manager (this will accept the connection)
+        connection_id = await websocket_manager.connect(websocket, user_id, "matching")
+        
+        # Keep connection alive and handle messages
+        async for message in websocket.iter_text():
+            try:
+                msg_data = json.loads(message)
+                
+                if msg_data.get("type") == "ping":
+                    # Respond to ping
+                    await websocket.send_text(json.dumps({
+                        "type": "pong",
+                        "timestamp": datetime.utcnow().isoformat()
+                    }))
+                
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON received from WebSocket: {message}")
+            except Exception as e:
+                logger.error(f"Error processing WebSocket message: {e}")
+                break
             
     except WebSocketDisconnect:
-        # TODO: Clean up user from matching queue
-        # matching_repo.remove_from_queue(current_user_id)
-        pass
+        logger.info(f"WebSocket disconnected for matching")
     except Exception as e:
-        await websocket.close(code=1000) 
+        logger.error(f"❌ Error in WebSocket endpoint: {e}")
+    finally:
+        # Cleanup is handled by the connection manager
+        pass
+
+# General WebSocket endpoint
+@router.websocket("/ws/general")  
+async def websocket_general(websocket: WebSocket):
+    """
+    General WebSocket endpoint for notifications
+    """
+    websocket_manager = get_websocket_manager()
+    
+    try:
+        # Get user_id from query parameters
+        user_id_param = websocket.query_params.get("user_id")
+        
+        if not user_id_param:
+            await websocket.accept()
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "user_id query parameter required (e.g., ws://localhost:8000/api/matching/ws/general?user_id=your-uuid)"
+            }))
+            await websocket.close(code=1008)
+            return
+        
+        try:
+            user_id = UUID(user_id_param)
+        except ValueError:
+            await websocket.accept()
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "Invalid user_id format. Must be a valid UUID"
+            }))
+            await websocket.close(code=1008)
+            return
+        
+        # Register connection (this will accept the connection)
+        connection_id = await websocket_manager.connect(websocket, user_id, "general")
+        
+        # Keep connection alive
+        async for message in websocket.iter_text():
+            try:
+                msg_data = json.loads(message)
+                
+                if msg_data.get("type") == "ping":
+                    await websocket.send_text(json.dumps({
+                        "type": "pong", 
+                        "timestamp": datetime.utcnow().isoformat()
+                    }))
+                    
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON received: {message}")
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
+                break
+                
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected for general")
+    except Exception as e:
+        logger.error(f"❌ Error in general WebSocket: {e}") 

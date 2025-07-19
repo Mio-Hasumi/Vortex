@@ -164,6 +164,8 @@ class RedisService:
         try:
             if isinstance(value, (dict, list)):
                 value = json.dumps(value)
+            elif isinstance(value, bool):
+                value = str(value).lower()  # Convert True -> "true", False -> "false"
             
             if ttl:
                 return self.redis_client.setex(key, ttl, value)
@@ -206,7 +208,7 @@ class RedisService:
     # User Session Management
     def set_user_online(self, user_id: UUID, ttl: int = 3600) -> bool:
         """Mark user as online"""
-        return self.set_cache(f"user:online:{user_id}", True, ttl)
+        return self.set_cache(f"user:online:{user_id}", "1", ttl)
     
     def set_user_offline(self, user_id: UUID) -> bool:
         """Mark user as offline"""

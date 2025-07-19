@@ -92,23 +92,44 @@ async def get_recordings(
         )
 
 @router.get("/{recording_id}", response_model=RecordingResponse)
-async def get_recording(recording_id: str):
+async def get_recording(
+    recording_id: str,
+    recording_repo = Depends(get_recording_repository),
+    current_user: User = Depends(get_current_user)
+):
     """
     Get specific recording details
     """
     try:
-        # TODO: Implement recording retrieval by ID
+        recording_uuid = UUID(recording_id)
+        
+        # Get recording from repository
+        recording = recording_repo.find_by_id(recording_uuid)
+        if not recording:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Recording not found"
+            )
+        
+        # Check if user has access to this recording
+        # (simplified - in production, you'd check if user was a participant)
+        
         return RecordingResponse(
-            id=recording_id,
-            room_id="room-456",
-            room_name="Tech Discussion",
-            topic="Technology",
-            participants=["user-1", "user-2", "ai-host"],
-            duration=1800,
-            file_size=25600000,
-            created_at="2023-12-01T10:00:00Z",
-            status="ready",
-            download_url=f"/api/recordings/{recording_id}/download"
+            id=str(recording.id),
+            room_id=str(recording.room_id),
+            room_name=recording.room_name or f"Room {recording.room_id}",
+            topic="General",  # Could be enhanced with topic lookup
+            participants=[str(p) for p in recording.participants] if recording.participants else [],
+            duration=recording.duration or 0,
+            file_size=recording.file_size or 0,
+            created_at=recording.created_at.isoformat(),
+            status=recording.status.name.lower(),
+            download_url=recording.download_url
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid recording ID format"
         )
     except Exception as e:
         raise HTTPException(
@@ -117,42 +138,104 @@ async def get_recording(recording_id: str):
         )
 
 @router.get("/{recording_id}/download")
-async def download_recording(recording_id: str):
+async def download_recording(
+    recording_id: str,
+    recording_repo = Depends(get_recording_repository),
+    current_user: User = Depends(get_current_user)
+):
     """
     Download recording file
     """
     try:
-        # TODO: Implement file download from Firebase Storage
-        # 1. Check user permissions
-        # 2. Get file from storage
-        # 3. Stream file content
+        recording_uuid = UUID(recording_id)
         
-        # For now, return placeholder
-        fake_audio_content = b"fake audio data"
-        return StreamingResponse(
-            io.BytesIO(fake_audio_content),
-            media_type="audio/wav",
-            headers={
-                "Content-Disposition": f"attachment; filename=recording_{recording_id}.wav"
-            }
+        # Get recording from repository
+        recording = recording_repo.find_by_id(recording_uuid)
+        if not recording:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Recording not found"
+            )
+        
+        # Check if recording is ready for download
+        if recording.status != RecordingStatus.READY:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Recording is not ready for download"
+            )
+        
+        # For now, return a redirect to the download URL or placeholder
+        if recording.download_url:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url=recording.download_url)
+        else:
+            # Placeholder response - in production would stream from Firebase Storage
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Download URL not available"
+            )
+            
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid recording ID format"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recording not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to download recording"
         )
 
 @router.post("/{recording_id}/metadata")
 async def update_recording_metadata(
     recording_id: str,
-    metadata: RecordingMetadata
+    metadata: RecordingMetadata,
+    recording_repo = Depends(get_recording_repository),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Update recording metadata
     """
     try:
-        # TODO: Implement metadata update
+        recording_uuid = UUID(recording_id)
+        
+        # Check if recording exists
+        recording = recording_repo.find_by_id(recording_uuid)
+        if not recording:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Recording not found"
+            )
+        
+        # Prepare metadata dictionary
+        metadata_dict = {
+            "title": metadata.title,
+            "description": metadata.description,
+            "tags": metadata.tags,
+            "is_public": metadata.is_public,
+            "updated_by": str(current_user.id),
+            "updated_at": recording_repo.firebase.get_server_timestamp()
+        }
+        
+        # Update metadata using repository
+        success = recording_repo.update_recording_metadata(recording_uuid, metadata_dict)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to update recording metadata"
+            )
+        
         return {"message": "Recording metadata updated successfully"}
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid recording ID format"
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -160,17 +243,44 @@ async def update_recording_metadata(
         )
 
 @router.delete("/{recording_id}")
-async def delete_recording(recording_id: str):
+async def delete_recording(
+    recording_id: str,
+    recording_repo = Depends(get_recording_repository),
+    current_user: User = Depends(get_current_user)
+):
     """
     Delete a recording
     """
     try:
-        # TODO: Implement recording deletion
-        # 1. Check user permissions
-        # 2. Delete from storage
-        # 3. Remove from database
+        recording_uuid = UUID(recording_id)
+        
+        # Check if recording exists
+        recording = recording_repo.find_by_id(recording_uuid)
+        if not recording:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Recording not found"
+            )
+        
+        # Check permissions - simplified (in production, verify user is owner/participant)
+        
+        # Delete recording using repository
+        success = recording_repo.delete(recording_uuid)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to delete recording"
+            )
         
         return {"message": "Recording deleted successfully"}
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid recording ID format"
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

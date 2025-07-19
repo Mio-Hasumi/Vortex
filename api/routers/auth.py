@@ -141,4 +141,4 @@ async def get_profile(current_user: User = Depends(get_current_user)):
         id=str(current_user.id),
         display_name=current_user.display_name,
         email=current_user.email
-    ) 
+        ) 

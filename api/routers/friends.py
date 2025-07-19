@@ -30,6 +30,7 @@ class FriendRequestResponse(BaseModel):
     to_display_name: str
     status: str  # pending, accepted, rejected
     created_at: str
+    message: Optional[str] = None
 
 class SendFriendRequestRequest(BaseModel):
     user_id: str
@@ -50,6 +51,9 @@ def get_friend_repository():
 def get_user_repository():
     return container.get_user_repository()
 
+def get_redis_service():
+    return container.get_redis_service()
+
 # Friends endpoints
 @router.get("/", response_model=FriendListResponse)
 async def get_friends(
@@ -58,10 +62,11 @@ async def get_friends(
     offset: int = 0,
     friend_repo = Depends(get_friend_repository),
     user_repo = Depends(get_user_repository),
+    redis_service = Depends(get_redis_service),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get user's friends list
+    Get user's friends list with real-time online status
     """
     try:
         current_user_id = current_user.id
@@ -74,10 +79,14 @@ async def get_friends(
             # Get friend's user info
             friend_user = user_repo.find_by_id(friendship.friend_id)
             if friend_user:
+                # Get real online status from Redis
+                is_online = redis_service.is_user_online(friendship.friend_id)
+                status = "online" if is_online else "offline"
+                
                 friend_responses.append(FriendResponse(
                     user_id=str(friendship.friend_id),
                     display_name=friend_user.display_name,
-                    status="online",  # TODO: Get real status
+                    status=status,
                     last_seen=friendship.created_at.isoformat(),
                     friendship_status=friendship.status.name.lower()
                 ))
@@ -125,26 +134,39 @@ async def send_friend_request(
 async def get_friend_requests(
     type: str = "received",  # received, sent
     limit: int = 20,
-    offset: int = 0
+    offset: int = 0,
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Get friend requests (received or sent)
     """
     try:
-        # TODO: Implement friend request retrieval
+        current_user_id = current_user.id
+        
+        # Get pending requests from repository
+        pending_requests = friend_repo.find_pending_requests_by_user_id(current_user_id)
+        
+        request_responses = []
+        for friendship in pending_requests:
+            # Determine if this is a received or sent request
+            is_received = (friendship.friend_id == current_user_id)
+            
+            if (type == "received" and is_received) or (type == "sent" and not is_received):
+                request_responses.append(FriendRequestResponse(
+                    id=str(friendship.id),
+                    from_user_id=str(friendship.user_id),
+                    from_display_name="User",  # Could be enhanced with user lookup
+                    to_user_id=str(friendship.friend_id), 
+                    to_display_name="Friend",  # Could be enhanced with user lookup
+                    status=friendship.status.name.lower(),
+                    created_at=friendship.created_at.isoformat(),
+                    message=friendship.message
+                ))
+        
         return FriendRequestListResponse(
-            requests=[
-                FriendRequestResponse(
-                    id="req-123",
-                    from_user_id="user-4",
-                    from_display_name="Charlie",
-                    to_user_id="user-1",
-                    to_display_name="Current User",
-                    status="pending",
-                    created_at="2023-12-01T09:00:00Z"
-                )
-            ],
-            total=1
+            requests=request_responses[:limit],
+            total=len(request_responses)
         )
     except Exception as e:
         raise HTTPException(
@@ -192,13 +214,50 @@ async def accept_friend_request(
         )
 
 @router.post("/requests/{request_id}/reject")
-async def reject_friend_request(request_id: str):
+async def reject_friend_request(
+    request_id: str,
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
+):
     """
     Reject a friend request
     """
     try:
-        # TODO: Implement friend request rejection
+        request_uuid = UUID(request_id)
+        
+        # Check if request exists
+        friendship = friend_repo.find_friendship_by_id(request_uuid)
+        if not friendship:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Friend request not found"
+            )
+        
+        # Check if current user is the recipient of the request
+        if friendship.friend_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to reject this request"
+            )
+        
+        # Update friendship status to REJECTED
+        from domain.entities import FriendshipStatus
+        success = friend_repo.update_friendship_status(request_uuid, FriendshipStatus.REJECTED)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to reject friend request"
+            )
+        
         return {"message": "Friend request rejected"}
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid request ID format"
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -206,16 +265,35 @@ async def reject_friend_request(request_id: str):
         )
 
 @router.delete("/{user_id}")
-async def remove_friend(user_id: str):
+async def remove_friend(
+    user_id: str,
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
+):
     """
     Remove a friend
     """
     try:
-        # TODO: Implement friend removal
-        # 1. Remove friendship
-        # 2. Send notification
+        friend_uuid = UUID(user_id)
+        current_user_id = current_user.id
+        
+        # Delete friendship using repository
+        success = friend_repo.delete_friendship(current_user_id, friend_uuid)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Friendship not found or already removed"
+            )
         
         return {"message": "Friend removed successfully"}
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format"
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -223,16 +301,45 @@ async def remove_friend(user_id: str):
         )
 
 @router.post("/{user_id}/block")
-async def block_user(user_id: str):
+async def block_user(
+    user_id: str,
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
+):
     """
     Block a user
     """
     try:
-        # TODO: Implement user blocking
-        # 1. Add to blocked users list
-        # 2. Remove from friends if applicable
+        user_uuid = UUID(user_id)
+        current_user_id = current_user.id
+        
+        # For now, we'll implement blocking by creating a BLOCKED friendship entry
+        # In a more sophisticated system, you'd have a separate blocking system
+        
+        from domain.entities import new_friendship, FriendshipStatus
+        
+        # Create a blocked friendship entry
+        blocked_friendship = new_friendship(
+            user_id=current_user_id,
+            friend_id=user_uuid,
+            message="User blocked"
+        )
+        blocked_friendship.status = FriendshipStatus.BLOCKED
+        
+        # Save the blocked relationship
+        friend_repo.save_friendship(blocked_friendship)
+        
+        # Also remove any existing friendship
+        friend_repo.delete_friendship(current_user_id, user_uuid)
         
         return {"message": "User blocked successfully"}
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format"
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -240,13 +347,30 @@ async def block_user(user_id: str):
         )
 
 @router.delete("/{user_id}/block")
-async def unblock_user(user_id: str):
+async def unblock_user(
+    user_id: str,
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
+):
     """
     Unblock a user
     """
     try:
-        # TODO: Implement user unblocking
+        user_uuid = UUID(user_id)
+        current_user_id = current_user.id
+        
+        # Remove the blocked relationship
+        success = friend_repo.delete_friendship(current_user_id, user_uuid)
+        
+        # For blocking system, we don't strictly require the relationship to exist
+        # as the user might have been blocked through other means
+        
         return {"message": "User unblocked successfully"}
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format"
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

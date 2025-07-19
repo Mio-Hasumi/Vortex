@@ -49,13 +49,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     livekit_healthy = await livekit_service.health_check()
     logger.info(f"🎥 LiveKit health check: {'✅ Connected' if livekit_healthy else '❌ Failed'}")
     
+    # Start WebSocket services
+    await container.start_websocket_services()
+    logger.info("🔌 WebSocket services: ✅ Started")
+    
     logger.info("🎯 VoiceApp Backend started successfully!")
     
     yield
     
     # Shutdown
     logger.info("🛑 Shutting down VoiceApp Backend...")
-    container.shutdown()
+    await container.shutdown()
     logger.info("✅ VoiceApp Backend shut down successfully!")
 
 # Create FastAPI app
