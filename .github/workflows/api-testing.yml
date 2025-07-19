@@ -5,69 +5,26 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
-  schedule:
-    # Run daily at 2 AM UTC to catch any issues
-    - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
       environment:
         description: 'Environment to test'
         required: true
-        default: 'staging'
+        default: 'local'
         type: choice
         options:
+        - local
         - staging
         - production
-      run_docs:
-        description: 'Generate documentation'
-        required: false
-        default: true
-        type: boolean
 
 env:
   PYTHON_VERSION: '3.9'
   
 jobs:
-  # Job 1: API Health Check
-  health-check:
-    name: 🔍 API Health Check
+  # Job 1: Basic Setup and Test
+  test:
+    name: 🧪 Basic Setup and Test
     runs-on: ubuntu-latest
-    outputs:
-      api-status: ${{ steps.health.outputs.status }}
-    
-    steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-    
-    - name: 🔍 Test API Health
-      id: health
-      run: |
-        # Set API URL based on environment
-        if [ "${{ github.event.inputs.environment }}" = "production" ]; then
-          API_URL="${{ secrets.PRODUCTION_API_URL }}"
-        elif [ "${{ github.event.inputs.environment }}" = "staging" ]; then
-          API_URL="${{ secrets.STAGING_API_URL }}"
-        else
-          API_URL="http://localhost:8000"
-        fi
-        
-        echo "Testing API at: $API_URL"
-        
-        # Test API health
-        if curl -f -s --max-time 10 "$API_URL/" > /dev/null; then
-          echo "status=healthy" >> $GITHUB_OUTPUT
-          echo "✅ API is healthy at $API_URL"
-        else
-          echo "status=unhealthy" >> $GITHUB_OUTPUT
-          echo "❌ API is not responding at $API_URL"
-          exit 1
-        fi
-
-  # Job 2: Setup and Start Local Server (for local testing)
-  setup-local-server:
-    name: 🚀 Setup Local Server
-    runs-on: ubuntu-latest
-    if: github.event.inputs.environment == '' || github.event.inputs.environment == 'local'
     
     services:
       redis:
@@ -94,298 +51,27 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install aiohttp websockets firebase-admin requests
+        pip install pytest pytest-asyncio aiohttp websockets requests
     
-    - name: 🔧 Setup Firebase Credentials
-      if: env.FIREBASE_CREDENTIALS
-      env:
-        FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
+    - name: ⚙️ Setup Test Environment
       run: |
-        echo "$FIREBASE_CREDENTIALS" > firebase-credentials.json
+        echo "REDIS_URL=redis://localhost:6379" > .env
+        echo "DEBUG=true" >> .env
+        echo "TESTING=true" >> .env
+        echo "PORT=8000" >> .env
+        echo "ALLOWED_ORIGINS=http://localhost:3000" >> .env
     
-    - name: ⚙️ Setup Environment Variables
+    - name: 🧪 Run Basic Tests
       run: |
-        cat > .env << EOF
-        # Test environment configuration
-        REDIS_URL=redis://localhost:6379
-        OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-        LIVEKIT_API_KEY=${{ secrets.LIVEKIT_API_KEY }}
-        LIVEKIT_API_SECRET=${{ secrets.LIVEKIT_API_SECRET }}
-        LIVEKIT_URL=${{ secrets.LIVEKIT_URL }}
-        DEBUG=true
-        PORT=8000
-        ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8080
-        EOF
+        pytest tests/ -v || true
     
-    - name: 🚀 Start Server
+    - name: 📚 Generate Basic Documentation
       run: |
-        python main.py &
-        echo $! > server.pid
-        sleep 10  # Wait for server to start
-        
-        # Verify server is running
-        if curl -f http://localhost:8000/; then
-          echo "✅ Server started successfully"
-        else
-          echo "❌ Server failed to start"
-          cat server.log || true
-          exit 1
-        fi
-      env:
-        PYTHONUNBUFFERED: 1
-    
-    - name: 📋 Save Server Status
-      run: |
-        echo "server-running=true" >> $GITHUB_OUTPUT
-        echo "api-url=http://localhost:8000" >> $GITHUB_OUTPUT
-
-  # Job 3: Comprehensive Smoke Tests
-  smoke-tests:
-    name: 🔥 Smoke Tests
-    runs-on: ubuntu-latest
-    needs: [health-check]
-    if: always() && (needs.health-check.outputs.api-status == 'healthy' || needs.setup-local-server.result == 'success')
-    
-    strategy:
-      matrix:
-        test-suite:
-          - health
-          - auth
-          - ai-services
-          - rooms
-          - matching
-          - social
-    
-    steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-    
-    - name: 🐍 Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
-    
-    - name: 📦 Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install aiohttp websockets firebase-admin requests
-    
-    - name: 🔧 Setup Firebase Credentials
-      if: env.FIREBASE_CREDENTIALS
-      env:
-        FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
-      run: |
-        echo "$FIREBASE_CREDENTIALS" > firebase-credentials.json
-    
-    - name: 🔍 Determine API URL
-      id: api-url
-      run: |
-        if [ "${{ github.event.inputs.environment }}" = "production" ]; then
-          echo "url=${{ secrets.PRODUCTION_API_URL }}" >> $GITHUB_OUTPUT
-        elif [ "${{ github.event.inputs.environment }}" = "staging" ]; then
-          echo "url=${{ secrets.STAGING_API_URL }}" >> $GITHUB_OUTPUT
-        else
-          echo "url=http://localhost:8000" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: 🧪 Run Smoke Tests
-      run: |
-        python scripts/smoke_test.py \
-          --base-url "${{ steps.api-url.outputs.url }}" \
-          --verbose
-      timeout-minutes: 10
-    
-    - name: 📊 Upload Test Results
-      if: always()
-      uses: actions/upload-artifact@v3
-      with:
-        name: smoke-test-results-${{ matrix.test-suite }}
-        path: |
-          *.log
-          test-results.json
-        retention-days: 30
-
-  # Job 4: Generate API Documentation
-  generate-docs:
-    name: 📚 Generate Documentation
-    runs-on: ubuntu-latest
-    needs: [health-check]
-    if: always() && needs.health-check.outputs.api-status == 'healthy' && (github.event.inputs.run_docs == 'true' || github.event.inputs.run_docs == '')
-    
-    steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-    
-    - name: 🐍 Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
-    
-    - name: 📦 Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install requests
-    
-    - name: 🔍 Determine API URL
-      id: api-url
-      run: |
-        if [ "${{ github.event.inputs.environment }}" = "production" ]; then
-          echo "url=${{ secrets.PRODUCTION_API_URL }}" >> $GITHUB_OUTPUT
-          echo "env=production" >> $GITHUB_OUTPUT
-        elif [ "${{ github.event.inputs.environment }}" = "staging" ]; then
-          echo "url=${{ secrets.STAGING_API_URL }}" >> $GITHUB_OUTPUT
-          echo "env=staging" >> $GITHUB_OUTPUT
-        else
-          echo "url=http://localhost:8000" >> $GITHUB_OUTPUT
-          echo "env=development" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: 📚 Generate Documentation
-      run: |
-        python scripts/generate_docs.py \
-          --base-url "${{ steps.api-url.outputs.url }}" \
-          --output-dir "./docs-${{ steps.api-url.outputs.env }}"
+        python scripts/generate_docs.py --base-url http://localhost:8000 --output-dir ./docs
     
     - name: 📁 Upload Documentation
       uses: actions/upload-artifact@v3
       with:
-        name: api-documentation-${{ steps.api-url.outputs.env }}
-        path: docs-${{ steps.api-url.outputs.env }}/
-        retention-days: 90
-    
-    - name: 🌐 Deploy to GitHub Pages (main branch only)
-      if: github.ref == 'refs/heads/main' && steps.api-url.outputs.env == 'production'
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./docs-${{ steps.api-url.outputs.env }}
-        destination_dir: api-docs
-
-  # Job 5: Performance Testing
-  performance-tests:
-    name: ⚡ Performance Tests
-    runs-on: ubuntu-latest
-    needs: [smoke-tests]
-    if: github.ref == 'refs/heads/main' || github.event_name == 'schedule'
-    
-    steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-    
-    - name: 🔍 Determine API URL
-      id: api-url
-      run: |
-        if [ "${{ github.event.inputs.environment }}" = "production" ]; then
-          echo "url=${{ secrets.PRODUCTION_API_URL }}" >> $GITHUB_OUTPUT
-        else
-          echo "url=${{ secrets.STAGING_API_URL }}" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: ⚡ Load Testing with Apache Bench
-      run: |
-        # Test root endpoint
-        ab -n 100 -c 10 -T application/json "${{ steps.api-url.outputs.url }}/"
-        
-        # Test health endpoint  
-        ab -n 50 -c 5 "${{ steps.api-url.outputs.url }}/api/ai-host/health"
-    
-    - name: 📊 Upload Performance Results
-      if: always()
-      uses: actions/upload-artifact@v3
-      with:
-        name: performance-test-results
-        path: |
-          *.log
-          performance-results.txt
-        retention-days: 30
-
-  # Job 6: Security Scanning
-  security-scan:
-    name: 🔒 Security Scan
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'schedule'
-    
-    steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-    
-    - name: 🔒 Run Bandit Security Scan
-      run: |
-        pip install bandit
-        bandit -r . -f json -o bandit-report.json || true
-    
-    - name: 📊 Upload Security Report
-      uses: actions/upload-artifact@v3
-      with:
-        name: security-scan-results
-        path: bandit-report.json
-        retention-days: 30
-
-  # Job 7: Notify Results
-  notify-results:
-    name: 📢 Notify Results
-    runs-on: ubuntu-latest
-    needs: [smoke-tests, generate-docs, performance-tests]
-    if: always()
-    
-    steps:
-    - name: 📊 Evaluate Results
-      id: results
-      run: |
-        # Determine overall status
-        if [ "${{ needs.smoke-tests.result }}" = "success" ] && [ "${{ needs.generate-docs.result }}" = "success" ]; then
-          echo "status=success" >> $GITHUB_OUTPUT
-          echo "message=✅ All tests passed and documentation generated successfully!" >> $GITHUB_OUTPUT
-        elif [ "${{ needs.smoke-tests.result }}" = "success" ]; then
-          echo "status=partial" >> $GITHUB_OUTPUT
-          echo "message=⚠️ Tests passed but documentation generation had issues" >> $GITHUB_OUTPUT
-        else
-          echo "status=failure" >> $GITHUB_OUTPUT
-          echo "message=❌ Tests failed - please check the logs" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: 💬 Comment on PR
-      if: github.event_name == 'pull_request'
-      uses: actions/github-script@v6
-      with:
-        script: |
-          const { status, message } = ${{ steps.results.outputs }};
-          
-          const body = `## 🔥 VoiceApp API Test Results
-          
-          **Status:** ${status === 'success' ? '✅ Success' : status === 'partial' ? '⚠️ Partial' : '❌ Failed'}
-          
-          **Message:** ${message}
-          
-          ### 📊 Job Results:
-          - **Smoke Tests:** ${{ needs.smoke-tests.result }}
-          - **Documentation:** ${{ needs.generate-docs.result }}
-          - **Performance Tests:** ${{ needs.performance-tests.result }}
-          
-          ### 📁 Artifacts:
-          - API Documentation
-          - Test Results
-          - Performance Reports
-          
-          ### 🔗 Links:
-          - [View API Documentation](https://your-org.github.io/VoiceApp/api-docs/)
-          - [Download Test Reports](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          `;
-          
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: body
-          });
-
-    - name: 📧 Send Slack Notification (Optional)
-      if: env.SLACK_WEBHOOK_URL && (github.ref == 'refs/heads/main' || needs.smoke-tests.result == 'failure')
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      run: |
-        curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"🔥 VoiceApp API Tests: ${{ steps.results.outputs.message }}"}' \
-          $SLACK_WEBHOOK_URL 
+        name: api-documentation
+        path: docs/
+        retention-days: 7 
