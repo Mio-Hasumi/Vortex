@@ -23,10 +23,30 @@ class RedisService:
         self.async_redis_client: Optional[redis.asyncio.Redis] = None
         self.is_mock = False
         
+    def _build_redis_url(self) -> str:
+        """Build Redis URL from configuration"""
+        # First try to use existing REDIS_URL if it's not the default localhost
+        if hasattr(self.settings, 'REDIS_URL') and self.settings.REDIS_URL != 'redis://localhost:6379/0':
+            return self.settings.REDIS_URL
+        
+        # Build from individual components
+        host = getattr(self.settings, 'REDIS_HOST', 'localhost')
+        port = getattr(self.settings, 'REDIS_PORT', 6379)
+        password = getattr(self.settings, 'REDIS_PASSWORD', '')
+        db = getattr(self.settings, 'REDIS_DB', 0)
+        
+        # Build URL
+        if password:
+            return f"redis://:{password}@{host}:{port}/{db}"
+        else:
+            return f"redis://{host}:{port}/{db}"
+        
     def connect(self) -> None:
         """Initialize Redis connection"""
         try:
-            redis_url = getattr(self.settings, 'REDIS_URL', 'redis://localhost:6379/0')
+            # Build Redis URL from configuration
+            redis_url = self._build_redis_url()
+            logger.info(f"🔍 Connecting to Redis at: {redis_url.replace(self.settings.REDIS_PASSWORD, '***') if self.settings.REDIS_PASSWORD else redis_url}")
             
             # Synchronous client
             self.redis_client = redis.from_url(

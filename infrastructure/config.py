@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_PASSWORD: str = ""
     
+    # Railway-specific Redis variables
+    REDISHOST: str = ""
+    REDISPORT: int = 0
+    REDISPASSWORD: str = ""
+    REDISUSER: str = ""
+    
     # LiveKit
     LIVEKIT_API_KEY: str = "APIQgCgiwHnYkue"
     LIVEKIT_API_SECRET: str = "Reqvp9rjEeLAe9XZOsdjGwPFs4qJcp5VEKTVIUpn40hA"
@@ -66,17 +72,25 @@ class Settings(BaseSettings):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
-        # Handle Railway Redis URL injection
+        # Handle Railway Redis configuration
+        # Priority 1: Use Railway-specific individual variables
+        if self.REDISHOST:
+            self.REDIS_HOST = self.REDISHOST
+        if self.REDISPORT and self.REDISPORT > 0:
+            self.REDIS_PORT = self.REDISPORT
+        if self.REDISPASSWORD:
+            self.REDIS_PASSWORD = self.REDISPASSWORD
+        
+        # Priority 2: Parse REDIS_URL if it's not localhost
         if self.REDIS_URL and self.REDIS_URL != "redis://localhost:6379/0":
-            # Parse Redis URL for individual components
             try:
                 from urllib.parse import urlparse
                 parsed = urlparse(self.REDIS_URL)
-                if parsed.hostname:
+                if parsed.hostname and not self.REDISHOST:
                     self.REDIS_HOST = parsed.hostname
-                if parsed.port:
+                if parsed.port and not self.REDISPORT:
                     self.REDIS_PORT = parsed.port
-                if parsed.password:
+                if parsed.password and not self.REDISPASSWORD:
                     self.REDIS_PASSWORD = parsed.password
             except Exception:
                 pass
