@@ -3,7 +3,7 @@ Recording Repository implementation using Firebase
 """
 
 import logging
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime
 
@@ -297,6 +297,70 @@ class RecordingRepository:
         except Exception as e:
             logger.error(f"❌ Failed to delete recording {recording_id}: {e}")
             return False
+    
+    def get_download_url(self, recording_id: str, expires_in: int = 3600) -> Optional[str]:
+        """
+        Get download URL for recording file
+        
+        Args:
+            recording_id: Recording ID
+            expires_in: URL expiration time in seconds
+            
+        Returns:
+            Signed download URL or None if not found
+        """
+        try:
+            # For now, return a mock URL since we don't have actual file storage configured
+            # In production, this would generate a signed URL from Firebase Storage or S3
+            logger.info(f"🔗 Generating download URL for recording: {recording_id}")
+            
+            # Check if recording exists
+            recording = self.find_by_id(UUID(recording_id))
+            if not recording:
+                logger.warning(f"⚠️ Recording not found: {recording_id}")
+                return None
+            
+            # Mock download URL for development
+            mock_url = f"https://storage.example.com/recordings/{recording_id}.wav"
+            logger.info(f"✅ Generated mock download URL: {mock_url}")
+            
+            return mock_url
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to generate download URL for {recording_id}: {e}")
+            return None
+
+    def get_file_metadata(self, recording_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get file metadata for recording
+        
+        Args:
+            recording_id: Recording ID
+            
+        Returns:
+            File metadata or None if not found
+        """
+        try:
+            recording = self.find_by_id(UUID(recording_id))
+            if not recording:
+                return None
+            
+            # Mock file metadata
+            metadata = {
+                "file_size": 1024 * 1024,  # 1MB
+                "duration": 120,  # 2 minutes
+                "format": "wav",
+                "sample_rate": 16000,
+                "channels": 1,
+                "created_at": recording.created_at.isoformat(),
+                "storage_path": f"recordings/{recording_id}.wav"
+            }
+            
+            return metadata
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get file metadata for {recording_id}: {e}")
+            return None
     
     def _entity_to_dict(self, recording: Recording) -> dict:
         """Convert Recording entity to dictionary"""
