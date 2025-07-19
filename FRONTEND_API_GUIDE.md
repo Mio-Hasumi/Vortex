@@ -219,6 +219,26 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 ```
 
+#### Get Match History
+```javascript
+GET /api/matching/history?limit=20&offset=0
+Headers: { Authorization: "Bearer <firebase_token>" }
+
+// Response
+{
+  "matches": [
+    {
+      "match_id": "uuid",
+      "topic": "AI Discussion",
+      "participants": ["uuid1", "uuid2"],
+      "created_at": "2023-12-01T10:00:00Z",
+      "status": "completed"
+    }
+  ],
+  "total": 1
+}
+```
+
 #### Get Timeout Statistics
 ```javascript
 GET /api/matching/timeout-stats?timeout_minutes=1.0
@@ -581,6 +601,39 @@ ws.send(JSON.stringify({
   audio_data: base64AudioData,
   chunk_id: 'unique_id'
 }))
+
+### AI Voice Chat
+```javascript
+const voiceChatWs = new WebSocket('wss://your-app.up.railway.app/api/ai-host/voice-chat')
+
+voiceChatWs.onopen = () => {
+  console.log('AI voice chat WebSocket connected')
+}
+
+voiceChatWs.onmessage = (event) => {
+  const data = JSON.parse(event.data)
+  
+  switch(data.type) {
+    case 'connected':
+      console.log('AI greeting:', data.ai_greeting)
+      break
+    case 'voice_processed':
+      console.log('Voice input processed:', data.transcription)
+      break
+    case 'ai_response':
+      console.log('AI response:', data.text)
+      // data.audio_response contains TTS audio data
+      break
+  }
+}
+
+// Send voice input
+voiceChatWs.send(JSON.stringify({
+  type: 'voice_input',
+  audio_data: base64AudioData,
+  language: 'en-US'
+}))
+```
 ```
 
 ### Room Communication
@@ -651,5 +704,34 @@ matchingWs.onmessage = (event) => {
       break
   }
 }
+
+### General Notifications WebSocket
+```javascript
+const generalWs = new WebSocket('wss://your-app.up.railway.app/api/matching/ws/general?user_id=your-uuid')
+
+generalWs.onmessage = (event) => {
+  const data = JSON.parse(event.data)
+  
+  switch(data.type) {
+    case 'friend_request':
+      console.log('New friend request:', data.from_user)
+      break
+    case 'match_invitation':
+      console.log('Match invitation:', data.room_id)
+      break
+    case 'system_notification':
+      console.log('System message:', data.message)
+      break
+    case 'pong':
+      console.log('Connection alive')
+      break
+  }
+}
+
+// Heartbeat
+setInterval(() => {
+  generalWs.send(JSON.stringify({ type: 'ping' }))
+}, 30000)
+```
 ```
 
