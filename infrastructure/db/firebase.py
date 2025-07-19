@@ -78,7 +78,7 @@ class FirebaseAdminService:
                 raise ValueError(f"Missing required fields in credentials: {missing_fields}")
             
             # Create credential object
-            cred = credentials.Certificate(cred_dict)
+                cred = credentials.Certificate(cred_dict)
             logger.info("✅ Base64 credentials decoded successfully")
             
             # Initialize Firebase app with credential object
