@@ -155,24 +155,24 @@ Also respond with a friendly voice to confirm understanding and inform that matc
         moderation_mode: str = "active_host"
     ) -> Dict[str, Any]:
         """
-        使用GPT-4o Audio作为房间AI主持人和秘书
+        Use GPT-4o Audio as room AI host and secretary
         
-        功能：
-        - 实时语音对话
+        Features:
+        - Real-time voice conversation
         - Fact check
-        - 话题建议
-        - 气氛调节
-        - 内容审核
+        - Topic suggestions
+        - Atmosphere moderation
+        - Content moderation
         
         Args:
-            audio_data: 用户语音（如果有）
-            text_input: 文字输入（如果有）
-            conversation_context: 对话上下文
-            room_participants: 房间参与者
-            moderation_mode: 主持模式 (active_host, secretary, fact_checker)
+            audio_data: User voice input (if any)
+            text_input: Text input (if any)
+            conversation_context: Conversation history
+            room_participants: Room participants
+            moderation_mode: Host mode (active_host, secretary, fact_checker)
             
         Returns:
-            AI主持人的回复（音频+文字+建议）
+            AI host response (audio + text + suggestions)
         """
         try:
             logger.info(f"🎭 AI moderating room conversation in {moderation_mode} mode...")
@@ -233,7 +233,7 @@ The response should be natural, friendly, and helpful."""
                 self.client.chat.completions.create,
                 model="gpt-4o-audio-preview",
                 modalities=["text", "audio"],
-                audio={"voice": "nova", "format": "wav"},  # 使用更活泼的声音
+                audio={"voice": "nova", "format": "wav"},  # Use more lively voice
                 messages=context_messages,
                 max_tokens=300
             )
@@ -263,25 +263,25 @@ The response should be natural, friendly, and helpful."""
             }
 
     def _extract_suggestions(self, ai_text: str) -> List[str]:
-        """从AI回复中提取建议"""
+        """Extract suggestions from AI response"""
         suggestions = []
-        if "建议" in ai_text:
+        if "suggest" in ai_text.lower():
             suggestions.append("💡 AI provided a suggestion")
-        if "话题" in ai_text:
+        if "topic" in ai_text.lower():
             suggestions.append("🎯 New topic recommendation")
-        if "事实" in ai_text or "信息" in ai_text:
+        if "fact" in ai_text.lower() or "info" in ai_text.lower():
             suggestions.append("🔍 Fact checking")
         return suggestions
     
     def health_check(self) -> Dict[str, Any]:
         """
-        检查OpenAI服务健康状态
+        Check OpenAI service health status
         
         Returns:
-            健康状态信息
+            Health status information
         """
         try:
-            # 改为使用传统的TTS API来测试连接，避免GPT-4o Audio的复杂参数
+            # Use traditional TTS API for connection test, avoiding complex GPT-4o Audio parameters
             response = self.client.audio.speech.create(
                 model="tts-1",
                 voice="alloy",
@@ -305,30 +305,30 @@ The response should be natural, friendly, and helpful."""
     
     async def text_to_speech(self, text: str, voice: str = "alloy", speed: float = 1.0) -> bytes:
         """
-        使用OpenAI TTS API生成语音
+        Generate voice using OpenAI TTS API
         
         Args:
-            text: 要转换的文本
-            voice: 语音类型
-            speed: 语音速度
+            text: Text to convert
+            voice: Voice type
+            speed: Voice speed
             
         Returns:
-            音频数据（bytes）
+            Audio data (bytes)
         """
         try:
             logger.info(f"🔊 Generating TTS: {text[:50]}...")
             
-            # 使用传统的TTS API，更稳定可靠
+            # Use traditional TTS API, more stable and reliable
             response = await asyncio.to_thread(
                 lambda: self.client.audio.speech.create(
-                    model="tts-1-hd",  # 高质量TTS
+                    model="tts-1-hd",  # High quality TTS
                     voice=voice,
                     input=text,
                     speed=speed
                 )
             )
             
-            # 直接返回音频字节数据
+            # Return audio bytes directly
             audio_bytes = response.content
             logger.info("✅ TTS generated successfully")
             return audio_bytes

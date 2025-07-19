@@ -126,7 +126,7 @@ class AIHostService:
             
             # Generate AI greeting
             greeting_response = await self.openai.generate_ai_host_response(
-                user_input="用户刚刚登录",
+                user_input="User just logged in",
                 conversation_state="greeting", 
                 user_context=user_context
             )
@@ -287,7 +287,7 @@ class AIHostService:
             
             # Generate matching response
             response = await self.openai.generate_ai_host_response(
-                user_input=f"用户想聊: {', '.join(session.extracted_topics)}",
+                user_input=f"User wants to discuss: {', '.join(session.extracted_topics)}",
                 conversation_state="matching",
                 user_context=session.user_context
             )
@@ -310,7 +310,7 @@ class AIHostService:
             session.state = "matching"
             
             return {
-                "response_text": "听起来很有趣！让我帮你找找其他想聊天的朋友吧！",
+                "response_text": "Sounds interesting! Let me help you find someone to chat with!",
                 "extracted_topics": session.extracted_topics,
                 "generated_hashtags": session.generated_hashtags,
                 "error": str(e)

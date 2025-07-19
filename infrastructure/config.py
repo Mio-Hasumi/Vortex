@@ -24,10 +24,10 @@ class Settings(BaseSettings):
     # API Settings
     API_V1_STR: str = "/api"
     
-    # CORS - 支持Railway和本地开发
+    # CORS - Support Railway and local development
     @property
     def ALLOWED_ORIGINS(self) -> List[str]:
-        # 手动设置的CORS（优先级最高）
+        # Manual CORS settings (highest priority)
         manual_origins = os.getenv("ALLOWED_ORIGINS")
         if manual_origins:
             try:
@@ -36,10 +36,10 @@ class Settings(BaseSettings):
             except:
                 return manual_origins.split(",")
         
-        # 默认开发环境
+        # Default development environment
         origins = ["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
         
-        # Railway生产环境
+        # Railway production environment
         if os.getenv("RAILWAY_PUBLIC_DOMAIN"):
             origins.append(f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}")
         
@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
-        extra = "ignore"  # 忽略额外的环境变量
+        extra = "ignore"  # Ignore additional environment variables
         
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

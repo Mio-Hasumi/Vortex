@@ -1,6 +1,6 @@
 """
 Firebase Authentication Middleware for FastAPI
-使用Firebase ID Token替代自定义JWT
+
 """
 
 import logging
@@ -21,8 +21,8 @@ security = HTTPBearer()
 
 class FirebaseAuthMiddleware:
     """
-    Firebase认证中间件
-    使用Firebase ID Token进行用户认证，替代自定义JWT
+    Firebase Authentication Middleware
+    Use Firebase ID Token for user authentication, replacing custom JWT
     """
     
     def __init__(self, user_repository: UserRepository):
@@ -30,31 +30,31 @@ class FirebaseAuthMiddleware:
     
     def get_current_user(self, credentials: HTTPAuthorizationCredentials = Depends(security), test_mode: bool = False) -> User:
         """
-        从Firebase ID Token获取当前认证用户
+        Get current authenticated user from Firebase ID Token
         
         Args:
             credentials: HTTP authorization credentials
-            test_mode: 是否为测试模式
+            test_mode: Whether in test mode
             
         Returns:
-            当前认证用户
+            Current authenticated user
             
         Raises:
-            HTTPException: 如果认证失败
+            HTTPException: If authentication fails
         """
         try:
-            # 获取Firebase ID Token
+            # Get Firebase ID Token
             token = credentials.credentials
             
-            # 测试模式：从token中提取测试用户ID
+            # Test mode: Extract test user ID from token
             if test_mode and token.startswith("test_token_"):
                 firebase_uid = token.replace("test_token_", "")
             else:
-                # 正常模式：验证Firebase ID Token
+                # Normal mode: Verify Firebase ID Token
                 decoded_token = auth.verify_id_token(token)
                 firebase_uid = decoded_token['uid']
             
-            # 通过Firebase UID查找用户
+            # Find user by Firebase UID
             user = self.user_repository.find_by_firebase_uid(firebase_uid)
             
             if not user:
@@ -107,8 +107,8 @@ class FirebaseAuthMiddleware:
     
     def get_current_user_optional(self, credentials: HTTPAuthorizationCredentials = Depends(security)) -> Optional[User]:
         """
-        获取当前用户（可选）
-        如果token无效，返回None而不是抛出异常
+        Get current user (optional)
+        Returns None instead of raising exception if token is invalid
         
         Args:
             credentials: HTTP authorization credentials
