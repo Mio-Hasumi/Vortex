@@ -199,7 +199,7 @@ POST /api/auth/register
 Headers: { Content-Type: "application/json" }
 {
   "firebase_uid": "string",
-  "email": "user@example.com", 
+  "email": "user@example.com",
   "display_name": "John Doe"
 }
 
@@ -224,7 +224,7 @@ Headers: { Content-Type: "application/json" }
 // Response
 {
   "user_id": "uuid",
-  "display_name": "John Doe", 
+  "display_name": "John Doe",
   "email": "user@example.com",
   "message": "User authenticated successfully"
 }
@@ -601,13 +601,13 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 
 // Response
-{
-  "id": "uuid",
-  "name": "AI Discussion Room", 
+    {
+      "id": "uuid",
+      "name": "AI Discussion Room",
   "topic": "artificial intelligence",
   "participants": ["uuid"], // Creator initially
   "max_participants": 5,
-  "status": "active",
+      "status": "active",
   "created_at": "2023-12-01T10:00:00Z",
   "livekit_room_name": "room_uuid_timestamp",
   "livekit_token": "jwt_token_here"
@@ -698,7 +698,7 @@ Headers: { Authorization: "Bearer <firebase_token>" }
       "topic": "artificial intelligence",
       "participants": ["uuid1", "uuid2"],
       "max_participants": 5,
-      "status": "active",
+  "status": "active",
       "created_at": "2023-12-01T10:00:00Z",
       "livekit_room_name": "room_uuid_timestamp",
       "livekit_token": "jwt_token_here"
@@ -1774,7 +1774,7 @@ const handleApiCall = async (url, options = {}) => {
         ...options.headers
       }
     })
-
+    
     if (!response.ok) {
       const errorData = await response.json()
       

@@ -3,7 +3,7 @@ Matching Repository implementation using Firebase
 """
 
 import logging
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from uuid import UUID, uuid4
 from datetime import datetime
 
@@ -234,6 +234,101 @@ class MatchingRepository:
             logger.error(f"❌ Failed to process timeout matches: {e}")
             return []
     
+    def find_users_by_hashtags(self, hashtags: List[str], exclude_user_id: str = None, max_results: int = 10, min_similarity: float = 0.0) -> List[Dict[str, Any]]:
+        """
+        Find users by hashtags for AI matching
+        
+        Args:
+            hashtags: List of hashtags to match
+            exclude_user_id: User ID to exclude from results
+            max_results: Maximum number of users to return
+            min_similarity: Minimum similarity score required
+            
+        Returns:
+            List of matching users with their hashtags and similarity scores
+        """
+        try:
+            logger.info(f"🔍 Finding users by hashtags: {hashtags}")
+            
+            # Get users from matching queue
+            queue_users = self.redis.get_queue_status()
+            matching_users = []
+            
+            for user_data in queue_users:
+                user_id = user_data.get('user_id')
+                if user_id == exclude_user_id:
+                    continue
+                    
+                user_preferences = user_data.get('preferences', {})
+                user_topics = user_preferences.get('preferred_topics', [])
+                
+                # Simple hashtag matching - check if any hashtags overlap
+                # Convert topics to hashtags for comparison
+                user_hashtags = [f"#{topic.lower().replace(' ', '_')}" for topic in user_topics]
+                
+                # Calculate match score based on hashtag overlap
+                overlap = set(hashtags) & set(user_hashtags)
+                if overlap:
+                    similarity = len(overlap) / max(len(hashtags), len(user_hashtags))
+                    if similarity >= min_similarity:
+                        matching_users.append({
+                            'user_id': user_id,
+                            'hashtags': user_hashtags,
+                            'similarity': similarity,
+                            'match_score': similarity,  # For backward compatibility
+                            'overlapping_hashtags': list(overlap)
+                        })
+            
+            # Sort by similarity and return top matches
+            matching_users.sort(key=lambda x: x['similarity'], reverse=True)
+            result = matching_users[:max_results]
+            
+            logger.info(f"✅ Found {len(result)} users matching hashtags")
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to find users by hashtags: {e}")
+            return []
+
+    def add_to_ai_queue(self, user_id: str, hashtags: List[str] = None, voice_input: str = None, ai_session_id: str = None, ai_analysis: Dict[str, Any] = None):
+        """
+        Add user to AI matching queue with analysis data
+        
+        Args:
+            user_id: User ID
+            hashtags: Generated hashtags for matching
+            voice_input: Original voice input text
+            ai_session_id: AI session ID
+            ai_analysis: AI analysis results (topics, hashtags, etc.)
+        """
+        try:
+            logger.info(f"🧠 Adding user {user_id} to AI matching queue")
+            
+            # Store AI analysis data with the queue entry
+            queue_data = {
+                'user_id': user_id,
+                'preferences': {
+                    'preferred_topics': hashtags or (ai_analysis.get('extracted_topics', []) if ai_analysis else []),
+                    'generated_hashtags': hashtags or (ai_analysis.get('generated_hashtags', []) if ai_analysis else []),
+                    'match_intent': voice_input or (ai_analysis.get('match_intent', '') if ai_analysis else ''),
+                    'language_preference': 'en-US'
+                },
+                'ai_analysis': ai_analysis or {},
+                'ai_session_id': ai_session_id,
+                'queue_type': 'ai_matching'
+            }
+            
+            # Use the existing Redis queue infrastructure  
+            # Convert string user_id to UUID if needed
+            user_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
+            self.redis.add_to_matching_queue(user_uuid, queue_data['preferences'])
+            
+            logger.info(f"✅ User {user_id} added to AI matching queue")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to add user to AI queue: {e}")
+            raise
+
     def get_timeout_users_count(self, timeout_minutes: int = 1) -> int:
         """
         Get count of users waiting longer than timeout

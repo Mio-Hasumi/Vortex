@@ -79,7 +79,7 @@ class OpenAIService:
                 audio_base64 = audio_data.split('base64,')[1]
             else:
                 audio_base64 = audio_data
-
+            
             # Use GPT-4o Audio Preview with Realtime API
             async with self.async_client.beta.realtime.connect(
                 model="gpt-4o-realtime-preview"
@@ -91,7 +91,7 @@ class OpenAIService:
                 await connection.conversation.item.create(
                     item={
                         "type": "message",
-                        "role": "system",
+                        "role": "system", 
                         "content": f"""You are an intelligent voice matching assistant. Users will tell you what topics they want to discuss, please:
 
 1. Understand the user's voice content
@@ -126,15 +126,15 @@ Also respond with a friendly voice to confirm understanding and inform that matc
                             }
                         ]
                     }
-                )
-
+            )
+            
                 # Request response generation
                 await connection.response.create()
-
+            
                 # Process streaming response
                 text_chunks = []
                 audio_chunks = []
-                result_data = {}
+            result_data = {}
 
                 async for event in connection:
                     if event.type == "response.text.delta":
@@ -158,17 +158,17 @@ Also respond with a friendly voice to confirm understanding and inform that matc
                         "generated_hashtags": ["#general"],
                         "match_intent": "Wants to chat"
                     }
-
-                # Add audio response
-                result_data.update({
+            
+            # Add audio response
+            result_data.update({
                     "audio_response": b"".join(audio_chunks),
                     "text_response": text_response,
-                    "processing_time": datetime.utcnow().isoformat()
-                })
-
-                logger.info(f"✅ Voice matching processed: {result_data.get('extracted_topics', [])}")
-                return result_data
-
+                "processing_time": datetime.utcnow().isoformat()
+            })
+            
+            logger.info(f"✅ Voice matching processed: {result_data.get('extracted_topics', [])}")
+            return result_data
+            
         except Exception as e:
             logger.error(f"❌ Voice input processing failed: {e}")
             return {
@@ -211,7 +211,7 @@ Also respond with a friendly voice to confirm understanding and inform that matc
         """
         try:
             logger.info(f"🎭 AI moderating room conversation in {moderation_mode} mode...")
-
+            
             # Use GPT-4o Audio Preview with Realtime API
             async with self.async_client.beta.realtime.connect(
                 model="gpt-4o-realtime-preview"
@@ -223,8 +223,8 @@ Also respond with a friendly voice to confirm understanding and inform that matc
                 await connection.conversation.item.create(
                     item={
                         "type": "message",
-                        "role": "system",
-                        "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
+                    "role": "system",
+                    "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
 
 Your responsibilities:
 1.  Engage the conversation: Actively provide topics when the conversation is cold
@@ -237,11 +237,11 @@ Current room participants: {', '.join(room_participants or [])}
 
 Please provide an appropriate response based on the input content, which can be a voice response, a text suggestion, or a topic recommendation.
 The response should be natural, friendly, and helpful."""
-                    }
+                }
                 )
-
-                # Add conversation history
-                if conversation_context:
+            
+            # Add conversation history
+            if conversation_context:
                     for msg in conversation_context[-10:]:  # Last 10 messages
                         await connection.conversation.item.create(
                             item={
@@ -250,38 +250,38 @@ The response should be natural, friendly, and helpful."""
                                 "content": msg["content"]
                             }
                         )
-
-                # Build user message
-                user_content = []
-                if audio_data:
-                    if isinstance(audio_data, bytes):
-                        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-                    else:
-                        audio_base64 = audio_data
-                        
-                    user_content.append({
-                        "type": "input_audio",
-                        "input_audio": {
-                            "data": audio_base64,
-                            "format": "wav"
-                        }
-                    })
-                
-                if text_input:
-                    user_content.append({
-                        "type": "input_text",
-                        "text": text_input
-                    })
-
+            
+            # Build user message
+            user_content = []
+            if audio_data:
+                if isinstance(audio_data, bytes):
+                    audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                else:
+                    audio_base64 = audio_data
+                    
+                user_content.append({
+                    "type": "input_audio",
+                    "input_audio": {
+                        "data": audio_base64,
+                        "format": "wav"
+                    }
+                })
+            
+            if text_input:
+                user_content.append({
+                    "type": "input_text",
+                    "text": text_input
+                })
+            
                 # Send user message
                 await connection.conversation.item.create(
                     item={
                         "type": "message",
-                        "role": "user",
-                        "content": user_content if user_content else [{"type": "input_text", "text": "Please assist in moderating the conversation"}]
+                "role": "user",
+                "content": user_content if user_content else [{"type": "input_text", "text": "Please assist in moderating the conversation"}]
                     }
                 )
-
+            
                 # Request response generation
                 await connection.response.create()
 
@@ -300,19 +300,19 @@ The response should be natural, friendly, and helpful."""
                 # Combine responses
                 text_response = "".join(text_chunks)
                 audio_response = b"".join(audio_chunks)
-
-                return {
-                    "ai_response": {
+            
+            return {
+                "ai_response": {
                         "text": text_response,
                         "audio": audio_response,
                         "audio_transcript": None  # Realtime API doesn't provide transcript
-                    },
-                    "moderation_type": moderation_mode,
+                },
+                "moderation_type": moderation_mode,
                     "suggestions": self._extract_suggestions(text_response),
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "participants": room_participants
-                }
-
+                "timestamp": datetime.utcnow().isoformat(),
+                "participants": room_participants
+            }
+            
         except Exception as e:
             logger.error(f"❌ Room moderation failed: {e}")
             return {
