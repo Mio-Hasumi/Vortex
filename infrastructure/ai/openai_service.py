@@ -184,11 +184,11 @@ Also respond with a friendly voice to confirm understanding and inform that matc
                     "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
 
 Your responsibilities:
-1. 🎪 Engage the conversation: Actively provide topics when the conversation is cold
-2. 💡 Fact Check: When participants mention potentially inaccurate information, provide friendly verification
-3. 💬 Comment: Respond appropriately to conversation content and provide suggestions
-4. 🛡️ Content Moderation: Ensure the conversation is friendly and harmonious
-5. 🆘 Assistive Guidance: Help participants communicate better
+1.  Engage the conversation: Actively provide topics when the conversation is cold
+2.  Fact Check: When participants mention potentially inaccurate information, provide friendly verification
+3.  Comment: Respond appropriately to conversation content and provide suggestions
+4.  Content Moderation: Ensure the conversation is friendly and harmonious
+5.  Assistive Guidance: Help participants communicate better
 
 Current room participants: {', '.join(room_participants or [])}
 
@@ -336,3 +336,103 @@ The response should be natural, friendly, and helpful."""
         except Exception as e:
             logger.error(f"❌ TTS generation failed: {e}")
             raise
+
+    async def extract_topics_and_hashtags(
+        self, 
+        text: str, 
+        context: Dict[str, Any] = None,
+        language: str = "en-US"
+    ) -> Dict[str, Any]:
+        """
+        Extract topics and generate hashtags from text using GPT-4
+        
+        Args:
+            text: Input text to analyze
+            context: Additional context (user info, preferences, etc.)
+            language: Language preference
+            
+        Returns:
+            Dictionary with extracted topics, hashtags, category, sentiment, etc.
+        """
+        try:
+            logger.info(f"🧠 Extracting topics from text: {text[:100]}...")
+            
+            # Build context prompt
+            context_info = ""
+            if context:
+                context_info = f"\nUser context: {json.dumps(context, indent=2)}"
+            
+            # Use GPT-4 for topic extraction
+            response = await asyncio.to_thread(
+                lambda: self.client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": f"""You are an expert at analyzing conversation topics and generating relevant hashtags for social matching.
+
+Your task is to analyze the user's input and extract:
+1. Main topics (3-5 specific topics)
+2. Relevant hashtags (5-8 hashtags for matching)
+3. Category classification
+4. Sentiment analysis
+5. Conversation style preference
+
+Please respond in JSON format:
+{{
+    "main_topics": ["Topic1", "Topic2", "Topic3"],
+    "hashtags": ["#hashtag1", "#hashtag2", "#hashtag3", "#hashtag4", "#hashtag5"],
+    "category": "technology|business|lifestyle|entertainment|education|sports|health|travel|other",
+    "sentiment": "positive|negative|neutral",
+    "conversation_style": "casual|professional|academic|creative",
+    "confidence": 0.95,
+    "summary": "Brief summary of what the user wants to discuss"
+}}
+
+Language preference: {language}
+Focus on creating hashtags that will help match users with similar interests.{context_info}"""
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Please analyze this text and extract topics/hashtags: {text}"
+                        }
+                    ],
+                    max_tokens=500,
+                    temperature=0.3
+                )
+            )
+            
+            # Parse the response
+            content = response.choices[0].message.content
+            
+            try:
+                result = json.loads(content)
+                logger.info(f"✅ Topics extracted: {result.get('main_topics', [])}")
+                return result
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse JSON response, creating fallback")
+                # Fallback parsing
+                return {
+                    "main_topics": ["general", "conversation"],
+                    "hashtags": ["#chat", "#social", "#conversation"],
+                    "category": "other", 
+                    "sentiment": "neutral",
+                    "conversation_style": "casual",
+                    "confidence": 0.5,
+                    "summary": "General conversation topic",
+                    "raw_response": content
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Topic extraction failed: {e}")
+            # Return fallback data
+            return {
+                "main_topics": ["general"],
+                "hashtags": ["#general", "#chat"],
+                "category": "other",
+                "sentiment": "neutral", 
+                "conversation_style": "casual",
+                "confidence": 0.1,
+                "summary": "Could not analyze topics",
+                "error": str(e)
+            }

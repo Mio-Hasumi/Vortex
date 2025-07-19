@@ -252,7 +252,7 @@ async def ai_driven_match(
         # This step replaces the previous STT → GPT → hashtag multi-step process
         voice_processing_result = await openai_service.process_voice_input_for_matching(
             audio_data=request.user_voice_input,  # Can be base64 or audio URL
-            language_preference=request.language_preference
+            language=request.language_preference
         )
         
         if voice_processing_result.get("error"):
