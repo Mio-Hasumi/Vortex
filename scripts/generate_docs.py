@@ -5,8 +5,9 @@ VoiceApp API Documentation Generator
 
 Generates API documentation and exports:
 - OpenAPI/Swagger JSON
-- Postman Collection
+- Postman Collection (with WebSocket support)
 - Interactive HTML docs
+- WebSocket testing examples
 
 Usage:
     python scripts/generate_docs.py
@@ -31,6 +32,7 @@ class APIDocumentationGenerator:
     
     def __init__(self, base_url: str = "http://localhost:8000", output_dir: str = "./docs"):
         self.base_url = base_url.rstrip('/')
+        self.ws_base_url = self.base_url.replace('http://', 'ws://').replace('https://', 'wss://')
         self.output_dir = output_dir
         self.openapi_spec = None
         
@@ -45,6 +47,10 @@ class APIDocumentationGenerator:
             response.raise_for_status()
             
             self.openapi_spec = response.json()
+            
+            # Add WebSocket endpoints manually since OpenAPI 3.0 doesn't support them natively
+            self.add_websocket_endpoints()
+            
             logger.info("✅ OpenAPI specification fetched successfully")
             return True
             
@@ -53,6 +59,69 @@ class APIDocumentationGenerator:
             logger.info("💡 Make sure the server is running and accessible")
             return False
     
+    def add_websocket_endpoints(self):
+        """Add WebSocket endpoints to OpenAPI spec"""
+        if not self.openapi_spec:
+            return
+        
+        websocket_paths = {
+            "/api/ai-host/voice-chat": {
+                "websocket": {
+                    "summary": "Real-time voice chat with GPT-4o Audio Preview",
+                    "description": "WebSocket endpoint for real-time voice communication with AI host using GPT-4o Audio Preview",
+                    "tags": ["AI Host"],
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "in": "header",
+                            "required": True,
+                            "schema": {"type": "string"},
+                            "description": "Firebase ID token"
+                        }
+                    ],
+                    "requestBody": {
+                        "description": "Voice data and control messages",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "type": {
+                                            "type": "string",
+                                            "enum": ["voice_data", "control"],
+                                            "description": "Message type"
+                                        },
+                                        "data": {
+                                            "type": "string",
+                                            "description": "Base64 encoded audio data"
+                                        },
+                                        "format": {
+                                            "type": "string",
+                                            "enum": ["wav", "mp3"],
+                                            "description": "Audio format"
+                                        },
+                                        "sample_rate": {
+                                            "type": "integer",
+                                            "default": 16000,
+                                            "description": "Audio sample rate"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "responses": {
+                        "101": {
+                            "description": "WebSocket connection established"
+                        }
+                    }
+                }
+            }
+        }
+        
+        # Add WebSocket paths to OpenAPI spec
+        self.openapi_spec["paths"].update(websocket_paths)
+
     def save_openapi_json(self):
         """Save OpenAPI specification as JSON"""
         if not self.openapi_spec:
@@ -93,6 +162,11 @@ class APIDocumentationGenerator:
                         "type": "string"
                     },
                     {
+                        "key": "ws_base_url",
+                        "value": self.ws_base_url,
+                        "type": "string"
+                    },
+                    {
                         "key": "firebase_token",
                         "value": "your_firebase_id_token_here",
                         "type": "string"
@@ -116,7 +190,7 @@ class APIDocumentationGenerator:
             
             for path, methods in self.openapi_spec.get("paths", {}).items():
                 for method, endpoint_spec in methods.items():
-                    if method.upper() in ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']:
+                    if method.upper() in ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'WEBSOCKET']:
                         tags = endpoint_spec.get("tags", ["Other"])
                         tag = tags[0] if tags else "Other"
                         
@@ -129,6 +203,9 @@ class APIDocumentationGenerator:
                         # Create Postman request
                         request_item = self.create_postman_request(path, method.upper(), endpoint_spec)
                         folders[tag]["item"].append(request_item)
+            
+            # Add WebSocket example folder
+            folders["WebSocket Examples"] = self.create_websocket_examples()
             
             # Add folders to collection
             collection["item"] = list(folders.values())
@@ -144,7 +221,66 @@ class APIDocumentationGenerator:
         except Exception as e:
             logger.error(f"❌ Failed to generate Postman collection: {e}")
             return False
-    
+
+    def create_websocket_examples(self) -> Dict[str, Any]:
+        """Create WebSocket example requests for Postman"""
+        return {
+            "name": "WebSocket Examples",
+            "item": [
+                {
+                    "name": "Voice Chat with GPT-4o",
+                    "request": {
+                        "method": "WEBSOCKET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "{{firebase_token}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{ws_base_url}}/api/ai-host/voice-chat",
+                            "host": ["{{ws_base_url}}"],
+                            "path": ["api", "ai-host", "voice-chat"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": json.dumps({
+                                "type": "voice_data",
+                                "data": "<base64_audio_data>",
+                                "format": "wav",
+                                "sample_rate": 16000
+                            }, indent=2)
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "// Example WebSocket test script",
+                                    "console.log('Connected to voice chat WebSocket');",
+                                    "",
+                                    "// Handle incoming messages",
+                                    "pm.ws.onMessage((message) => {",
+                                    "    const response = JSON.parse(message);",
+                                    "    console.log('Received:', response);",
+                                    "    ",
+                                    "    if (response.type === 'transcription') {",
+                                    "        console.log('User said:', response.text);",
+                                    "    } else if (response.type === 'ai_response') {",
+                                    "        console.log('AI response:', response.text);",
+                                    "        // Audio response available at response.audio_url",
+                                    "    }",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+
     def create_postman_request(self, path: str, method: str, endpoint_spec: Dict[str, Any]) -> Dict[str, Any]:
         """Create a Postman request item from OpenAPI endpoint spec"""
         
