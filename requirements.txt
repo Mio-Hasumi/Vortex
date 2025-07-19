@@ -24,7 +24,7 @@ livekit-api==0.7.0
 livekit-protocol>=0.5.0,<1.1
 
 # AI Services  
-openai==1.40.0
+openai[aiohttp]>=1.97.0
 
 # Utilities and data processing
 python-jose[cryptography]==3.3.0

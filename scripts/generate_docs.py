@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class APIDocumentationGenerator:
     """Generate comprehensive API documentation"""
     
-    def __init__(self, base_url: str = "http://localhost:8000", output_dir: str = "./docs"):
+    def __init__(self, base_url: str = "http://localhost:8000", output_dir: str = "./api-docs"):
         self.base_url = base_url.rstrip('/')
         self.ws_base_url = self.base_url.replace('http://', 'ws://').replace('https://', 'wss://')
         self.output_dir = output_dir

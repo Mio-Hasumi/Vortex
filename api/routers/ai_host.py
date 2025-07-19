@@ -231,7 +231,7 @@ async def text_to_speech_head(
             "Content-Type": "audio/mpeg",
             "Content-Disposition": f"inline; filename=tts_{text[:10]}.mp3"
         }
-    )
+        )
 
 @router.get("/tts/{text}")
 async def text_to_speech_get(
@@ -241,7 +241,7 @@ async def text_to_speech_get(
     openai_service = Depends(get_openai_service)
 ):
     """
-    GET endpoint for TTS (convenient for frontend)  
+    GET endpoint for TTS (convenient for frontend)
     Usage: /api/ai-host/tts/HelloWorld?voice=nova&speed=1.0
     """
     try:
@@ -596,12 +596,12 @@ async def websocket_voice_chat(websocket: WebSocket):
     AI Host Voice Chat WebSocket
     Supports real-time voice communication with GPT-4o Realtime Preview
     """
-    await websocket.accept()
+        await websocket.accept()
     logger.info("🎙️ AI Host voice chat WebSocket connected")
-    
-    session_id = None
+        
+        session_id = None
     authenticated_user = None
-    
+        
     try:
         while True:
             try:
@@ -692,12 +692,12 @@ async def websocket_voice_chat(websocket: WebSocket):
                     else:
                         # Fallback without AI service
                         session_id = f"ws_session_{authenticated_user.id}_{datetime.utcnow().timestamp()}"
-                        await websocket.send_text(json.dumps({
-                            "type": "session_started",
-                            "session_id": session_id,
-                            "ai_greeting": "Hi! Welcome to VoiceApp! What topic would you like to discuss today?",
-                            "timestamp": datetime.utcnow().isoformat()
-                        }))
+                    await websocket.send_text(json.dumps({
+                        "type": "session_started",
+                        "session_id": session_id,
+                        "ai_greeting": "Hi! Welcome to VoiceApp! What topic would you like to discuss today?",
+                        "timestamp": datetime.utcnow().isoformat()
+                    }))
                 
                 elif data.get("type") == "user_input":
                     if not session_id:
@@ -735,12 +735,12 @@ async def websocket_voice_chat(websocket: WebSocket):
                             }))
                     else:
                         # Fallback response
-                        await websocket.send_text(json.dumps({
-                            "type": "ai_response",
-                            "text": f"I heard you say: {user_text}. This is interesting!",
-                            "session_id": session_id,
-                            "timestamp": datetime.utcnow().isoformat()
-                        }))
+                    await websocket.send_text(json.dumps({
+                        "type": "ai_response",
+                        "text": f"I heard you say: {user_text}. This is interesting!",
+                        "session_id": session_id,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }))
                 
                 elif data.get("type") == "ping":
                     await websocket.send_text(json.dumps({

@@ -182,11 +182,9 @@ class SmokeTestRunner:
             
             self.firebase_uid = user_record.uid
             
-            # Generate custom token
-            self.firebase_token = auth.create_custom_token(
-                self.firebase_uid, 
-                app=self.firebase_app
-            ).decode('utf-8')
+            # For testing, we'll use a test token format that the middleware recognizes
+            # In real usage, frontend would get an ID token from Firebase Auth
+            self.firebase_token = f"test_token_{self.firebase_uid}"
             
             self.log_test("Firebase User Creation", "PASS", 
                          f"UID: {self.firebase_uid[:8]}...", 
@@ -513,10 +511,38 @@ class SmokeTestRunner:
             
             # Test AI matching
             start_time = time.time()
+            # Create a real WAV file with 1 second of silence
+            sample_rate = 44100
+            duration = 1  # seconds
+            samples = bytearray(sample_rate * duration * 2)  # 16-bit samples
+            
+            # WAV header
+            wav_header = bytearray([
+                # RIFF header
+                0x52, 0x49, 0x46, 0x46,  # "RIFF"
+                0x24, 0x00, 0x00, 0x00,  # Chunk size (36 + data size)
+                0x57, 0x41, 0x56, 0x45,  # "WAVE"
+                # fmt chunk
+                0x66, 0x6D, 0x74, 0x20,  # "fmt "
+                0x10, 0x00, 0x00, 0x00,  # Chunk size (16 bytes)
+                0x01, 0x00,              # Audio format (1 = PCM)
+                0x01, 0x00,              # Channels (1 = mono)
+                0x44, 0xAC, 0x00, 0x00,  # Sample rate (44100 Hz)
+                0x88, 0x58, 0x01, 0x00,  # Byte rate (44100 * 2)
+                0x02, 0x00,              # Block align
+                0x10, 0x00,              # Bits per sample (16)
+                # data chunk
+                0x64, 0x61, 0x74, 0x61,  # "data"
+                0x00, 0x00, 0x00, 0x00   # Data size (0 bytes)
+            ])
+            
+            # Combine header and samples
+            wav_data = wav_header + samples
+            test_audio = base64.b64encode(wav_data).decode('utf-8')
+            
             ai_match_data = {
-                "text_input": "I want to discuss AI and machine learning",
-                "conversation_style": "casual",
-                "language": "en-US",
+                "user_voice_input": f"data:audio/wav;base64,{test_audio}",
+                "language_preference": "en-US",
                 "max_participants": 3
             }
             
@@ -559,9 +585,10 @@ class SmokeTestRunner:
                 f"{self.base_url}/api/matching/cancel",
                 headers=headers
             ) as response:
-                if response.status == 204:
+                if response.status == 200:
+                    data = await response.json()
                     self.log_test("Cancel Match", "PASS", 
-                                "Match cancelled successfully", 
+                                data.get("message", "Match cancelled successfully"), 
                                 time.time() - start_time)
                 else:
                     error_data = await response.text()

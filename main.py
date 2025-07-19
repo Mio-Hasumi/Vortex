@@ -15,6 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 
+# Load environment variables first
+from dotenv import load_dotenv
+load_dotenv()
+
 from api.routers import auth, topics, matching, rooms, friends, recordings
 from infrastructure.container import container
 from infrastructure.config import Settings
