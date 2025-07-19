@@ -151,7 +151,7 @@ class RoomRepository:
             rooms_data = self.firebase.query_documents(
                 self.collection_name,
                 filters=[
-                    {"field": "participants", "operator": "array-contains", "value": str(user_id)}
+                    {"field": "participants", "operator": "array_contains", "value": str(user_id)}
                 ],
                 order_by="created_at",
                 order_direction="desc"
@@ -338,6 +338,29 @@ class RoomRepository:
             logger.error(f"❌ Failed to generate LiveKit token for room {room_id}: {e}")
             # Return a mock token for development
             return "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.mock_token"
+    
+    async def get_room_participants(self, room_id: str) -> List[str]:
+        """
+        Return the current participant user_id list of the specified room
+        Reuse existing find_by_id (synchronous)
+        Room.current_participants is assumed to be List[UUID]
+        """
+        room = self.find_by_id(UUID(room_id))
+        if not room:
+            return []
+        return [str(uid) for uid in room.current_participants]
+    
+    def find_by_livekit_room_name(self, livekit_name: str) -> Optional[Room]:
+        """
+        Find room entity by livekit_room_name field
+        """
+        rooms_data = self.firebase.query_documents(
+            self.collection_name,
+            filters=[{"field": "livekit_room_name", "operator": "==", "value": livekit_name}]
+        )
+        if rooms_data:
+            return self._dict_to_entity(rooms_data[0])
+        return None
     
     def _entity_to_dict(self, room: Room) -> dict:
         """Convert Room entity to dictionary"""

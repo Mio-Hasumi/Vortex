@@ -2,7 +2,7 @@
 Rooms API routes
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query
 from pydantic import BaseModel
 from typing import List, Optional
 from uuid import UUID
@@ -371,14 +371,17 @@ def get_openai_service():
     return container.get_openai_service()
 
 def get_websocket_manager():
+    """依赖注入：获取单例 ConnectionManager"""
     return container.get_websocket_manager()
+
 
 # NEW: GPT-4o Audio Real-time Room WebSocket
 @router.websocket("/ws/{room_id}")
 async def websocket_room_conversation(
     websocket: WebSocket,
-    room_id: str,
-    user_id: Optional[str] = None
+    room_id: str,                    # 真正的 UUID
+    livekit_name: str = Query(...),  # 从 ?livekit_name=... 里取
+    user_id: str = Query(...)
 ):
     """
     WebSocket endpoint for GPT-4o Audio powered real-time room conversations
@@ -390,36 +393,43 @@ async def websocket_room_conversation(
     - 🔍 Live fact-checking and suggestions
     - 🎪 Automatic conversation flow management
     """
-    websocket_manager = get_websocket_manager()
-    openai_service = get_openai_service()
-    room_repo = get_room_repository()
-    
     await websocket.accept()
-    logger.info(f"🎭 GPT-4o Audio room WebSocket connected: room={room_id}, user={user_id}")
-    
+    logger.info(f"🎭 GPT-4o Audio room WebSocket connected: room={room_id}, livekit={livekit_name}, user={user_id}")
+
     try:
-        # Join room and register connection
+        # 1) 先查实体
+        room_repo = get_room_repository()
+        room = room_repo.find_by_id(UUID(room_id))
+        if not room:
+            await websocket.send_json({"type":"error","message":"Room not found"})
+            await websocket.close()
+            return
+
+        # 2) 用 livekit_name 连接 LiveKit
+        room_participants = [str(uid) for uid in room.current_participants]
+        websocket_manager = get_websocket_manager()
         room_connection_id = await websocket_manager.join_room(
-            websocket=websocket,
-            room_id=room_id,
-            user_id=user_id
+            room_name=livekit_name,
+            user_id=user_id,
+            websocket=websocket
         )
-        
-        # Initialize conversation context for AI moderator
-        conversation_context = []
-        room_participants = await room_repo.get_room_participants(room_id)
-        
-        # Send welcome message
+
+        # 3) 发送已加入消息
         await websocket.send_json({
             "type": "room_joined",
             "room_id": room_id,
             "connection_id": room_connection_id,
+            "participants": room_participants,
             "ai_enabled": True,
             "supported_features": [
                 "voice_input", "voice_output", "real_time_moderation", 
                 "fact_checking", "conversation_guidance", "topic_suggestions"
             ]
         })
+
+        # Initialize conversation context for AI moderator
+        conversation_context = []
+        openai_service = get_openai_service()
         
         # Main message handling loop
         while True:
@@ -432,28 +442,28 @@ async def websocket_room_conversation(
             if message_type == "voice_message":
                 # User sends voice message - process with GPT-4o Audio
                 await handle_voice_message(
-                    websocket, room_id, user_id, data, 
+                    websocket, livekit_name, user_id, data, 
                     openai_service, conversation_context, room_participants
                 )
                 
             elif message_type == "text_message":
                 # User sends text message
                 await handle_text_message(
-                    websocket, room_id, user_id, data,
+                    websocket, livekit_name, user_id, data,
                     openai_service, conversation_context, room_participants
                 )
                 
             elif message_type == "request_ai_assistance":
                 # User explicitly requests AI help
                 await handle_ai_assistance_request(
-                    websocket, room_id, user_id, data,
+                    websocket, livekit_name, user_id, data,
                     openai_service, conversation_context, room_participants
                 )
                 
             elif message_type == "conversation_pause":
                 # Handle conversation silence - AI suggests topics
                 await handle_conversation_pause(
-                    websocket, room_id, openai_service, 
+                    websocket, livekit_name, openai_service, 
                     conversation_context, room_participants
                 )
                 
@@ -462,7 +472,8 @@ async def websocket_room_conversation(
                 
     except WebSocketDisconnect:
         logger.info(f"👋 User {user_id} disconnected from room {room_id}")
-        await websocket_manager.leave_room(room_connection_id)
+        if 'room_connection_id' in locals():
+            await websocket_manager.leave_room(livekit_name, room_connection_id)
         
     except Exception as e:
         logger.error(f"❌ Room WebSocket error: {e}")
@@ -515,7 +526,7 @@ async def handle_voice_message(
         )
         
         # Broadcast user's voice message to other participants
-        await broadcast_to_room(websocket, room_id, {
+        await broadcast_to_room(room_id, {
             "type": "user_voice_message",
             "user_id": user_id,
             "audio_data": audio_data,
@@ -536,7 +547,7 @@ async def handle_voice_message(
             conversation_context.append(ai_context)
             
             # Broadcast AI voice response to all participants
-            await broadcast_to_room(websocket, room_id, {
+            await broadcast_to_room(room_id, {
                 "type": "ai_moderator_response",
                 "response_text": ai_reply.get("text"),
                 "response_audio": ai_reply.get("audio"),  # base64 audio
@@ -585,7 +596,7 @@ async def handle_text_message(
         })
         
         # Broadcast user message
-        await broadcast_to_room(websocket, room_id, {
+        await broadcast_to_room(room_id, {
             "type": "user_text_message",
             "user_id": user_id,
             "text": text_content,
@@ -611,7 +622,7 @@ async def handle_text_message(
                 "type": "ai_suggestion"
             })
             
-            await broadcast_to_room(websocket, room_id, {
+            await broadcast_to_room(room_id, {
                 "type": "ai_suggestion",
                 "suggestion_text": ai_reply.get("text"),
                 "suggestion_audio": ai_reply.get("audio"),
@@ -650,7 +661,7 @@ async def handle_ai_assistance_request(
         if ai_response.get("ai_response"):
             ai_reply = ai_response["ai_response"]
             
-            await broadcast_to_room(websocket, room_id, {
+            await broadcast_to_room(room_id, {
                 "type": "ai_assistance_response",
                 "requested_by": user_id,
                 "assistance_type": request_type,
@@ -687,7 +698,7 @@ async def handle_conversation_pause(
         if ai_response.get("ai_response"):
             ai_reply = ai_response["ai_response"]
             
-            await broadcast_to_room(websocket, room_id, {
+            await broadcast_to_room(room_id, {
                 "type": "conversation_revival",
                 "topic_suggestion": ai_reply.get("text"),
                 "suggestion_audio": ai_reply.get("audio"),
@@ -699,12 +710,10 @@ async def handle_conversation_pause(
         logger.error(f"❌ Conversation pause handling failed: {e}")
 
 
-async def broadcast_to_room(websocket: WebSocket, room_id: str, message: dict):
+async def broadcast_to_room(room_id: str, message: dict):
     """广播消息到房间所有参与者"""
     try:
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.broadcast_to_room(room_id, message)
+        manager = get_websocket_manager()
+        await manager.broadcast_to_room(room_id, message)
     except Exception as e:
         logger.error(f"❌ Room broadcast failed: {e}")
-        # Fallback: send only to current websocket
-        await websocket.send_json(message) 

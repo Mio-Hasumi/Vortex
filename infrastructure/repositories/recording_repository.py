@@ -89,7 +89,7 @@ class RecordingRepository:
             recordings_data = self.firebase.query_documents(
                 self.collection_name,
                 filters=[
-                    {"field": "participants", "operator": "array-contains", "value": str(user_id)}
+                    {"field": "participants", "operator": "array_contains", "value": str(user_id)}
                 ],
                 limit=limit,
                 order_by="created_at",

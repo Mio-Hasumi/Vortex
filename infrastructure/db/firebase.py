@@ -190,7 +190,8 @@ class FirebaseAdminService:
         return firestore.SERVER_TIMESTAMP
 
     def query_documents(self, collection_name: str, filters: Optional[List[Dict[str, Any]]] = None, 
-                       limit: Optional[int] = None, order_by: Optional[str] = None) -> List[Dict[str, Any]]:
+                       limit: Optional[int] = None, order_by: Optional[str] = None, 
+                       order_direction: Optional[str] = "asc") -> List[Dict[str, Any]]:
         """
         Query documents from Firestore collection with optional filters
         
@@ -199,6 +200,7 @@ class FirebaseAdminService:
             filters: List of filter dictionaries with keys: field, operator, value
             limit: Maximum number of documents to return
             order_by: Field to order by
+            order_direction: Direction to order by ("asc" or "desc")
             
         Returns:
             List of document dictionaries
@@ -217,7 +219,9 @@ class FirebaseAdminService:
             
             # Apply ordering
             if order_by:
-                query = query.order_by(order_by)
+                from google.cloud.firestore import Query
+                direction = Query.DESCENDING if order_direction == "desc" else Query.ASCENDING
+                query = query.order_by(order_by, direction=direction)
             
             # Apply limit
             if limit:
