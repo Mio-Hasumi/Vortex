@@ -1528,7 +1528,7 @@
       "name": "Ai Host",
       "item": [
         {
-          "name": "Real-time voice chat with GPT-4o Audio Preview",
+          "name": "Real-time voice chat with GPT-4o Realtime Preview",
           "request": {
             "method": "WEBSOCKET",
             "header": [],
@@ -1543,7 +1543,7 @@
                 "voice-chat"
               ]
             },
-            "description": "WebSocket endpoint for real-time voice communication with AI host using GPT-4o Audio Preview"
+            "description": "WebSocket endpoint for real-time voice communication with AI host using GPT-4o Realtime Preview"
           },
           "response": []
         }

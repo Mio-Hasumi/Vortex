@@ -2,7 +2,7 @@
 
 **Complete API Reference for VoiceApp - AI-Powered Voice Social Platform**
 
-This comprehensive guide provides everything frontend developers need to integrate with the VoiceApp backend, featuring GPT-4o Audio Preview, real-time matching, and voice chat capabilities.
+This comprehensive guide provides everything frontend developers need to integrate with the VoiceApp backend, featuring GPT-4o Realtime Preview, real-time matching, and voice chat capabilities.
 
 ## 🌐 Base Configuration
 
@@ -1323,7 +1323,7 @@ setInterval(() => {
 
 ## 🤖 AI Host Services (`/api/ai-host`)
 
-### Voice Chat with GPT-4o RealTime Preview
+### Voice Chat with GPT-4o Realtime Preview
 ```javascript
 // Connect to WebSocket
 const ws = new WebSocket(`${WS_BASE_URL}/api/ai-host/voice-chat`)

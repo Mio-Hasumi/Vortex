@@ -67,8 +67,8 @@ class APIDocumentationGenerator:
         websocket_paths = {
             "/api/ai-host/voice-chat": {
                 "websocket": {
-                    "summary": "Real-time voice chat with GPT-4o Audio Preview",
-                    "description": "WebSocket endpoint for real-time voice communication with AI host using GPT-4o Audio Preview",
+                    "summary": "Real-time voice chat with GPT-4o Realtime Preview",
+                    "description": "WebSocket endpoint for real-time voice communication with AI host using GPT-4o Realtime Preview",
                     "tags": ["AI Host"],
                     "parameters": [
                         {
