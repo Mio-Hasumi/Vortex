@@ -2,7 +2,7 @@
 
 **Complete API Reference for VoiceApp - AI-Powered Voice Social Platform**
 
-This comprehensive guide provides everything frontend developers need to integrate with the VoiceApp backend, featuring GPT-4o Audio, real-time matching, and voice chat capabilities.
+This comprehensive guide provides everything frontend developers need to integrate with the VoiceApp backend, featuring GPT-4o Audio Preview, real-time matching, and voice chat capabilities.
 
 ## 🌐 Base Configuration
 
@@ -1319,6 +1319,97 @@ generalWs.onmessage = (event) => {
 setInterval(() => {
   generalWs.send(JSON.stringify({ type: 'ping' }))
 }, 30000)
+```
+
+## 🤖 AI Host Services (`/api/ai-host`)
+
+### Voice Chat with GPT-4o RealTime Preview
+```javascript
+// Connect to WebSocket
+const ws = new WebSocket(`${WS_BASE_URL}/api/ai-host/voice-chat`)
+
+// Send voice data
+ws.send(JSON.stringify({
+  type: 'voice_data',
+  data: base64EncodedAudioData,
+  format: 'wav',  // or 'mp3'
+  sample_rate: 16000
+}))
+
+// Receive AI responses
+ws.onmessage = (event) => {
+  const response = JSON.parse(event.data)
+  switch(response.type) {
+    case 'transcription':
+      console.log('User said:', response.text)
+      break
+    case 'ai_response':
+      console.log('AI response:', response.text)
+      // Play audio response
+      const audio = new Audio(response.audio_url)
+      audio.play()
+      break
+    case 'error':
+      console.error('Error:', response.message)
+      break
+  }
+}
+
+// Example helper function for recording
+const startRecording = async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  const mediaRecorder = new MediaRecorder(stream)
+  const audioChunks = []
+
+  mediaRecorder.ondataavailable = (event) => {
+    audioChunks.push(event.data)
+  }
+
+  mediaRecorder.onstop = async () => {
+    const audioBlob = new Blob(audioChunks)
+    const reader = new FileReader()
+    reader.readAsDataURL(audioBlob)
+    reader.onloadend = () => {
+      const base64Audio = reader.result.split(',')[1]
+      ws.send(JSON.stringify({
+        type: 'voice_data',
+        data: base64Audio,
+        format: 'wav',
+        sample_rate: 16000
+      }))
+    }
+  }
+
+  mediaRecorder.start()
+  setTimeout(() => mediaRecorder.stop(), 5000) // Record for 5 seconds
+}
+```
+
+### AI Matching with Voice Input
+```javascript
+POST /api/matching/ai-match
+Headers: { 
+  Authorization: "Bearer <firebase_token>",
+  Content-Type: "application/json"
+}
+{
+  "user_voice_input": "I want to talk about artificial intelligence and machine learning",
+  "audio_file_url": "https://storage.example.com/audio.wav",  // Optional
+  "max_participants": 2,
+  "language_preference": "en-US"
+}
+
+// Response
+{
+  "match_id": "uuid",
+  "session_id": "ai_host_session_uuid",
+  "extracted_topics": ["artificial intelligence", "machine learning"],
+  "generated_hashtags": ["#AI", "#ML", "#Tech", "#Innovation"],
+  "match_confidence": 0.85,
+  "estimated_wait_time": 30,
+  "ai_greeting": "Hello! I see you're interested in AI and machine learning. Let's explore these topics together!",
+  "status": "waiting_for_match"
+}
 ```
 
 ## 🚨 Error Handling
