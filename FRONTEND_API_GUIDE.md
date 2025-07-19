@@ -21,6 +21,176 @@ const headers = {
 }
 ```
 
+## 🔒 **WebSocket Security & Authentication**
+
+**Important Security Update:** All WebSocket endpoints now require Firebase authentication for enhanced security.
+
+### 🛡️ WebSocket Authentication Flow
+```javascript
+// 1. Get Firebase ID Token
+const user = firebase.auth().currentUser
+const token = await user.getIdToken(true) // Force refresh
+
+// 2. Connect to WebSocket
+const ws = new WebSocket('wss://your-api.com/api/ai-host/voice-chat')
+
+// 3. Send auth message immediately after connection
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    type: 'auth',
+    token: token
+  }))
+}
+
+// 4. Handle authentication response
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data)
+  
+  if (data.type === 'authenticated') {
+    console.log('✅ WebSocket authenticated as:', data.display_name)
+    // Now you can send other messages
+  } else if (data.type === 'error' && data.message.includes('Authentication')) {
+    console.error('❌ Authentication failed:', data.message)
+    // Refresh token and retry
+  }
+}
+```
+
+### 🔐 Security Best Practices
+```javascript
+class SecureWebSocket {
+  constructor(url, firebaseAuth) {
+    this.url = url
+    this.auth = firebaseAuth
+    this.ws = null
+    this.isAuthenticated = false
+    this.reconnectAttempts = 0
+    this.maxReconnectAttempts = 3
+  }
+  
+  async connect() {
+    try {
+      // Ensure user is authenticated
+      const user = this.auth.currentUser
+      if (!user) {
+        throw new Error('User must be authenticated with Firebase')
+      }
+      
+      // Get fresh token
+      const token = await user.getIdToken(true)
+      
+      // Connect
+      this.ws = new WebSocket(this.url)
+      
+      this.ws.onopen = () => {
+        console.log('🔌 WebSocket connected, authenticating...')
+        this.authenticate(token)
+      }
+      
+      this.ws.onmessage = (event) => {
+        this.handleMessage(JSON.parse(event.data))
+      }
+      
+      this.ws.onclose = (event) => {
+        console.log('🔌 WebSocket closed:', event.code, event.reason)
+        this.isAuthenticated = false
+        
+        // Auto-reconnect with exponential backoff
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          const delay = Math.pow(2, this.reconnectAttempts) * 1000
+          setTimeout(() => {
+            this.reconnectAttempts++
+            this.connect()
+          }, delay)
+        }
+      }
+      
+      this.ws.onerror = (error) => {
+        console.error('❌ WebSocket error:', error)
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to connect:', error)
+      throw error
+    }
+  }
+  
+  authenticate(token) {
+    this.ws.send(JSON.stringify({
+      type: 'auth',
+      token: token
+    }))
+  }
+  
+  handleMessage(data) {
+    switch (data.type) {
+      case 'authenticated':
+        console.log('✅ Authenticated as:', data.display_name)
+        this.isAuthenticated = true
+        this.reconnectAttempts = 0 // Reset on successful auth
+        this.onAuthenticated?.(data)
+        break
+        
+      case 'error':
+        if (data.message.includes('Authentication')) {
+          console.error('❌ Auth error:', data.message)
+          this.onAuthError?.(data.message)
+        } else {
+          this.onError?.(data)
+        }
+        break
+        
+      default:
+        // Handle other message types
+        this.onMessage?.(data)
+        break
+    }
+  }
+  
+  send(data) {
+    if (!this.isAuthenticated) {
+      throw new Error('❌ Cannot send message: Not authenticated')
+    }
+    
+    if (this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('❌ Cannot send message: WebSocket not open')
+    }
+    
+    this.ws.send(JSON.stringify(data))
+  }
+  
+  close() {
+    this.maxReconnectAttempts = 0 // Prevent reconnection
+    this.ws?.close()
+  }
+}
+
+// Usage
+const secureWs = new SecureWebSocket(
+  'wss://your-api.com/api/ai-host/voice-chat',
+  firebase.auth()
+)
+
+secureWs.onAuthenticated = (data) => {
+  console.log('🎉 Ready to communicate!')
+  // Now safe to send app-specific messages
+}
+
+secureWs.onAuthError = (message) => {
+  console.error('Authentication failed:', message)
+  // Handle auth failure (e.g., redirect to login)
+}
+
+await secureWs.connect()
+```
+
+### 📋 **All WebSocket Endpoints Require Authentication**
+- ✅ **AI Voice Chat**: `wss://.../api/ai-host/voice-chat`
+- ✅ **AI Live Subtitle**: `wss://.../api/ai-host/live-subtitle`  
+- ✅ **Room Communication**: `wss://.../api/rooms/ws/{room_id}`
+- ⚠️ **Matching Queue**: Query parameter auth (see specific section)
+- ⚠️ **General Notifications**: Query parameter auth (see specific section)
+
 ## 🔐 Authentication API (`/api/auth`)
 
 ### Register User
@@ -1324,65 +1494,198 @@ setInterval(() => {
 ## 🤖 AI Host Services (`/api/ai-host`)
 
 ### Voice Chat with GPT-4o Realtime Preview
+
+#### 🔐 **Important: WebSocket Authentication Required**
+All WebSocket connections now require Firebase authentication:
+
 ```javascript
 // Connect to WebSocket
 const ws = new WebSocket(`${WS_BASE_URL}/api/ai-host/voice-chat`)
 
-// Send voice data
-ws.send(JSON.stringify({
-  type: 'voice_data',
-  data: base64EncodedAudioData,
-  format: 'wav',  // or 'mp3'
-  sample_rate: 16000
-}))
+// STEP 1: Authenticate first (required!)
+ws.onopen = () => {
+  // Send authentication message immediately after connection
+  ws.send(JSON.stringify({
+    type: 'auth',
+    token: firebaseIdToken  // Get from Firebase Auth
+  }))
+}
 
-// Receive AI responses
+// Handle authentication response
 ws.onmessage = (event) => {
   const response = JSON.parse(event.data)
+  
   switch(response.type) {
-    case 'transcription':
-      console.log('User said:', response.text)
+    case 'authenticated':
+      console.log('✅ WebSocket authenticated:', response.user_id)
+      // Now you can start a session
+      ws.send(JSON.stringify({
+        type: 'start_session'
+      }))
       break
+      
+    case 'session_started':
+      console.log('🎯 AI session started:', response.session_id)
+      sessionId = response.session_id
+      // Session is ready for voice input
+      break
+      
     case 'ai_response':
-      console.log('AI response:', response.text)
-      // Play audio response
-      const audio = new Audio(response.audio_url)
-      audio.play()
+      console.log('🤖 AI response:', response.text)
+      if (response.extracted_topics) {
+        console.log('📝 Topics:', response.extracted_topics)
+      }
+      if (response.generated_hashtags) {
+        console.log('🏷️ Hashtags:', response.generated_hashtags)
+      }
       break
+      
     case 'error':
-      console.error('Error:', response.message)
+      console.error('❌ WebSocket error:', response.message)
+      // Handle authentication errors
+      if (response.message.includes('Authentication')) {
+        refreshFirebaseToken()
+      }
       break
   }
 }
 
-// Example helper function for recording
-const startRecording = async () => {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-  const mediaRecorder = new MediaRecorder(stream)
-  const audioChunks = []
-
-  mediaRecorder.ondataavailable = (event) => {
-    audioChunks.push(event.data)
+// Send user input (only after authentication and session start)
+function sendUserInput(text) {
+  if (!sessionId) {
+    console.error('❌ No active session. Authenticate and start session first.')
+    return
   }
+  
+  ws.send(JSON.stringify({
+    type: 'user_input',
+    text: text
+  }))
+}
 
-  mediaRecorder.onstop = async () => {
-    const audioBlob = new Blob(audioChunks)
-    const reader = new FileReader()
-    reader.readAsDataURL(audioBlob)
-    reader.onloadend = () => {
-      const base64Audio = reader.result.split(',')[1]
-      ws.send(JSON.stringify({
-        type: 'voice_data',
-        data: base64Audio,
-        format: 'wav',
-        sample_rate: 16000
+// Send voice data (binary audio)
+function sendVoiceData(audioData) {
+  if (!sessionId) {
+    console.error('❌ No active session. Authenticate and start session first.')
+    return
+  }
+  
+  ws.send(JSON.stringify({
+    type: 'voice_data',
+    data: base64EncodedAudioData,
+    format: 'wav',  // or 'mp3'
+    sample_rate: 16000
+  }))
+}
+```
+
+#### 🎵 **Complete WebSocket Authentication Flow**
+```javascript
+class VoiceAppWebSocket {
+  constructor(wsUrl, firebaseAuth) {
+    this.wsUrl = wsUrl
+    this.auth = firebaseAuth
+    this.ws = null
+    this.sessionId = null
+    this.isAuthenticated = false
+  }
+  
+  async connect() {
+    // Get fresh Firebase token
+    const user = this.auth.currentUser
+    if (!user) throw new Error('User not authenticated with Firebase')
+    
+    const token = await user.getIdToken(true) // Force refresh
+    
+    // Connect to WebSocket
+    this.ws = new WebSocket(this.wsUrl)
+    
+    this.ws.onopen = () => {
+      console.log('🔌 WebSocket connected, authenticating...')
+      this.ws.send(JSON.stringify({
+        type: 'auth',
+        token: token
       }))
     }
+    
+    this.ws.onmessage = (event) => {
+      this.handleMessage(JSON.parse(event.data))
+    }
+    
+    this.ws.onerror = (error) => {
+      console.error('❌ WebSocket error:', error)
+    }
+    
+    this.ws.onclose = () => {
+      console.log('🔌 WebSocket disconnected')
+      this.isAuthenticated = false
+      this.sessionId = null
+    }
   }
-
-  mediaRecorder.start()
-  setTimeout(() => mediaRecorder.stop(), 5000) // Record for 5 seconds
+  
+  handleMessage(data) {
+    switch(data.type) {
+      case 'authenticated':
+        console.log('✅ Authenticated as:', data.display_name)
+        this.isAuthenticated = true
+        this.startSession()
+        break
+        
+      case 'session_started':
+        console.log('🎯 Session started:', data.session_id)
+        this.sessionId = data.session_id
+        this.onSessionReady?.()
+        break
+        
+      case 'ai_response':
+        this.onAIResponse?.(data)
+        break
+        
+      case 'error':
+        console.error('❌ Error:', data.message)
+        this.onError?.(data.message)
+        break
+    }
+  }
+  
+  startSession() {
+    if (!this.isAuthenticated) {
+      throw new Error('Not authenticated')
+    }
+    
+    this.ws.send(JSON.stringify({
+      type: 'start_session'
+    }))
+  }
+  
+  sendMessage(text) {
+    if (!this.sessionId) {
+      throw new Error('No active session')
+    }
+    
+    this.ws.send(JSON.stringify({
+      type: 'user_input',
+      text: text
+    }))
+  }
 }
+
+// Usage
+const voiceWs = new VoiceAppWebSocket(
+  'wss://your-api.com/api/ai-host/voice-chat',
+  firebaseAuth
+)
+
+voiceWs.onSessionReady = () => {
+  console.log('🎉 Ready to chat!')
+  voiceWs.sendMessage('Hello AI!')
+}
+
+voiceWs.onAIResponse = (response) => {
+  console.log('🤖 AI said:', response.text)
+}
+
+await voiceWs.connect()
 ```
 
 ### AI Matching with Voice Input
