@@ -116,7 +116,24 @@ class UserRepository:
             
             if users:
                 return self._dict_to_entity(users[0])
-            return None
+            
+            # If the user does not exist, create a new user record for the real Firebase user
+            # This applies to users logging in for the first time
+            logger.info(f"Creating new user for Firebase UID: {firebase_uid}")
+            from uuid import uuid4
+            new_user = User(
+                id=uuid4(),  # Generate a new UUID
+                firebase_uid=firebase_uid,
+                email=f"user_{firebase_uid}@firebase.com",  # Temporary email, can be updated later
+                display_name=f"User {firebase_uid[:8]}",
+                is_active=True,
+                status=UserStatus.ONLINE,
+                password_hash=""  # Default empty password hash
+            )
+            
+            # Save to database
+            saved_user = self.save(new_user)
+            return saved_user
             
         except Exception as e:
             logger.error(f"❌ Failed to find user by Firebase UID {firebase_uid}: {e}")

@@ -114,7 +114,7 @@ class FirebaseAuthMiddleware:
             credentials: HTTP authorization credentials
             
         Returns:
-            当前用户或None
+            Current user or None
         """
         try:
             return self.get_current_user(credentials)

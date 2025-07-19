@@ -167,6 +167,10 @@ class Container:
     def get_event_broadcaster(self) -> EventBroadcaster:
         return self._instances['event_broadcaster']
     
+    def get_websocket_manager(self) -> ConnectionManager:
+        """Return a singleton ConnectionManager"""
+        return self._instances['connection_manager']
+    
     # Repository getters
     def get_user_repository(self) -> UserRepository:
         return self._instances['user_repository']

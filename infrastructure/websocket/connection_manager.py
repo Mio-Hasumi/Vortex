@@ -318,4 +318,145 @@ class ConnectionManager:
         self.active_connections.clear()
         self.connection_metadata.clear()
         
-        logger.info("✅ WebSocket Connection Manager cleanup complete") 
+        logger.info("✅ WebSocket Connection Manager cleanup complete")
+    
+    async def join_room(self, room_name: str, user_id: UUID, websocket: WebSocket) -> str:
+        """
+        Join a user to a specific room
+        
+        Args:
+            room_name: Name of the room to join
+            user_id: User's UUID
+            websocket: WebSocket connection
+            
+        Returns:
+            Connection ID for this room connection
+        """
+        try:
+            # Generate unique connection ID
+            connection_id = f"{user_id}_room_{room_name}_{datetime.utcnow().timestamp()}"
+            
+            # Store connection in room-specific storage
+            user_id_str = str(user_id)
+            if user_id_str not in self.active_connections:
+                self.active_connections[user_id_str] = {}
+            
+            self.active_connections[user_id_str][connection_id] = websocket
+            
+            # Store metadata
+            self.connection_metadata[connection_id] = {
+                "user_id": user_id_str,
+                "connection_type": "room",
+                "room_name": room_name,
+                "connected_at": datetime.utcnow().isoformat()
+            }
+            
+            # Update Redis state
+            self.redis.set_user_online(user_id)
+            
+            logger.info(f"✅ User joined room via WebSocket: user={user_id}, room={room_name}, id={connection_id}")
+            return connection_id
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to join room: {e}")
+            raise
+    
+    async def leave_room(self, room_name: str, connection_id: str) -> bool:
+        """
+        Remove a user from a specific room
+        
+        Args:
+            room_name: Name of the room to leave
+            connection_id: Connection ID to remove
+            
+        Returns:
+            True if successfully removed
+        """
+        try:
+            # Find and remove the connection
+            for user_id, connections in self.active_connections.items():
+                if connection_id in connections:
+                    # Close the WebSocket
+                    websocket = connections[connection_id]
+                    try:
+                        await websocket.close()
+                    except:
+                        pass
+                    
+                    # Remove from connections
+                    del connections[connection_id]
+                    
+                    # Remove metadata
+                    if connection_id in self.connection_metadata:
+                        del self.connection_metadata[connection_id]
+                    
+                    # Update Redis if no more connections
+                    if not connections:
+                        self.redis.set_user_offline(UUID(user_id))
+                    
+                    logger.info(f"✅ User left room via WebSocket: user={user_id}, room={room_name}, connection={connection_id}")
+                    return True
+            
+            logger.warning(f"⚠️ Connection not found for removal: {connection_id}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to leave room: {e}")
+            return False
+    
+    async def broadcast_to_room(self, room_name: str, message: Dict, exclude_connection_id: Optional[str] = None) -> int:
+        """
+        Broadcast message to all users in a specific room
+        
+        Args:
+            room_name: Name of the room
+            message: Message to broadcast
+            exclude_connection_id: Optional connection to exclude
+            
+        Returns:
+            Number of users who received the message
+        """
+        sent_count = 0
+        
+        try:
+            # Find all connections for this room
+            for connection_id, metadata in self.connection_metadata.items():
+                if (metadata.get("connection_type") == "room" and 
+                    metadata.get("room_name") == room_name and
+                    connection_id != exclude_connection_id):
+                    
+                    success = await self._send_to_connection(connection_id, message)
+                    if success:
+                        sent_count += 1
+            
+            logger.info(f"📡 Broadcasted to room {room_name}: {sent_count} recipients")
+            return sent_count
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to broadcast to room {room_name}: {e}")
+            return sent_count
+    
+    async def get_room_participants(self, room_name: str) -> List[str]:
+        """
+        Get list of user IDs currently in a room
+        
+        Args:
+            room_name: Name of the room
+            
+        Returns:
+            List of user IDs in the room
+        """
+        try:
+            participants = []
+            for connection_id, metadata in self.connection_metadata.items():
+                if (metadata.get("connection_type") == "room" and 
+                    metadata.get("room_name") == room_name):
+                    user_id = metadata.get("user_id")
+                    if user_id and user_id not in participants:
+                        participants.append(user_id)
+            
+            return participants
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get room participants: {e}")
+            return [] 
