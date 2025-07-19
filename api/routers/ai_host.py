@@ -8,7 +8,17 @@ Provides endpoints for AI-driven conversation hosting:
 - AI conversation management
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+    WebSocket,
+    WebSocketDisconnect,
+    UploadFile,
+    File,
+    Form,
+)
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -26,11 +36,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
 # Request/Response Models
 class StartSessionRequest(BaseModel):
     user_preferences: Optional[Dict[str, Any]] = None
     language: Optional[str] = "en-US"
     voice: Optional[str] = "nova"
+
 
 class StartSessionResponse(BaseModel):
     session_id: str
@@ -38,10 +50,12 @@ class StartSessionResponse(BaseModel):
     audio_url: Optional[str] = None
     session_state: str
 
+
 class ProcessInputRequest(BaseModel):
     session_id: str
     user_input: str
-    
+
+
 class ProcessInputResponse(BaseModel):
     session_id: str
     ai_response: str
@@ -51,16 +65,17 @@ class ProcessInputResponse(BaseModel):
     generated_hashtags: List[str] = []
     next_action: Optional[str] = None
 
+
 class TTSRequest(BaseModel):
     text: str
     voice: Optional[str] = "nova"
     speed: Optional[float] = 1.0
 
 
-
 class TopicExtractionRequest(BaseModel):
     text: str
     user_context: Optional[Dict[str, Any]] = None
+
 
 class TopicExtractionResponse(BaseModel):
     main_topics: List[str]
@@ -69,6 +84,7 @@ class TopicExtractionResponse(BaseModel):
     sentiment: str
     conversation_style: str
     confidence: float
+
 
 class VoiceTopicExtractionResponse(BaseModel):
     transcription: str
@@ -79,97 +95,101 @@ class VoiceTopicExtractionResponse(BaseModel):
     conversation_style: str
     confidence: float
 
+
 # Dependency injection
 def get_ai_host_service():
     return container.get_ai_host_service()
 
+
 def get_openai_service():
     return container.get_openai_service()
+
 
 # AI Host Session Management
 @router.post("/start-session", response_model=StartSessionResponse)
 async def start_ai_session(
     request: StartSessionRequest,
-    ai_host_service = Depends(get_ai_host_service),
-    current_user: User = Depends(get_current_user)
+    ai_host_service=Depends(get_ai_host_service),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Start a new AI host session for the user
     """
     try:
         logger.info(f"🎭 Starting AI host session for user: {current_user.id}")
-        
+
         # Prepare user context
         user_context = {
             "user_id": str(current_user.id),
             "display_name": current_user.display_name,
             "email": current_user.email,
-            "preferences": request.user_preferences or {}
+            "preferences": request.user_preferences or {},
         }
-        
+
         # Start AI host session
         session = await ai_host_service.start_session(
-            user_id=current_user.id,
-            user_context=user_context
+            user_id=current_user.id, user_context=user_context
         )
-        
+
         # Get the AI greeting from conversation history
-        ai_greeting = "Hi! Welcome to VoiceApp! What topic would you like to discuss today?"
+        ai_greeting = (
+            "Hi! Welcome to VoiceApp! What topic would you like to discuss today?"
+        )
         if session.conversation_history:
             ai_greeting = session.conversation_history[-1]["message"]
-        
+
         return StartSessionResponse(
             session_id=session.session_id,
             ai_greeting=ai_greeting,
-            session_state=session.state
+            session_state=session.state,
         )
-        
+
     except Exception as e:
         logger.error(f"❌ Failed to start AI session: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start AI session: {str(e)}"
+            detail=f"Failed to start AI session: {str(e)}",
         )
+
 
 @router.post("/process-input", response_model=ProcessInputResponse)
 async def process_user_input(
     request: ProcessInputRequest,
-    ai_host_service = Depends(get_ai_host_service),
-    current_user: User = Depends(get_current_user)
+    ai_host_service=Depends(get_ai_host_service),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Process user input and get AI host response
     """
     try:
         logger.info(f"🎙️ Processing user input for session: {request.session_id}")
-        
+
         # Process user input through AI host
         response_data = await ai_host_service.process_user_input(
-            session_id=request.session_id,
-            user_input=request.user_input
+            session_id=request.session_id, user_input=request.user_input
         )
-        
+
         return ProcessInputResponse(
             session_id=request.session_id,
             ai_response=response_data.get("response_text", ""),
             session_state=response_data.get("session_state", "unknown"),
             extracted_topics=response_data.get("extracted_topics", []),
             generated_hashtags=response_data.get("generated_hashtags", []),
-            next_action=response_data.get("next_action")
+            next_action=response_data.get("next_action"),
         )
-        
+
     except Exception as e:
         logger.error(f"❌ Failed to process user input: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process input: {str(e)}"
+            detail=f"Failed to process input: {str(e)}",
         )
+
 
 # Text-to-Speech Endpoints (Urgently needed by frontend!)
 @router.post("/tts")
 async def text_to_speech(
-    request: TTSRequest,
-    openai_service = Depends(get_openai_service)
+    request: TTSRequest, openai_service=Depends(get_openai_service)
 ):
     """
     Convert text to speech using OpenAI TTS
@@ -177,18 +197,19 @@ async def text_to_speech(
     """
     try:
         logger.info(f"🔊 TTS request for text: '{request.text[:50]}...'")
-        
+
         # Debug: Check if text_to_speech is a coroutine function
         import inspect
-        logger.info(f"🔍 is coroutine? {inspect.iscoroutinefunction(openai_service.text_to_speech)}")
-        
+
+        logger.info(
+            f"🔍 is coroutine? {inspect.iscoroutinefunction(openai_service.text_to_speech)}"
+        )
+
         # Generate TTS audio
         audio_bytes = await openai_service.text_to_speech(
-            text=request.text,
-            voice=request.voice,
-            speed=request.speed
+            text=request.text, voice=request.voice, speed=request.speed
         )
-        
+
         # Return audio as streaming response
         # Use asynchronous generator function to stream audio data
         async def audio_streamer():
@@ -200,28 +221,26 @@ async def text_to_speech(
             media_type="audio/mpeg",
             headers={
                 "Content-Disposition": "inline; filename=tts_audio.mp3",
-                "Content-Length": str(len(audio_bytes))
-            }
+                "Content-Length": str(len(audio_bytes)),
+            },
         )
-        
+
     except Exception as e:
         logger.error(f"❌ TTS generation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"TTS generation failed: {str(e)}"
+            detail=f"TTS generation failed: {str(e)}",
         )
+
 
 @router.get("/test-simple")
 async def test_simple_get():
     """Test GET endpoint"""
     return {"message": "GET endpoint works", "timestamp": "test"}
 
+
 @router.head("/tts/{text}")
-async def text_to_speech_head(
-    text: str,
-    voice: str = "nova", 
-    speed: float = 1.0
-):
+async def text_to_speech_head(text: str, voice: str = "nova", speed: float = 1.0):
     """
     HEAD endpoint for TTS resource validation (for browser preflight checks)
     """
@@ -229,16 +248,17 @@ async def text_to_speech_head(
         status_code=200,
         headers={
             "Content-Type": "audio/mpeg",
-            "Content-Disposition": f"inline; filename=tts_{text[:10]}.mp3"
-        }
-        )
+            "Content-Disposition": f"inline; filename=tts_{text[:10]}.mp3",
+        },
+    )
+
 
 @router.get("/tts/{text}")
 async def text_to_speech_get(
     text: str,
     voice: str = "nova",
     speed: float = 1.0,
-    openai_service = Depends(get_openai_service)
+    openai_service=Depends(get_openai_service),
 ):
     """
     GET endpoint for TTS (convenient for frontend)
@@ -247,36 +267,32 @@ async def text_to_speech_get(
     try:
         # Generate TTS audio
         audio_bytes = await openai_service.text_to_speech(
-            text=text,
-            voice=voice,
-            speed=speed
+            text=text, voice=voice, speed=speed
         )
-        
+
         # Return audio as streaming response
         return StreamingResponse(
             io.BytesIO(audio_bytes),
             media_type="audio/mpeg",
-            headers={
-                "Content-Disposition": f"inline; filename=tts_{text[:10]}.mp3"
-            }
+            headers={"Content-Disposition": f"inline; filename=tts_{text[:10]}.mp3"},
         )
-        
+
     except Exception as e:
         logger.error(f"❌ TTS GET failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"TTS generation failed: {str(e)}"
+            detail=f"TTS generation failed: {str(e)}",
         )
+
 
 # Topic Extraction (Urgently needed by frontend!)
 @router.post("/extract-topics", response_model=TopicExtractionResponse)
 async def extract_topics(
-    request: TopicExtractionRequest,
-    current_user: User = Depends(get_current_user)
+    request: TopicExtractionRequest, current_user: User = Depends(get_current_user)
 ):
     """
     Extract topics and hashtags from text input using GPT-4
-    
+
     This endpoint analyzes text and extracts:
     - Main topics (3-5 key topics)
     - Relevant hashtags (5-8 hashtags for matching)
@@ -289,42 +305,43 @@ async def extract_topics(
         if not openai_service:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenAI service not available"
+                detail="OpenAI service not available",
             )
-        
+
         logger.info(f"🧠 Extracting topics from: '{request.text[:100]}...'")
-        
+
         # Extract topics and hashtags using GPT-4
         result = await openai_service.extract_topics_and_hashtags(
             text=request.text,
             context=request.user_context if request.user_context else {},
-            language="en-US"
+            language="en-US",
         )
-        
+
         return TopicExtractionResponse(**result)
-        
+
     except Exception as e:
         logger.error(f"❌ Topic extraction failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Topic extraction failed: {str(e)}"
+            detail=f"Topic extraction failed: {str(e)}",
         )
+
 
 @router.post("/extract-topics-from-voice", response_model=VoiceTopicExtractionResponse)
 async def extract_topics_from_voice(
     audio_file: UploadFile = File(...),
     language: str = Form("en-US"),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
     Extract topics and hashtags from voice input using Whisper + GPT-4
-    
+
     This endpoint processes voice input and extracts:
     - Speech transcription (using Whisper)
     - Main topics (using GPT-4)
     - Relevant hashtags for matching
     - Content analysis (sentiment, style, category)
-    
+
     The voice-to-hashtag pipeline:
     Voice → Whisper STT → GPT-4 Topic Analysis → Hashtags for Matching
     """
@@ -333,51 +350,55 @@ async def extract_topics_from_voice(
         if not openai_service:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenAI service not available"
+                detail="OpenAI service not available",
             )
-        
+
         # Validate file type
-        if not audio_file.content_type or not audio_file.content_type.startswith("audio/"):
+        if not audio_file.content_type or not audio_file.content_type.startswith(
+            "audio/"
+        ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File must be an audio file"
+                detail="File must be an audio file",
             )
-        
+
         # Read audio content
         audio_content = await audio_file.read()
-        
+
         # Check file size (max 25MB)
         if len(audio_content) > 25 * 1024 * 1024:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Audio file too large. Maximum size is 25MB."
+                detail="Audio file too large. Maximum size is 25MB.",
             )
-        
-        logger.info(f"🎙️ Processing voice input for topic extraction: {len(audio_content)/1024/1024:.2f}MB")
-        
+
+        logger.info(
+            f"🎙️ Processing voice input for topic extraction: {len(audio_content)/1024/1024:.2f}MB"
+        )
+
         # Process voice to extract topics and hashtags
         result = await openai_service.process_voice_for_hashtags(
             audio_data=audio_content,
-            audio_format=audio_file.content_type.split('/')[-1],
-            language=language
+            audio_format=audio_file.content_type.split("/")[-1],
+            language=language,
         )
-        
+
         if result.get("error"):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result["error"]
+                status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"]
             )
-        
+
         return VoiceTopicExtractionResponse(**result)
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"❌ Voice topic extraction failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Voice topic extraction failed: {str(e)}"
+            detail=f"Voice topic extraction failed: {str(e)}",
         )
+
 
 # NEW: Speech-to-Text Upload Endpoint (Core Feature!)
 class STTResponse(BaseModel):
@@ -389,59 +410,65 @@ class STTResponse(BaseModel):
     extracted_topics: Optional[List[str]] = None
     generated_hashtags: Optional[List[str]] = None
 
+
 @router.post("/upload-audio", response_model=STTResponse)
 async def upload_audio_for_stt(
     audio_file: UploadFile = File(...),
     extract_topics: bool = True,
     language: Optional[str] = None,
-    openai_service = Depends(get_openai_service),
-    current_user: User = Depends(get_current_user)
+    openai_service=Depends(get_openai_service),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Upload audio file for speech-to-text transcription
-    
+
     Core user workflow: User registers and directly uploads speech saying what they want to talk about
     """
     try:
         logger.info(f"🎙️ Processing audio upload for user: {current_user.id}")
         logger.info(f"📁 File: {audio_file.filename}, type: {audio_file.content_type}")
-        
+
         # Validate file type
-        allowed_types = ["audio/wav", "audio/mpeg", "audio/mp3", "audio/m4a", "audio/ogg"]
+        allowed_types = [
+            "audio/wav",
+            "audio/mpeg",
+            "audio/mp3",
+            "audio/m4a",
+            "audio/ogg",
+        ]
         if audio_file.content_type not in allowed_types:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported audio format. Allowed: {', '.join(allowed_types)}"
+                detail=f"Unsupported audio format. Allowed: {', '.join(allowed_types)}",
             )
-        
+
         # Check file size (max 25MB for OpenAI Whisper)
         max_size = 25 * 1024 * 1024  # 25MB
         audio_content = await audio_file.read()
         if len(audio_content) > max_size:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Audio file too large. Maximum size is 25MB."
+                detail="Audio file too large. Maximum size is 25MB.",
             )
-        
+
         logger.info(f"📏 Audio file size: {len(audio_content)/1024/1024:.2f}MB")
-        
+
         # Create BytesIO object for OpenAI API
         audio_buffer = io.BytesIO(audio_content)
         audio_buffer.name = audio_file.filename or "audio.mp3"
-        
+
         # Perform STT using OpenAI Whisper
         stt_result = await openai_service.speech_to_text(
-            audio_file=audio_buffer,
-            language=language
+            audio_file=audio_buffer, language=language
         )
-        
+
         transcription = stt_result["text"]
         logger.info(f"✅ STT completed: '{transcription[:100]}...'")
-        
+
         # Optional: Extract topics and hashtags
         extracted_topics = None
         generated_hashtags = None
-        
+
         if extract_topics and transcription.strip():
             try:
                 topic_data = await openai_service.extract_topics_and_hashtags(
@@ -449,18 +476,18 @@ async def upload_audio_for_stt(
                     context={
                         "user_id": str(current_user.id),
                         "source": "voice_upload",
-                        "language": stt_result.get("language", "en-US")
-                    }
+                        "language": stt_result.get("language", "en-US"),
+                    },
                 )
-                
+
                 extracted_topics = topic_data.get("main_topics", [])
                 generated_hashtags = topic_data.get("hashtags", [])
-                
+
                 logger.info(f"🏷️ Extracted hashtags: {generated_hashtags}")
-                
+
             except Exception as e:
                 logger.warning(f"⚠️ Topic extraction failed, but STT succeeded: {e}")
-        
+
         return STTResponse(
             transcription=transcription,
             language=stt_result.get("language", "unknown"),
@@ -468,9 +495,9 @@ async def upload_audio_for_stt(
             confidence=stt_result.get("confidence", 0.0),
             words=stt_result.get("words", []),
             extracted_topics=extracted_topics,
-            generated_hashtags=generated_hashtags
+            generated_hashtags=generated_hashtags,
         )
-        
+
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
@@ -478,8 +505,9 @@ async def upload_audio_for_stt(
         logger.error(f"❌ Audio upload STT failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Audio processing failed: {str(e)}"
+            detail=f"Audio processing failed: {str(e)}",
         )
+
 
 # Real-time Subtitle WebSocket (Urgently needed by frontend!)
 @router.websocket("/live-subtitle")
@@ -492,32 +520,36 @@ async def websocket_live_subtitle(websocket: WebSocket):
         # Accept WebSocket connection
         await websocket.accept()
         logger.info("🎬 Live subtitle WebSocket connected")
-        
+
         # Send welcome message
-        await websocket.send_text(json.dumps({
-            "type": "connected",
-            "message": "Live subtitle service ready",
-            "timestamp": datetime.utcnow().isoformat()
-        }))
-        
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "type": "connected",
+                    "message": "Live subtitle service ready",
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            )
+        )
+
         # Listen for messages
         while True:
             try:
                 # Receive message from client
                 message = await websocket.receive_text()
                 data = json.loads(message)
-                
+
                 if data.get("type") == "text":
                     # Generate subtitle for text
                     subtitle_data = {
                         "type": "subtitle",
                         "text": data.get("text", ""),
                         "timestamp": datetime.utcnow().isoformat(),
-                        "duration": len(data.get("text", "")) * 0.1  # Rough estimate
+                        "duration": len(data.get("text", "")) * 0.1,  # Rough estimate
                     }
-                    
+
                     await websocket.send_text(json.dumps(subtitle_data))
-                    
+
                 elif data.get("type") == "audio":
                     # Process audio for real-time STT and subtitle generation
                     try:
@@ -525,69 +557,82 @@ async def websocket_live_subtitle(websocket: WebSocket):
                         if audio_data:
                             # Decode base64 audio data
                             import base64
+
                             audio_bytes = base64.b64decode(audio_data)
-                            
+
                             # Create audio buffer for STT
                             audio_buffer = io.BytesIO(audio_bytes)
                             audio_buffer.name = "realtime_audio.wav"
-                            
+
                             # Get OpenAI service instance
                             openai_service = container.get_openai_service()
-                            
+
                             # Perform STT
                             stt_result = await openai_service.speech_to_text(
                                 audio_file=audio_buffer,
-                                language=data.get("language", "en-US")
+                                language=data.get("language", "en-US"),
                             )
-                            
+
                             # Send subtitle with transcription
-                            await websocket.send_text(json.dumps({
-                                "type": "subtitle",
-                                "text": stt_result["text"],
-                                "language": stt_result.get("language", "unknown"),
-                                "confidence": stt_result.get("confidence", 0.0),
-                                "timestamp": datetime.utcnow().isoformat()
-                            }))
-                            
+                            await websocket.send_text(
+                                json.dumps(
+                                    {
+                                        "type": "subtitle",
+                                        "text": stt_result["text"],
+                                        "language": stt_result.get(
+                                            "language", "unknown"
+                                        ),
+                                        "confidence": stt_result.get("confidence", 0.0),
+                                        "timestamp": datetime.utcnow().isoformat(),
+                                    }
+                                )
+                            )
+
                         else:
-                            await websocket.send_text(json.dumps({
-                                "type": "error",
-                                "message": "No audio data provided"
-                            }))
-                            
+                            await websocket.send_text(
+                                json.dumps(
+                                    {
+                                        "type": "error",
+                                        "message": "No audio data provided",
+                                    }
+                                )
+                            )
+
                     except Exception as e:
                         logger.error(f"❌ Real-time STT failed: {e}")
-                        await websocket.send_text(json.dumps({
-                            "type": "subtitle",
-                            "text": "[Speech recognition failed]",
-                            "error": str(e),
-                            "timestamp": datetime.utcnow().isoformat()
-                        }))
-                
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "subtitle",
+                                    "text": "[Speech recognition failed]",
+                                    "error": str(e),
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                }
+                            )
+                        )
+
                 elif data.get("type") == "ping":
                     # Respond to ping
-                    await websocket.send_text(json.dumps({
-                        "type": "pong",
-                        "timestamp": datetime.utcnow().isoformat()
-                    }))
-                    
+                    await websocket.send_text(
+                        json.dumps(
+                            {"type": "pong", "timestamp": datetime.utcnow().isoformat()}
+                        )
+                    )
+
             except json.JSONDecodeError:
-                await websocket.send_text(json.dumps({
-                    "type": "error",
-                    "message": "Invalid JSON format"
-                }))
-                
+                await websocket.send_text(
+                    json.dumps({"type": "error", "message": "Invalid JSON format"})
+                )
+
     except WebSocketDisconnect:
         logger.info("🎬 Live subtitle WebSocket disconnected")
     except Exception as e:
         logger.error(f"❌ Live subtitle WebSocket error: {e}")
         try:
-            await websocket.send_text(json.dumps({
-                "type": "error", 
-                "message": str(e)
-            }))
+            await websocket.send_text(json.dumps({"type": "error", "message": str(e)}))
         except:
             pass
+
 
 # Voice Chat WebSocket (Complete AI Host Interaction)
 @router.websocket("/voice-chat")
@@ -596,75 +641,95 @@ async def websocket_voice_chat(websocket: WebSocket):
     AI Host Voice Chat WebSocket
     Supports real-time voice communication with GPT-4o Realtime Preview
     """
-        await websocket.accept()
+    await websocket.accept()
     logger.info("🎙️ AI Host voice chat WebSocket connected")
-        
-        session_id = None
+
+    session_id = None
     authenticated_user = None
-        
+
     try:
         while True:
             try:
                 message = await websocket.receive_text()
                 data = json.loads(message)
-                
+
                 # Handle authentication first
                 if data.get("type") == "auth":
                     try:
                         token = data.get("token")
                         if not token:
-                            await websocket.send_text(json.dumps({
-                                "type": "error",
-                                "message": "Authentication token required"
-                            }))
+                            await websocket.send_text(
+                                json.dumps(
+                                    {
+                                        "type": "error",
+                                        "message": "Authentication token required",
+                                    }
+                                )
+                            )
                             continue
-                        
+
                         # Verify Firebase token
-                        from infrastructure.middleware.firebase_auth_middleware import FirebaseAuthMiddleware
+                        from infrastructure.middleware.firebase_auth_middleware import (
+                            FirebaseAuthMiddleware,
+                        )
                         from infrastructure.container import container
-                        
-                        auth_middleware = FirebaseAuthMiddleware(container.get_user_repository())
+
+                        auth_middleware = FirebaseAuthMiddleware(
+                            container.get_user_repository()
+                        )
                         decoded_token = auth_middleware.verify_firebase_token(token)
-                        firebase_uid = decoded_token['uid']
-                        
+                        firebase_uid = decoded_token["uid"]
+
                         # Find user
                         user_repo = container.get_user_repository()
-                        authenticated_user = user_repo.find_by_firebase_uid(firebase_uid)
-                        
+                        authenticated_user = user_repo.find_by_firebase_uid(
+                            firebase_uid
+                        )
+
                         if not authenticated_user:
-                            await websocket.send_text(json.dumps({
-                                "type": "error",
-                                "message": "User not found"
-                            }))
+                            await websocket.send_text(
+                                json.dumps(
+                                    {"type": "error", "message": "User not found"}
+                                )
+                            )
                             continue
-                        
-                        await websocket.send_text(json.dumps({
-                            "type": "authenticated",
-                            "user_id": str(authenticated_user.id),
-                            "display_name": authenticated_user.display_name,
-                            "timestamp": datetime.utcnow().isoformat()
-                        }))
-                        
+
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "authenticated",
+                                    "user_id": str(authenticated_user.id),
+                                    "display_name": authenticated_user.display_name,
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                }
+                            )
+                        )
+
                     except Exception as e:
                         logger.error(f"❌ WebSocket authentication failed: {e}")
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "message": "Authentication failed"
-                        }))
+                        await websocket.send_text(
+                            json.dumps(
+                                {"type": "error", "message": "Authentication failed"}
+                            )
+                        )
                         continue
-                
+
                 # Require authentication for all other operations
                 if not authenticated_user:
-                    await websocket.send_text(json.dumps({
-                        "type": "error",
-                        "message": "Please authenticate first by sending auth message with token"
-                    }))
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "message": "Please authenticate first by sending auth message with token",
+                            }
+                        )
+                    )
                     continue
-                
+
                 if data.get("type") == "start_session":
                     # Start AI host session
                     ai_host_service = container.get_ai_host_service()
-                    
+
                     if ai_host_service:
                         try:
                             session = await ai_host_service.start_session(
@@ -672,98 +737,132 @@ async def websocket_voice_chat(websocket: WebSocket):
                                 user_context={
                                     "user_id": str(authenticated_user.id),
                                     "display_name": authenticated_user.display_name,
-                                    "email": authenticated_user.email
-                                }
+                                    "email": authenticated_user.email,
+                                },
                             )
                             session_id = session.session_id
-                            
-                            await websocket.send_text(json.dumps({
-                                "type": "session_started",
-                                "session_id": session_id,
-                                "ai_greeting": "Hi! Welcome to VoiceApp! What topic would you like to discuss today?",
-                                "timestamp": datetime.utcnow().isoformat()
-                            }))
+
+                            await websocket.send_text(
+                                json.dumps(
+                                    {
+                                        "type": "session_started",
+                                        "session_id": session_id,
+                                        "ai_greeting": "Hi! Welcome to VoiceApp! What topic would you like to discuss today?",
+                                        "timestamp": datetime.utcnow().isoformat(),
+                                    }
+                                )
+                            )
                         except Exception as e:
                             logger.error(f"❌ Failed to start AI session: {e}")
-                            await websocket.send_text(json.dumps({
-                                "type": "error",
-                                "message": f"Failed to start session: {str(e)}"
-                            }))
+                            await websocket.send_text(
+                                json.dumps(
+                                    {
+                                        "type": "error",
+                                        "message": f"Failed to start session: {str(e)}",
+                                    }
+                                )
+                            )
                     else:
                         # Fallback without AI service
                         session_id = f"ws_session_{authenticated_user.id}_{datetime.utcnow().timestamp()}"
-                    await websocket.send_text(json.dumps({
-                        "type": "session_started",
-                        "session_id": session_id,
-                        "ai_greeting": "Hi! Welcome to VoiceApp! What topic would you like to discuss today?",
-                        "timestamp": datetime.utcnow().isoformat()
-                    }))
-                
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "session_started",
+                                    "session_id": session_id,
+                                    "ai_greeting": "Hi! Welcome to VoiceApp! What topic would you like to discuss today?",
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                }
+                            )
+                        )
+
                 elif data.get("type") == "user_input":
                     if not session_id:
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "message": "No active session. Please start a session first."
-                        }))
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "error",
+                                    "message": "No active session. Please start a session first.",
+                                }
+                            )
+                        )
                         continue
-                    
+
                     user_text = data.get("text", "")
-                    
+
                     # Process through AI host service
                     ai_host_service = container.get_ai_host_service()
                     if ai_host_service:
                         try:
                             response = await ai_host_service.process_user_input(
-                                session_id=session_id,
-                                user_input=user_text
+                                session_id=session_id, user_input=user_text
                             )
-                            
-                            await websocket.send_text(json.dumps({
-                                "type": "ai_response",
-                                "text": response.get("response_text", "I understand!"),
-                                "session_id": session_id,
-                                "extracted_topics": response.get("extracted_topics", []),
-                                "generated_hashtags": response.get("generated_hashtags", []),
-                                "session_state": response.get("session_state", "active"),
-                                "timestamp": datetime.utcnow().isoformat()
-                            }))
+
+                            await websocket.send_text(
+                                json.dumps(
+                                    {
+                                        "type": "ai_response",
+                                        "text": response.get(
+                                            "response_text", "I understand!"
+                                        ),
+                                        "session_id": session_id,
+                                        "extracted_topics": response.get(
+                                            "extracted_topics", []
+                                        ),
+                                        "generated_hashtags": response.get(
+                                            "generated_hashtags", []
+                                        ),
+                                        "session_state": response.get(
+                                            "session_state", "active"
+                                        ),
+                                        "timestamp": datetime.utcnow().isoformat(),
+                                    }
+                                )
+                            )
                         except Exception as e:
                             logger.error(f"❌ Failed to process user input: {e}")
-                            await websocket.send_text(json.dumps({
-                                "type": "error",
-                                "message": f"Failed to process input: {str(e)}"
-                            }))
+                            await websocket.send_text(
+                                json.dumps(
+                                    {
+                                        "type": "error",
+                                        "message": f"Failed to process input: {str(e)}",
+                                    }
+                                )
+                            )
                     else:
                         # Fallback response
-                    await websocket.send_text(json.dumps({
-                        "type": "ai_response",
-                        "text": f"I heard you say: {user_text}. This is interesting!",
-                        "session_id": session_id,
-                        "timestamp": datetime.utcnow().isoformat()
-                    }))
-                
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "ai_response",
+                                    "text": f"I heard you say: {user_text}. This is interesting!",
+                                    "session_id": session_id,
+                                    "timestamp": datetime.utcnow().isoformat(),
+                                }
+                            )
+                        )
+
                 elif data.get("type") == "ping":
-                    await websocket.send_text(json.dumps({
-                        "type": "pong",
-                        "timestamp": datetime.utcnow().isoformat()
-                    }))
-                    
+                    await websocket.send_text(
+                        json.dumps(
+                            {"type": "pong", "timestamp": datetime.utcnow().isoformat()}
+                        )
+                    )
+
             except json.JSONDecodeError:
-                await websocket.send_text(json.dumps({
-                    "type": "error",
-                    "message": "Invalid JSON format"
-                }))
-                
+                await websocket.send_text(
+                    json.dumps({"type": "error", "message": "Invalid JSON format"})
+                )
+
     except WebSocketDisconnect:
         logger.info("🎤 AI voice chat WebSocket disconnected")
     except Exception as e:
         logger.error(f"❌ AI voice chat WebSocket error: {e}")
 
+
 # Health Check
 @router.get("/health")
-async def ai_host_health_check(
-    openai_service = Depends(get_openai_service)
-):
+async def ai_host_health_check(openai_service=Depends(get_openai_service)):
     """
     Check AI host service health
     """
@@ -772,27 +871,27 @@ async def ai_host_health_check(
         if openai_service:
             openai_health = openai_service.health_check()
         else:
-            openai_health = {"status": "unavailable", "error": "OpenAI service not initialized"}
-        
+            openai_health = {
+                "status": "unavailable",
+                "error": "OpenAI service not initialized",
+            }
+
         return {
             "status": "healthy" if openai_health["status"] == "healthy" else "degraded",
             "timestamp": datetime.utcnow().isoformat(),
-            "services": {
-                "openai": openai_health["status"],
-                "ai_host": "active"
-            },
+            "services": {"openai": openai_health["status"], "ai_host": "active"},
             "features": {
                 "tts": True,
                 "stt": True,
                 "topic_extraction": True,
-                "conversation_hosting": True
-            }
+                "conversation_hosting": True,
+            },
         }
-        
+
     except Exception as e:
         logger.error(f"❌ AI host health check failed: {e}")
         return {
             "status": "unhealthy",
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
-        } 
+            "timestamp": datetime.utcnow().isoformat(),
+        }
