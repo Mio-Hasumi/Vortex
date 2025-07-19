@@ -1,23 +1,16 @@
 # VoiceApp Backend API 🎙️
 
-**A fully automated, production-ready API for real-time voice conversations with AI-powered matching and documentation.**
+**A production-ready API for real-time voice conversations with AI-powered matching.**
 
-> **For Frontend Developers:** This backend provides comprehensive API documentation, automated testing, and ready-to-use integration tools. Everything you need to build amazing voice experiences is here! 🚀
+> **For Frontend Developers:** This backend provides comprehensive API documentation and ready-to-use integration tools. Everything you need to build amazing voice experiences! 🚀
 
-## 🎯 **What We've Built For You**
+## 🎯 **What We Provide**
 
-### 🤖 **Automated API Documentation System**
-We've implemented a complete automated documentation pipeline that generates:
+### 🤖 **API Documentation System**
 - **📖 Interactive Swagger UI** - Test APIs directly in your browser
 - **📬 Postman Collections** - Import and start testing immediately  
 - **📋 OpenAPI Specifications** - Generate client SDKs for any language
 - **📚 Detailed Integration Guide** - Step-by-step frontend integration instructions
-
-### 🔥 **Continuous Testing & Quality Assurance**
-- **Automated Smoke Tests** - Every API endpoint tested on each commit
-- **Performance Monitoring** - Response time and load testing
-- **Security Scanning** - Automatic vulnerability detection
-- **Multi-Environment Support** - Staging and production validation
 
 ## 📡 **API Architecture**
 
@@ -34,9 +27,7 @@ We've implemented a complete automated documentation pipeline that generates:
 
 ## 🛠️ **Getting Started for Frontend Developers**
 
-### **Option 1: Use Generated Documentation (Recommended)**
-
-**🌐 View Live API Documentation:**
+### **🌐 View Live API Documentation:**
 ```bash
 # 1. Start the server
 python3 main.py
@@ -46,32 +37,17 @@ http://localhost:8000/docs  # Interactive Swagger UI
 http://localhost:8000/openapi.json  # OpenAPI spec
 ```
 
-**📬 Import Postman Collection:**
+### **📬 Generate Postman Collection:**
 ```bash
 # Generate fresh documentation
-./scripts/run_complete_test.sh --skip-smoke
-
-# Import these files into Postman:
-- docs/VoiceApp_API.postman_collection.json
-- docs/VoiceApp_Environment.postman_environment.json
-```
-
-### **Option 2: Automated Documentation Generation**
-
-**🔄 Generate Latest Documentation:**
-```bash
-# Generate all documentation formats
 python3 scripts/generate_docs.py --base-url http://localhost:8000 --output-dir ./api-docs
 
-# What you get:
-✅ Interactive HTML documentation (api_docs.html)
-✅ Postman collection (.postman_collection.json)  
-✅ Postman environment (.postman_environment.json)
-✅ OpenAPI JSON specification (openapi.json)
-✅ Integration README with examples
+# Import these files into Postman:
+- api-docs/VoiceApp_API.postman_collection.json
+- api-docs/VoiceApp_Environment.postman_environment.json
 ```
 
-**📁 Generated Files Structure:**
+### **📁 Generated Files Structure:**
 ```
 api-docs/
 ├── api_docs.html                           # 🌐 Interactive Swagger UI
@@ -141,8 +117,7 @@ GET /api/recordings/{id}/summary
 
 ### **📖 Essential Documentation**
 - **`FRONTEND_API_GUIDE.md`** - Complete API integration guide with examples
-- **`CI_CD_GUIDE.md`** - Automated testing and deployment setup
-- **`scripts/README.md`** - Testing and documentation scripts
+- **`scripts/README.md`** - Documentation generation scripts
 
 ### **🔧 Client SDK Generation**
 ```bash
@@ -167,36 +142,14 @@ openapi-generator generate \
 # Generate fresh documentation  
 ./scripts/run_complete_test.sh
 
-# Docker-based testing
-./scripts/docker_test.sh
+# Simple documentation generation
+python3 scripts/generate_docs.py --base-url http://localhost:8000
 ```
-
-## 🚀 **Automated CI/CD System**
-
-We've implemented comprehensive CI/CD automation:
-
-### **✅ Continuous Testing**
-- Every commit triggers automatic API testing
-- Performance benchmarks on all endpoints
-- Security vulnerability scanning
-- Documentation freshness validation
-
-### **📚 Automated Documentation**
-- OpenAPI specs updated on every release
-- Postman collections auto-generated
-- Interactive documentation deployed
-- Frontend integration examples maintained
-
-### **🌐 Multi-Platform CI/CD**
-- **GitHub Actions** - Automatic PR testing and documentation deployment
-- **GitLab CI/CD** - Docker-based testing with GitLab Pages
-- **Jenkins** - Enterprise CI/CD with Slack notifications
-- **Docker** - Containerized testing for consistency
 
 ## 🎯 **Quick Integration Checklist**
 
 ### **For React/Vue/Angular Developers:**
-- [ ] Import Postman collection from `docs/VoiceApp_API.postman_collection.json`
+- [ ] Import Postman collection from `api-docs/VoiceApp_API.postman_collection.json`
 - [ ] Generate TypeScript client from OpenAPI spec
 - [ ] Review authentication flow in `FRONTEND_API_GUIDE.md`
 - [ ] Test WebSocket connections for real-time features
@@ -241,37 +194,26 @@ We've implemented comprehensive CI/CD automation:
 ### **📖 Documentation Locations**
 - **Live API Docs**: `http://localhost:8000/docs`
 - **Integration Guide**: `FRONTEND_API_GUIDE.md`
-- **Generated Docs**: `./docs/` (after running scripts)
-- **Postman Collections**: `./docs/*.postman_collection.json`
+- **Generated Docs**: `./api-docs/` (after running scripts)
+- **Postman Collections**: `./api-docs/*.postman_collection.json`
 
 ### **🧪 Testing & Validation**
 ```bash
 # Quick API health check
 curl http://localhost:8000/
 
-# Full API testing suite
-./scripts/run_complete_test.sh
-
 # Generate fresh documentation
 python3 scripts/generate_docs.py --base-url http://localhost:8000
 ```
-
-### **🚀 Ready to Deploy**
-Our automated CI/CD system ensures:
-- ✅ All APIs tested and validated
-- ✅ Documentation always up-to-date
-- ✅ Performance benchmarks maintained
-- ✅ Security vulnerabilities detected
-- ✅ Multi-environment deployment ready
 
 ---
 
 ## 🎉 **Start Building Amazing Voice Experiences!**
 
-With our automated documentation, comprehensive testing, and developer-friendly tools, you have everything needed to build incredible voice-powered applications. 
+With our comprehensive documentation and developer-friendly tools, you have everything needed to build incredible voice-powered applications. 
 
 **Happy coding!** 🚀
 
 ---
 
-*This README is automatically updated by our CI/CD pipeline. Last updated: $(date)*
+*This README focuses on core functionality and developer experience.*

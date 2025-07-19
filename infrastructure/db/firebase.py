@@ -52,6 +52,14 @@ class FirebaseAdminService:
         if self._app is not None:
             return
         
+        # Check if running in testing mode
+        import os
+        testing_mode = os.getenv('TESTING', 'false').lower() == 'true'
+        
+        if testing_mode:
+            logger.info("🧪 Running in testing mode - skipping Firebase initialization")
+            return
+        
         try:
             # Try to get existing app
             self._app = firebase_admin.get_app()
