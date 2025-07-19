@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from uuid import UUID
 import io
+import os
 
 from infrastructure.container import container
 from infrastructure.middleware.firebase_auth_middleware import get_current_user
@@ -297,8 +298,12 @@ async def share_recording(recording_id: str):
         # 1. Generate temporary access token
         # 2. Create shareable URL
         
+        # Generate dynamic share URL based on current domain
+        base_domain = os.getenv('RAILWAY_PUBLIC_DOMAIN', 'localhost:8000')
+        protocol = 'https' if 'railway.app' in base_domain else 'http'
+        
         return {
-            "share_url": f"https://voiceapp.com/shared/recordings/{recording_id}?token=abc123",
+            "share_url": f"{protocol}://{base_domain}/shared/recordings/{recording_id}?token=abc123",
             "expires_at": "2023-12-02T10:00:00Z"
         }
     except Exception as e:
