@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     
     # Redis - Railway auto-injection support
     REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_PUBLIC_URL: str = ""
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
@@ -81,8 +82,22 @@ class Settings(BaseSettings):
         if self.REDISPASSWORD:
             self.REDIS_PASSWORD = self.REDISPASSWORD
         
-        # Priority 2: Parse REDIS_URL if it's not localhost
-        if self.REDIS_URL and self.REDIS_URL != "redis://localhost:6379/0":
+        # Priority 2: Parse REDIS_PUBLIC_URL (preferred for external access)
+        if self.REDIS_PUBLIC_URL:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(self.REDIS_PUBLIC_URL)
+                if parsed.hostname and not self.REDISHOST:
+                    self.REDIS_HOST = parsed.hostname
+                if parsed.port and not self.REDISPORT:
+                    self.REDIS_PORT = parsed.port
+                if parsed.password and not self.REDISPASSWORD:
+                    self.REDIS_PASSWORD = parsed.password
+            except Exception:
+                pass
+        
+        # Priority 3: Parse REDIS_URL if it's not localhost
+        elif self.REDIS_URL and self.REDIS_URL != "redis://localhost:6379/0":
             try:
                 from urllib.parse import urlparse
                 parsed = urlparse(self.REDIS_URL)

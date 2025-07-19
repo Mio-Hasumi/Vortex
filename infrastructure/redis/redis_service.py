@@ -25,11 +25,15 @@ class RedisService:
         
     def _build_redis_url(self) -> str:
         """Build Redis URL from configuration"""
-        # First try to use existing REDIS_URL if it's not the default localhost
+        # Priority 1: Use REDIS_PUBLIC_URL (preferred for Railway external access)
+        if hasattr(self.settings, 'REDIS_PUBLIC_URL') and self.settings.REDIS_PUBLIC_URL:
+            return self.settings.REDIS_PUBLIC_URL
+        
+        # Priority 2: Use REDIS_URL if it's not the default localhost
         if hasattr(self.settings, 'REDIS_URL') and self.settings.REDIS_URL != 'redis://localhost:6379/0':
             return self.settings.REDIS_URL
         
-        # Build from individual components
+        # Priority 3: Build from individual components
         host = getattr(self.settings, 'REDIS_HOST', 'localhost')
         port = getattr(self.settings, 'REDIS_PORT', 6379)
         password = getattr(self.settings, 'REDIS_PASSWORD', '')
