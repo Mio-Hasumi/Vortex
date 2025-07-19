@@ -91,6 +91,10 @@ POST /api/ai-host/tts
 
 // GET method (easier for simple use)
 GET /api/ai-host/tts/Hello%20World?voice=nova&speed=1.0
+
+// HEAD method (for resource validation/preflight checks)
+HEAD /api/ai-host/tts/Hello%20World?voice=nova&speed=1.0
+// Returns: 200 OK with audio headers but no body (used by browsers for caching)
 ```
 
 #### Extract Topics from Text

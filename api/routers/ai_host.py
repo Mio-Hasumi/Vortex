@@ -9,7 +9,7 @@ Provides endpoints for AI-driven conversation hosting:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, UploadFile, File, Form
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from uuid import UUID
@@ -211,6 +211,28 @@ async def text_to_speech(
             detail=f"TTS generation failed: {str(e)}"
         )
 
+@router.get("/test-simple")
+async def test_simple_get():
+    """Test GET endpoint"""
+    return {"message": "GET endpoint works", "timestamp": "test"}
+
+@router.head("/tts/{text}")
+async def text_to_speech_head(
+    text: str,
+    voice: str = "nova", 
+    speed: float = 1.0
+):
+    """
+    HEAD endpoint for TTS resource validation (for browser preflight checks)
+    """
+    return Response(
+        status_code=200,
+        headers={
+            "Content-Type": "audio/mpeg",
+            "Content-Disposition": f"inline; filename=tts_{text[:10]}.mp3"
+        }
+    )
+
 @router.get("/tts/{text}")
 async def text_to_speech_get(
     text: str,
@@ -219,7 +241,7 @@ async def text_to_speech_get(
     openai_service = Depends(get_openai_service)
 ):
     """
-    GET endpoint for TTS (convenient for frontend)
+    GET endpoint for TTS (convenient for frontend)  
     Usage: /api/ai-host/tts/HelloWorld?voice=nova&speed=1.0
     """
     try:
@@ -275,7 +297,7 @@ async def extract_topics(
         # Extract topics and hashtags using GPT-4
         result = await openai_service.extract_topics_and_hashtags(
             text=request.text,
-            context=request.user_context.model_dump() if request.user_context else {},
+            context=request.user_context if request.user_context else {},
             language="en-US"
         )
         
