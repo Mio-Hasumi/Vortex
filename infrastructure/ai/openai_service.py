@@ -6,6 +6,7 @@ Unified voice and text processing using latest GPT-4o audio capabilities
 import base64
 import logging
 import openai
+from openai import AsyncOpenAI, DefaultAioHttpClient
 from typing import Dict, List, Any, Optional, Union, AsyncGenerator
 from datetime import datetime
 import json
@@ -23,10 +24,20 @@ class OpenAIService:
             api_key: OpenAI API key
             base_url: Optional custom base URL for OpenAI API
         """
+        # Initialize both standard and async clients
         if base_url:
             self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
+            self.async_client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url,
+                http_client=DefaultAioHttpClient()
+            )
         else:
             self.client = openai.OpenAI(api_key=api_key)
+            self.async_client = AsyncOpenAI(
+                api_key=api_key,
+                http_client=DefaultAioHttpClient()
+            )
         self.api_key = api_key
         logger.info("🎵 OpenAI Service initialized with GPT-4o Audio Preview support")
 
@@ -63,17 +74,24 @@ class OpenAIService:
             # Convert audio to base64 if needed
             if isinstance(audio_data, bytes):
                 audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+            elif isinstance(audio_data, str) and audio_data.startswith('data:'):
+                # Extract base64 data from data URI
+                audio_base64 = audio_data.split('base64,')[1]
             else:
                 audio_base64 = audio_data
-            
-            # Use GPT-4o Audio Preview for unified processing
-            response = self.client.chat.completions.create(
-                model="gpt-4o-audio-preview",
-                modalities=["text", "audio"],
-                audio={"voice": "alloy", "format": "wav"},
-                messages=[
-                    {
-                        "role": "system", 
+
+            # Use GPT-4o Audio Preview with Realtime API
+            async with self.async_client.beta.realtime.connect(
+                model="gpt-4o-realtime-preview"
+            ) as connection:
+                # Enable text + audio modalities
+                await connection.session.update(session={"modalities": ["text", "audio"]})
+
+                # Send system prompt
+                await connection.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "system",
                         "content": f"""You are an intelligent voice matching assistant. Users will tell you what topics they want to discuss, please:
 
 1. Understand the user's voice content
@@ -90,8 +108,13 @@ Please return in JSON format:
 }}
 
 Also respond with a friendly voice to confirm understanding and inform that matching is in progress."""
-                    },
-                    {
+                    }
+                )
+
+                # Send audio message
+                await connection.conversation.item.create(
+                    item={
+                        "type": "message",
                         "role": "user",
                         "content": [
                             {
@@ -103,37 +126,49 @@ Also respond with a friendly voice to confirm understanding and inform that matc
                             }
                         ]
                     }
-                ]
-            )
-            
-            # Extract response
-            message = response.choices[0].message
-            
-            # Parse JSON response from text
-            result_data = {}
-            if message.content:
+                )
+
+                # Request response generation
+                await connection.response.create()
+
+                # Process streaming response
+                text_chunks = []
+                audio_chunks = []
+                result_data = {}
+
+                async for event in connection:
+                    if event.type == "response.text.delta":
+                        text_chunks.append(event.delta)
+                    elif event.type == "response.audio":
+                        audio_chunks.append(event.audio.data)
+                    elif event.type == "response.done":
+                        break
+
+                # Combine text response
+                text_response = "".join(text_chunks)
+
                 try:
-                    result_data = json.loads(message.content)
+                    # Try to parse JSON from text response
+                    result_data = json.loads(text_response)
                 except json.JSONDecodeError:
                     logger.warning("Failed to parse JSON response, extracting manually")
                     result_data = {
-                        "understood_text": message.content,
+                        "understood_text": text_response,
                         "extracted_topics": ["General topic"],
                         "generated_hashtags": ["#general"],
                         "match_intent": "Wants to chat"
                     }
-            
-            # Add audio response
-            result_data.update({
-                "audio_response": message.audio.data if message.audio else None,
-                "text_response": message.content,
-                "audio_transcript": message.audio.transcript if message.audio else None,
-                "processing_time": datetime.utcnow().isoformat()
-            })
-            
-            logger.info(f"✅ Voice matching processed: {result_data.get('extracted_topics', [])}")
-            return result_data
-            
+
+                # Add audio response
+                result_data.update({
+                    "audio_response": b"".join(audio_chunks),
+                    "text_response": text_response,
+                    "processing_time": datetime.utcnow().isoformat()
+                })
+
+                logger.info(f"✅ Voice matching processed: {result_data.get('extracted_topics', [])}")
+                return result_data
+
         except Exception as e:
             logger.error(f"❌ Voice input processing failed: {e}")
             return {
@@ -176,12 +211,20 @@ Also respond with a friendly voice to confirm understanding and inform that matc
         """
         try:
             logger.info(f"🎭 AI moderating room conversation in {moderation_mode} mode...")
-            
-            # Build conversation context
-            context_messages = [
-                {
-                    "role": "system",
-                    "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
+
+            # Use GPT-4o Audio Preview with Realtime API
+            async with self.async_client.beta.realtime.connect(
+                model="gpt-4o-realtime-preview"
+            ) as connection:
+                # Enable text + audio modalities
+                await connection.session.update(session={"modalities": ["text", "audio"]})
+
+                # Send system prompt
+                await connection.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "system",
+                        "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
 
 Your responsibilities:
 1.  Engage the conversation: Actively provide topics when the conversation is cold
@@ -194,64 +237,82 @@ Current room participants: {', '.join(room_participants or [])}
 
 Please provide an appropriate response based on the input content, which can be a voice response, a text suggestion, or a topic recommendation.
 The response should be natural, friendly, and helpful."""
-                }
-            ]
-            
-            # Add conversation history
-            if conversation_context:
-                context_messages.extend(conversation_context[-10:])  # Last 10 messages
-            
-            # Build user message
-            user_content = []
-            if audio_data:
-                if isinstance(audio_data, bytes):
-                    audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-                else:
-                    audio_base64 = audio_data
-                    
-                user_content.append({
-                    "type": "input_audio",
-                    "input_audio": {
-                        "data": audio_base64,
-                        "format": "wav"
                     }
-                })
-            
-            if text_input:
-                user_content.append({
-                    "type": "input_text",
-                    "text": text_input
-                })
-            
-            context_messages.append({
-                "role": "user",
-                "content": user_content if user_content else [{"type": "input_text", "text": "Please assist in moderating the conversation"}]
-            })
-            
-            # Generate AI moderator response
-            response = await asyncio.to_thread(
-                self.client.chat.completions.create,
-                model="gpt-4o-audio-preview",
-                modalities=["text", "audio"],
-                audio={"voice": "nova", "format": "wav"},  # Use more lively voice
-                messages=context_messages,
-                max_tokens=300
-            )
-            
-            message = response.choices[0].message
-            
-            return {
-                "ai_response": {
-                    "text": message.content,
-                    "audio": message.audio.data if message.audio else None,
-                    "audio_transcript": message.audio.transcript if message.audio else None
-                },
-                "moderation_type": moderation_mode,
-                "suggestions": self._extract_suggestions(message.content or ""),
-                "timestamp": datetime.utcnow().isoformat(),
-                "participants": room_participants
-            }
-            
+                )
+
+                # Add conversation history
+                if conversation_context:
+                    for msg in conversation_context[-10:]:  # Last 10 messages
+                        await connection.conversation.item.create(
+                            item={
+                                "type": "message",
+                                "role": msg["role"],
+                                "content": msg["content"]
+                            }
+                        )
+
+                # Build user message
+                user_content = []
+                if audio_data:
+                    if isinstance(audio_data, bytes):
+                        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                    else:
+                        audio_base64 = audio_data
+                        
+                    user_content.append({
+                        "type": "input_audio",
+                        "input_audio": {
+                            "data": audio_base64,
+                            "format": "wav"
+                        }
+                    })
+                
+                if text_input:
+                    user_content.append({
+                        "type": "input_text",
+                        "text": text_input
+                    })
+
+                # Send user message
+                await connection.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "user",
+                        "content": user_content if user_content else [{"type": "input_text", "text": "Please assist in moderating the conversation"}]
+                    }
+                )
+
+                # Request response generation
+                await connection.response.create()
+
+                # Process streaming response
+                text_chunks = []
+                audio_chunks = []
+
+                async for event in connection:
+                    if event.type == "response.text.delta":
+                        text_chunks.append(event.delta)
+                    elif event.type == "response.audio":
+                        audio_chunks.append(event.audio.data)
+                    elif event.type == "response.done":
+                        break
+
+                # Combine responses
+                text_response = "".join(text_chunks)
+                audio_response = b"".join(audio_chunks)
+
+                return {
+                    "ai_response": {
+                        "text": text_response,
+                        "audio": audio_response,
+                        "audio_transcript": None  # Realtime API doesn't provide transcript
+                    },
+                    "moderation_type": moderation_mode,
+                    "suggestions": self._extract_suggestions(text_response),
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "participants": room_participants
+                }
+
         except Exception as e:
             logger.error(f"❌ Room moderation failed: {e}")
             return {
@@ -260,6 +321,275 @@ The response should be natural, friendly, and helpful."""
                     "audio": None
                 },
                 "error": str(e)
+            }
+
+    async def generate_ai_host_response(
+        self,
+        user_input: str,
+        conversation_state: str,
+        user_context: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate AI host response based on conversation state
+        
+        Args:
+            user_input: User's input message
+            conversation_state: Current conversation state (greeting, topic_inquiry, matching, hosting)
+            user_context: User profile and context information
+            
+        Returns:
+            Dictionary with AI response text and metadata
+        """
+        try:
+            logger.info(f"🎭 Generating AI host response for state: {conversation_state}")
+            
+            # Define system prompts for different states
+            system_prompts = {
+                "greeting": f"""You are a friendly AI host for VoiceApp. A user has just logged in. Your role is to:
+1. Welcome them warmly
+2. Briefly explain what VoiceApp is about (voice-based social matching)
+3. Ask what topics they'd like to discuss today
+4. Keep it conversational and engaging
+
+User context: {json.dumps(user_context or {}, indent=2)}
+Respond in a warm, natural tone.""",
+
+                "topic_inquiry": f"""You are an AI host helping users find conversation topics. The user has responded to your greeting. Your role is to:
+1. Acknowledge their response
+2. Help them identify specific topics they want to discuss
+3. Ask follow-up questions to understand their interests better
+4. Guide them toward expressing clear topic preferences
+
+User context: {json.dumps(user_context or {}, indent=2)}
+Be encouraging and help them articulate their interests.""",
+
+                "matching": f"""You are an AI host managing the matching process. Your role is to:
+1. Confirm the topics they want to discuss
+2. Explain that you're finding compatible conversation partners
+3. Provide encouraging updates about the matching process
+4. Keep them engaged while matching happens
+
+User context: {json.dumps(user_context or {}, indent=2)}
+Be positive and reassuring about finding great matches.""",
+
+                "hosting": f"""You are an AI conversation host facilitating a live discussion. Your role is to:
+1. Guide the conversation flow
+2. Suggest new topics when conversation stalls
+3. Ensure everyone gets to participate
+4. Provide interesting facts or questions related to the topic
+5. Keep the atmosphere friendly and engaging
+
+User context: {json.dumps(user_context or {}, indent=2)}
+Be an active, helpful conversation facilitator."""
+            }
+            
+            # Get appropriate system prompt
+            system_prompt = system_prompts.get(conversation_state, system_prompts["greeting"])
+            
+            # Use GPT-4 for reliable text generation (save Realtime API for full audio interactions)
+            response = await asyncio.to_thread(
+                lambda: self.client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": system_prompt
+                        },
+                        {
+                            "role": "user", 
+                            "content": user_input
+                        }
+                    ],
+                    max_tokens=200,
+                    temperature=0.7
+                )
+            )
+            
+            response_text = response.choices[0].message.content
+            
+            logger.info(f"✅ AI host response generated for state: {conversation_state}")
+            
+            return {
+                "response_text": response_text,
+                "conversation_state": conversation_state,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to generate AI host response: {e}")
+            
+            # Fallback responses based on state
+            fallback_responses = {
+                "greeting": "Hello! Welcome to VoiceApp! I'm here to help you find interesting people to chat with. What topics would you like to discuss today?",
+                "topic_inquiry": "That sounds interesting! Can you tell me more about what specific aspects you'd like to explore?",
+                "matching": "Great choice of topics! I'm finding the perfect conversation partners for you. This should just take a moment!",
+                "hosting": "That's a fascinating point! What do others think about this?"
+            }
+            
+            return {
+                "response_text": fallback_responses.get(conversation_state, "I'm here to help! What would you like to talk about?"),
+                "conversation_state": conversation_state,
+                "error": str(e),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+    async def generate_conversation_summary(
+        self,
+        conversation_text: str,
+        context: Dict[str, Any] = None,
+        summary_type: str = "detailed"
+    ) -> Dict[str, Any]:
+        """
+        Generate AI-powered conversation summary
+        
+        Args:
+            conversation_text: Full conversation transcript
+            context: Additional context about the conversation
+            summary_type: Type of summary (brief, detailed, highlights)
+            
+        Returns:
+            Summary data with insights and key points
+        """
+        try:
+            logger.info(f"📝 Generating {summary_type} conversation summary")
+            
+            if not self.client:
+                raise Exception("OpenAI client not initialized")
+            
+            # Build prompt based on summary type
+            if summary_type == "brief":
+                prompt = f"""
+                Provide a brief 2-3 sentence summary of this conversation:
+                
+                {conversation_text}
+                
+                Focus on the main topic and key outcomes.
+                """
+            elif summary_type == "highlights":
+                prompt = f"""
+                Extract the most interesting and important highlights from this conversation:
+                
+                {conversation_text}
+                
+                Provide 3-5 key highlights that capture the essence of the discussion.
+                """
+            else:  # detailed
+                prompt = f"""
+                Analyze this conversation and provide a comprehensive summary:
+                
+                {conversation_text}
+                
+                Please provide:
+                1. Brief summary (2-3 sentences)
+                2. Detailed summary (1-2 paragraphs)
+                3. Key points discussed (bullet points)
+                4. Notable highlights or quotes
+                5. Action items or next steps (if any)
+                6. Overall insights and themes
+                
+                Format your response as a structured analysis.
+                """
+            
+            # Add context information
+            if context:
+                speakers = context.get("speakers", [])
+                duration = context.get("duration", 0)
+                prompt += f"\n\nContext: This conversation involved {len(speakers)} participants"
+                if duration > 0:
+                    prompt += f" and lasted {duration} seconds"
+                prompt += "."
+            
+            # Generate summary using GPT-4
+            response = await self.client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert conversation analyst. Provide clear, insightful summaries that capture both content and context. Be concise but thorough."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.3,
+                max_tokens=1500
+            )
+            
+            summary_text = response.choices[0].message.content
+            
+            # Parse the response into structured format
+            summary_data = {
+                "brief_summary": "",
+                "detailed_summary": "",
+                "key_points": [],
+                "highlights": [],
+                "action_items": [],
+                "insights": []
+            }
+            
+            # Simple parsing of structured response
+            lines = summary_text.split('\n')
+            current_section = None
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Detect sections
+                if "brief summary" in line.lower():
+                    current_section = "brief"
+                elif "detailed summary" in line.lower():
+                    current_section = "detailed"
+                elif "key points" in line.lower():
+                    current_section = "key_points"
+                elif "highlights" in line.lower():
+                    current_section = "highlights"
+                elif "action items" in line.lower():
+                    current_section = "action_items"
+                elif "insights" in line.lower():
+                    current_section = "insights"
+                elif line.startswith('-') or line.startswith('•') or line.startswith('*'):
+                    # Bullet point
+                    point = line[1:].strip()
+                    if current_section == "key_points":
+                        summary_data["key_points"].append(point)
+                    elif current_section == "highlights":
+                        summary_data["highlights"].append(point)
+                    elif current_section == "action_items":
+                        summary_data["action_items"].append(point)
+                    elif current_section == "insights":
+                        summary_data["insights"].append(point)
+                elif current_section and not line.endswith(':'):
+                    # Regular text for brief/detailed summary
+                    if current_section == "brief":
+                        summary_data["brief_summary"] += line + " "
+                    elif current_section == "detailed":
+                        summary_data["detailed_summary"] += line + " "
+            
+            # Clean up summary text
+            summary_data["brief_summary"] = summary_data["brief_summary"].strip()
+            summary_data["detailed_summary"] = summary_data["detailed_summary"].strip()
+            
+            # If structured parsing failed, put everything in detailed summary
+            if not summary_data["brief_summary"] and not summary_data["detailed_summary"]:
+                summary_data["detailed_summary"] = summary_text
+                summary_data["brief_summary"] = summary_text[:200] + "..." if len(summary_text) > 200 else summary_text
+            
+            logger.info(f"✅ Generated conversation summary successfully")
+            return summary_data
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to generate conversation summary: {e}")
+            # Return fallback summary
+            return {
+                "brief_summary": "Summary generation temporarily unavailable.",
+                "detailed_summary": "Unable to generate detailed summary at this time.",
+                "key_points": [],
+                "highlights": [],
+                "action_items": [],
+                "insights": []
             }
 
     def _extract_suggestions(self, ai_text: str) -> List[str]:
@@ -576,3 +906,28 @@ Focus on creating hashtags that will help match users with similar interests.{co
                 "hashtags": [],
                 "error": str(e)
             }
+
+def get_openai_service() -> OpenAIService:
+    """
+    Dependency provider for OpenAI service
+    Raises HTTPException if service cannot be initialized
+    """
+    from fastapi import HTTPException
+    from infrastructure.config import Settings
+    
+    settings = Settings()
+    api_key = settings.OPENAI_API_KEY
+    
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="OpenAI API key not configured. Please set OPENAI_API_KEY environment variable."
+        )
+    
+    try:
+        return OpenAIService(api_key=api_key)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initialize OpenAI service: {str(e)}"
+        )
