@@ -6,11 +6,17 @@
 
 ## 🎯 **What We Provide**
 
-### 🤖 **API Documentation System**
-- **📖 Interactive Swagger UI** - Test APIs directly in your browser
-- **📬 Postman Collections** - Import and start testing immediately  
-- **📋 OpenAPI Specifications** - Generate client SDKs for any language
-- **📚 Detailed Integration Guide** - Step-by-step frontend integration instructions
+### 🤖 **AI Voice Features**
+- **🎙️ GPT-4o Audio Preview** - Real-time voice interactions with state-of-the-art AI
+- **🗣️ Text-to-Speech & Speech-to-Text** - High-quality voice synthesis and recognition
+- **🧠 Topic Extraction** - Intelligent conversation topic analysis
+- **🤝 AI-Powered Matching** - Smart user pairing based on voice input
+
+### 🎵 **Voice Processing**
+- **🔊 Real-time Audio Streaming** - WebSocket-based voice communication
+- **📝 Live Transcription** - Instant speech-to-text conversion
+- **🎯 Voice Intent Analysis** - Understanding user preferences through voice
+- **🔄 Async Audio Processing** - Efficient handling of voice data
 
 ## 📡 **API Architecture**
 
@@ -59,14 +65,16 @@ api-docs/
 
 ## 🎮 **Key API Features**
 
-### **🔐 Authentication Flow**
+### **🔊 Voice AI Integration**
 ```typescript
-// Register new user
-POST /api/auth/register
-// Login existing user  
-POST /api/auth/login
-// Get user profile
-GET /api/auth/profile
+// Real-time voice chat with GPT-4o
+WebSocket /api/ai-host/voice-chat
+
+// Process voice input for matching
+POST /api/matching/ai-match
+
+// Generate AI host responses
+POST /api/ai-host/generate-response
 ```
 
 ### **🤖 AI-Powered Services**
@@ -168,6 +176,30 @@ python3 scripts/generate_docs.py --base-url http://localhost:8000
 - [ ] Implement WebSocket real-time communication
 - [ ] Test voice recording capabilities
 - [ ] Handle platform-specific audio permissions
+
+## 🛠️ **Setup & Dependencies**
+
+### **1. Install Required Packages**
+```bash
+# Install base requirements
+pip install -r requirements.txt
+
+# Install OpenAI extras for async and realtime support
+pip install "openai[aiohttp]" "openai[realtime]"
+```
+
+### **2. Environment Configuration**
+```bash
+# Copy example environment file
+cp .env.example .env
+
+# Required environment variables
+OPENAI_API_KEY=sk-your-key
+FIREBASE_PROJECT_ID=your-project
+REDIS_URL=redis://localhost:6379
+LIVEKIT_API_KEY=your-key
+LIVEKIT_API_SECRET=your-secret
+```
 
 ## 🛡️ **Security & Best Practices**
 
