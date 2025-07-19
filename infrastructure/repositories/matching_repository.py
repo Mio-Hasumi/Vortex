@@ -170,6 +170,87 @@ class MatchingRepository:
             logger.error(f"❌ Failed to remove user {user_id} from queue: {e}")
             return False
     
+    def process_timeout_matches(self, timeout_minutes: int = 1) -> List[dict]:
+        """
+        Process users who have been waiting too long and randomly match them
+        
+        Args:
+            timeout_minutes: Timeout in minutes before random matching
+            
+        Returns:
+            List of created matches
+        """
+        try:
+            # Get users waiting too long
+            timeout_users = self.redis.get_users_waiting_too_long(timeout_minutes)
+            
+            if len(timeout_users) < 2:
+                return []
+            
+            logger.info(f"🕐 Found {len(timeout_users)} users waiting over {timeout_minutes} minute(s)")
+            
+            matches_created = []
+            
+            # Randomly pair users (simple approach: pair in order)
+            for i in range(0, len(timeout_users) - 1, 2):
+                user1 = timeout_users[i]
+                user2 = timeout_users[i + 1]
+                
+                user1_id = user1['user_id']
+                user2_id = user2['user_id']
+                
+                # Create the timeout match
+                if self.redis.create_timeout_match(user1_id, user2_id):
+                    # Create a Match entity and save it
+                    match = Match(
+                        id=uuid4(),
+                        user_id=UUID(user1_id),
+                        preferred_topics=[],  # No specific topics for timeout match
+                        max_participants=2,
+                        status=MatchStatus.MATCHED,
+                        matched_users=[UUID(user2_id)],
+                        matched_at=datetime.utcnow()
+                    )
+                    
+                    # Save to database
+                    saved_match = self.save_match(match)
+                    
+                    match_info = {
+                        'match_id': str(saved_match.id),
+                        'user1_id': user1_id,
+                        'user2_id': user2_id,
+                        'match_type': 'timeout_fallback',
+                        'wait_time_user1': user1['wait_time_seconds'],
+                        'wait_time_user2': user2['wait_time_seconds']
+                    }
+                    
+                    matches_created.append(match_info)
+                    
+                    logger.info(f"✅ Timeout match created: {user1_id} + {user2_id} (waited {user1['wait_time_seconds']:.0f}s and {user2['wait_time_seconds']:.0f}s)")
+            
+            return matches_created
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to process timeout matches: {e}")
+            return []
+    
+    def get_timeout_users_count(self, timeout_minutes: int = 1) -> int:
+        """
+        Get count of users waiting longer than timeout
+        
+        Args:
+            timeout_minutes: Timeout in minutes
+            
+        Returns:
+            Number of users waiting too long
+        """
+        try:
+            timeout_users = self.redis.get_users_waiting_too_long(timeout_minutes)
+            return len(timeout_users)
+        except Exception as e:
+            logger.error(f"❌ Failed to get timeout users count: {e}")
+            return 0
+    
     def _entity_to_dict(self, match: Match) -> dict:
         """Convert Match entity to dictionary"""
         return {

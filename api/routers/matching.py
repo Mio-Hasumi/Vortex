@@ -222,6 +222,69 @@ async def get_match_history(
             detail=str(e)
         )
 
+@router.post("/process-timeout-matches")
+async def process_timeout_matches_manually(
+    timeout_minutes: float = 1.0,
+    matching_repo = Depends(get_matching_repository),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Manually trigger timeout matching process (for testing/admin use)
+    """
+    try:
+        # Check current timeout users count
+        timeout_users_count = matching_repo.get_timeout_users_count(timeout_minutes)
+        
+        if timeout_users_count < 2:
+            return {
+                "message": f"Only {timeout_users_count} users waiting over {timeout_minutes} minute(s). Need at least 2 users for matching.",
+                "timeout_users_count": timeout_users_count,
+                "matches_created": []
+            }
+        
+        # Process timeout matches
+        matches_created = matching_repo.process_timeout_matches(timeout_minutes)
+        
+        return {
+            "message": f"Processed timeout matching for {timeout_users_count} users waiting over {timeout_minutes} minute(s)",
+            "timeout_users_count": timeout_users_count,
+            "matches_created": len(matches_created),
+            "matches": matches_created
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process timeout matches: {str(e)}"
+        )
+
+@router.get("/timeout-stats") 
+async def get_timeout_stats(
+    timeout_minutes: float = 1.0,
+    matching_repo = Depends(get_matching_repository),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get statistics about users waiting too long
+    """
+    try:
+        timeout_users_count = matching_repo.get_timeout_users_count(timeout_minutes)
+        total_queue_size = matching_repo.get_queue_size()
+        
+        return {
+            "total_queue_size": total_queue_size,
+            "timeout_users_count": timeout_users_count,
+            "timeout_minutes": timeout_minutes,
+            "timeout_percentage": (timeout_users_count / total_queue_size * 100) if total_queue_size > 0 else 0,
+            "ready_for_timeout_matching": timeout_users_count >= 2
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
 # NEW: AI-Driven Matching Endpoint with GPT-4o Audio
 @router.post("/ai-match", response_model=AIMatchResponse)
 async def ai_driven_match(
@@ -315,16 +378,7 @@ async def ai_driven_match(
                 ai_session_id=ai_session_id
             )
             
-            # More realistic wait time estimates based on tiered system
-            queue_size = matching_repo.get_queue_size()
-            
-            if queue_size <= 2:
-                estimated_wait_time = 6   # First tier: wait for strict match
-            elif queue_size <= 10:
-                estimated_wait_time = 15  # Might get relaxed match soon
-            else:
-                estimated_wait_time = 30  # Will definitely get random match at 30s
-            
+            estimated_wait_time = 30  # Estimated wait time
             status_msg = "waiting_for_match"
         
         # Step 4: Generate a unique match ID

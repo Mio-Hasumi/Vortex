@@ -271,6 +271,67 @@ class RedisService:
     def peek_matching_queue(self, count: int = 10) -> List[Dict[str, Any]]:
         """Peek at matching queue"""
         return self.peek_queue('matching_queue', count)
+    
+    def get_users_waiting_too_long(self, timeout_minutes: int = 1) -> List[Dict[str, Any]]:
+        """Get users who have been waiting in queue for more than timeout_minutes"""
+        try:
+            queue_items = self.redis_client.zrange('matching_queue', 0, -1, withscores=True)
+            timeout_users = []
+            current_time = datetime.utcnow()
+            
+            for item_json, score in queue_items:
+                try:
+                    item = json.loads(item_json)
+                    timestamp_str = item.get('timestamp')
+                    if timestamp_str:
+                        timestamp = datetime.fromisoformat(timestamp_str)
+                        wait_time = current_time - timestamp
+                        
+                        if wait_time.total_seconds() >= timeout_minutes * 60:
+                            timeout_users.append({
+                                'user_id': item.get('user_id'),
+                                'preferences': item.get('preferences', {}),
+                                'wait_time_seconds': wait_time.total_seconds(),
+                                'queue_item': item_json
+                            })
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.warning(f"Invalid queue item format: {e}")
+                    continue
+            
+            return timeout_users
+            
+        except Exception as e:
+            logger.error(f"Failed to get users waiting too long: {e}")
+            return []
+    
+    def create_timeout_match(self, user1_id: str, user2_id: str) -> bool:
+        """Create a timeout match between two users and remove them from queue"""
+        try:
+            # Remove both users from matching queue
+            user1_removed = self.remove_from_matching_queue(UUID(user1_id))
+            user2_removed = self.remove_from_matching_queue(UUID(user2_id))
+            
+            if user1_removed and user2_removed:
+                # Store the timeout match info
+                match_data = {
+                    'user1_id': user1_id,
+                    'user2_id': user2_id,
+                    'match_type': 'timeout_fallback',
+                    'created_at': datetime.utcnow().isoformat()
+                }
+                
+                match_key = f"timeout_match:{user1_id}:{user2_id}"
+                self.redis_client.setex(match_key, 3600, json.dumps(match_data))  # Expires in 1 hour
+                
+                logger.info(f"✅ Created timeout match: {user1_id} + {user2_id}")
+                return True
+            else:
+                logger.warning(f"Failed to remove users from queue: {user1_id}, {user2_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to create timeout match: {e}")
+            return False
 
 
 class MockRedisClient:

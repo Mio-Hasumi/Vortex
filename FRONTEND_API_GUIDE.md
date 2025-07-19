@@ -1,16 +1,16 @@
+# VoiceApp Frontend API Guide
 
+This comprehensive guide provides everything frontend developers need to integrate with the VoiceApp backend.
 
-This guide provides everything frontend developers need to integrate with the VoiceApp backend.
+## Authentication
 
-## 🔑 **Authentication**
-
-### **Base URL**
+### Base URL
 ```javascript
 const API_BASE_URL = 'https://your-app.up.railway.app'
 const WS_BASE_URL = 'wss://your-app.up.railway.app'
 ```
 
-### **Authentication Headers**
+### Authentication Headers
 All protected endpoints require Firebase ID Token:
 ```javascript
 const headers = {
@@ -19,11 +19,11 @@ const headers = {
 }
 ```
 
-## 📋 **API Endpoints**
+## API Endpoints
 
-### 🔐 **Authentication APIs**
+### Authentication APIs
 
-#### **Register User**
+#### Register User
 ```javascript
 POST /api/auth/register
 {
@@ -41,7 +41,7 @@ POST /api/auth/register
 }
 ```
 
-#### **Login User**
+#### Login User
 ```javascript
 POST /api/auth/login
 {
@@ -58,7 +58,7 @@ POST /api/auth/login
 }
 ```
 
-#### **Get Profile**
+#### Get Profile
 ```javascript
 GET /api/auth/profile
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -74,9 +74,9 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 ```
 
-### 🤖 **AI Host Services**
+### AI Host Services
 
-#### **Text-to-Speech (TTS)**
+#### Text-to-Speech (TTS)
 ```javascript
 // POST method
 POST /api/ai-host/tts
@@ -93,7 +93,7 @@ POST /api/ai-host/tts
 GET /api/ai-host/tts/Hello%20World?voice=nova&speed=1.0
 ```
 
-#### **Extract Topics from Text**
+#### Extract Topics from Text
 ```javascript
 POST /api/ai-host/extract-topics
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -116,7 +116,7 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 ```
 
-#### **Upload Audio for Processing**
+#### Upload Audio for Processing
 ```javascript
 POST /api/ai-host/upload-audio
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -138,7 +138,7 @@ FormData:
 }
 ```
 
-#### **Start AI Session**
+#### Start AI Session
 ```javascript
 POST /api/ai-host/start-session
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -156,9 +156,9 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 ```
 
-### 🎯 **Matching System**
+### Matching System
 
-#### **AI-Powered Matching**
+#### AI-Powered Matching
 ```javascript
 POST /api/matching/ai-match
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -180,7 +180,7 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 ```
 
-#### **Traditional Topic-Based Matching**
+#### Traditional Topic-Based Matching
 ```javascript
 POST /api/matching/match
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -191,7 +191,7 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 ```
 
-#### **Check Match Status**
+#### Check Match Status
 ```javascript
 GET /api/matching/status
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -204,7 +204,7 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 ```
 
-#### **Cancel Match**
+#### Cancel Match
 ```javascript
 POST /api/matching/cancel
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -215,9 +215,84 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 ```
 
-### 🏠 **Room Management**
+#### Get Timeout Statistics
+```javascript
+GET /api/matching/timeout-stats?timeout_minutes=1.0
+Headers: { Authorization: "Bearer <firebase_token>" }
 
-#### **List Rooms**
+// Response
+{
+  "total_queue_size": 10,
+  "timeout_users_count": 3,
+  "timeout_minutes": 1.0,
+  "timeout_percentage": 30.0,
+  "ready_for_timeout_matching": true
+}
+```
+
+#### Trigger Timeout Matching (Admin)
+```javascript
+POST /api/matching/process-timeout-matches?timeout_minutes=1.0
+Headers: { Authorization: "Bearer <firebase_token>" }
+
+// Response
+{
+  "message": "Processed timeout matching for 4 users waiting over 1.0 minute(s)",
+  "timeout_users_count": 4,
+  "matches_created": 2,
+  "matches": [
+    {
+      "match_id": "uuid",
+      "user1_id": "uuid",
+      "user2_id": "uuid", 
+      "match_type": "timeout_fallback",
+      "wait_time_user1": 75.5,
+      "wait_time_user2": 82.3
+    }
+  ]
+}
+```
+
+### Timeout Matching System
+VoiceApp includes an intelligent timeout matching system that prevents users from waiting indefinitely:
+
+**How it works:**
+- Users are automatically matched after waiting 1 minute (configurable)
+- System randomly pairs users who have been waiting too long
+- Matches are labeled as `timeout_fallback` type
+- Users receive real-time WebSocket notifications
+
+**Frontend Implementation:**
+```javascript
+// Monitor timeout statistics
+const checkTimeoutStats = async () => {
+  const response = await fetch('/api/matching/timeout-stats', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  const stats = await response.json()
+  
+  if (stats.ready_for_timeout_matching) {
+    console.log(`${stats.timeout_users_count} users ready for timeout matching`)
+  }
+}
+
+// Handle timeout match notifications
+matchingWs.onmessage = (event) => {
+  const data = JSON.parse(event.data)
+  
+  if (data.type === 'timeout_match_found') {
+    showNotification(
+      'Match Found!', 
+      `We found you a conversation partner after ${data.wait_time} of waiting.`
+    )
+    redirectToChat(data.match_id, data.partner_id)
+  }
+}
+```
+
+### Room Management
+
+#### List Rooms
 ```javascript
 GET /api/rooms/
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -232,14 +307,15 @@ Headers: { Authorization: "Bearer <firebase_token>" }
       "current_participants": 2,
       "max_participants": 10,
       "status": "active",
-      "is_private": false
+      "is_private": false,
+      "livekit_token": "jwt_token_here"
     }
   ],
   "total": 1
 }
 ```
 
-#### **Create Room**
+#### Create Room
 ```javascript
 POST /api/rooms/
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -251,7 +327,7 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 ```
 
-#### **Get Room Details**
+#### Get Room Details
 ```javascript
 GET /api/rooms/{room_id}
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -264,13 +340,14 @@ Headers: { Authorization: "Bearer <firebase_token>" }
   "current_participants": ["uuid1", "uuid2"],
   "max_participants": 10,
   "status": "active",
-  "created_at": "2023-12-01T10:00:00Z"
+  "created_at": "2023-12-01T10:00:00Z",
+  "livekit_token": "jwt_token_here"
 }
 ```
 
-### 🎙️ **Recordings**
+### Recordings
 
-#### **List User Recordings**
+#### List User Recordings
 ```javascript
 GET /api/recordings/
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -292,54 +369,53 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 ```
 
-#### **Download Recording**
+#### Download Recording
 ```javascript
 GET /api/recordings/{recording_id}
 Headers: { Authorization: "Bearer <firebase_token>" }
 
 // Returns: Audio file stream
-// Content-Type: audio/mpeg
 ```
 
-#### **Get Transcript**
+#### Get Recording Transcript
 ```javascript
 GET /api/recordings/{recording_id}/transcript
 Headers: { Authorization: "Bearer <firebase_token>" }
 
 // Response
 {
-  "transcript": [
+  "transcript": "Full conversation transcript...",
+  "language": "en-US",
+  "confidence": 0.95,
+  "segments": [
     {
-      "speaker_id": "uuid",
-      "speaker_type": "user",
-      "text": "Hello, how are you?",
-      "timestamp": "2023-12-01T10:00:00Z",
+      "speaker": "user1",
+      "text": "Hello there!",
       "start_time": 0.0,
-      "end_time": 2.5
+      "end_time": 1.5
     }
-  ],
-  "total_duration": 1800
+  ]
 }
 ```
 
-#### **Get AI Summary**
+#### Get AI-Generated Summary
 ```javascript
 GET /api/recordings/{recording_id}/summary
 Headers: { Authorization: "Bearer <firebase_token>" }
 
 // Response
 {
-  "summary": "This conversation covered AI in entrepreneurship...",
-  "key_topics": ["AI", "Entrepreneurship", "Technology"],
-  "participants_count": 2,
-  "duration": 1800,
-  "sentiment": "positive"
+  "summary": "The conversation covered topics about AI and technology...",
+  "key_points": ["AI development", "Future trends"],
+  "topics_discussed": ["AI", "Technology"],
+  "sentiment": "positive",
+  "duration": 1800
 }
 ```
 
-### 👥 **Friends & Social**
+### Friends & Social
 
-#### **List Friends**
+#### List Friends
 ```javascript
 GET /api/friends/
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -348,29 +424,33 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 {
   "friends": [
     {
-      "id": "uuid",
       "user_id": "uuid",
-      "friend_id": "uuid",
-      "friend_name": "Jane Doe",
-      "status": "accepted",
-      "created_at": "2023-12-01T10:00:00Z"
+      "display_name": "Jane Doe",
+      "profile_image_url": "string",
+      "status": "online",
+      "friendship_since": "2023-12-01T10:00:00Z"
     }
   ],
   "total": 1
 }
 ```
 
-#### **Send Friend Request**
+#### Send Friend Request
 ```javascript
 POST /api/friends/add
 Headers: { Authorization: "Bearer <firebase_token>" }
 {
-  "friend_id": "uuid",
-  "message": "Hi! Nice meeting you in the AI discussion!"
+  "friend_user_id": "uuid"
+}
+
+// Response
+{
+  "message": "Friend request sent successfully",
+  "friendship_id": "uuid"
 }
 ```
 
-#### **Get Friend Requests**
+#### Get Friend Requests
 ```javascript
 GET /api/friends/requests
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -379,10 +459,12 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 {
   "incoming_requests": [
     {
-      "id": "uuid",
-      "from_user_id": "uuid",
-      "from_user_name": "John Doe",
-      "message": "Hi! Let's be friends!",
+      "friendship_id": "uuid",
+      "from_user": {
+        "user_id": "uuid",
+        "display_name": "John Smith",
+        "profile_image_url": "string"
+      },
       "created_at": "2023-12-01T10:00:00Z"
     }
   ],
@@ -390,7 +472,16 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 }
 ```
 
-#### **Search Users**
+#### Accept/Reject Friend Request
+```javascript
+POST /api/friends/requests/{friendship_id}/respond
+Headers: { Authorization: "Bearer <firebase_token>" }
+{
+  "action": "accept" // or "reject"
+}
+```
+
+#### Search Users
 ```javascript
 GET /api/friends/search?q=john
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -399,21 +490,58 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 {
   "users": [
     {
-      "id": "uuid",
+      "user_id": "uuid",
       "display_name": "John Doe",
-      "email": "john@example.com",
-      "profile_image_url": "string"
+      "profile_image_url": "string",
+      "bio": "AI enthusiast"
     }
-  ],
-  "total": 1
+  ]
 }
 ```
 
-### 🏷️ **Topics**
+### Topics
 
-#### **List All Topics**
+#### List All Topics
 ```javascript
 GET /api/topics/
+Headers: { Authorization: "Bearer <firebase_token>" }
+
+// Response
+{
+  "topics": [
+    {
+      "id": "uuid",
+      "name": "Artificial Intelligence",
+      "description": "Discussions about AI technology",
+      "category": "Technology",
+      "is_active": true
+    }
+  ]
+}
+```
+
+#### Get Popular Topics
+```javascript
+GET /api/topics/popular
+Headers: { Authorization: "Bearer <firebase_token>" }
+
+// Response
+{
+  "topics": [
+    {
+      "id": "uuid",
+      "name": "AI",
+      "participant_count": 150,
+      "trend_score": 0.95
+    }
+  ]
+}
+```
+
+#### Search Topics
+```javascript
+GET /api/topics/search?q=technology
+Headers: { Authorization: "Bearer <firebase_token>" }
 
 // Response
 {
@@ -421,352 +549,386 @@ GET /api/topics/
     {
       "id": "uuid",
       "name": "Technology",
-      "description": "Discuss latest tech trends",
-      "category": "Tech",
-      "difficulty_level": 2,
-      "is_active": true
+      "description": "Tech discussions",
+      "relevance_score": 0.98
     }
-  ],
-  "total": 1
+  ]
 }
 ```
 
-#### **Get Popular Topics**
+## WebSocket Connections
+
+### AI Live Subtitle
 ```javascript
-GET /api/topics/popular?limit=10
+const ws = new WebSocket('wss://your-app.up.railway.app/api/ai-host/live-subtitle')
 
-// Response
-{
-  "topics": [...],
-  "total": 10
-}
-```
-
-#### **Search Topics**
-```javascript
-GET /api/topics/search?q=AI
-
-// Response
-{
-  "topics": [...],
-  "total": 5
-}
-```
-
-## 🔌 **WebSocket Connections**
-
-### **Real-time AI Voice Chat**
-```javascript
-const ws = new WebSocket(`${WS_BASE_URL}/api/ai-host/voice-chat`)
-
-// Connection established
 ws.onopen = () => {
-  console.log('Connected to AI voice chat')
+  console.log('Live subtitle WebSocket connected')
 }
 
-// Receive messages
 ws.onmessage = (event) => {
+  const data = JSON.parse(event.data)
+  console.log('Subtitle:', data)
+}
+
+// Send audio data
+ws.send(JSON.stringify({
+  type: 'audio_chunk',
+  audio_data: base64AudioData,
+  chunk_id: 'unique_id'
+}))
+```
+
+### Room Communication
+```javascript
+const roomWs = new WebSocket(
+  `wss://your-app.up.railway.app/api/rooms/ws/${roomId}?user_id=${userId}`
+)
+
+roomWs.onmessage = (event) => {
   const data = JSON.parse(event.data)
   
   switch(data.type) {
-    case 'connected':
-      console.log('AI greeting:', data.ai_greeting)
+    case 'room_joined':
+      console.log('Successfully joined room', data.room_id)
+      break
+    case 'user_joined':
+      console.log('User joined:', data.user)
+      break
+    case 'voice_message':
+      console.log('Voice message:', data.message)
       break
     case 'ai_response':
-      console.log('AI said:', data.text)
-      break
-    case 'session_started':
-      console.log('Session ID:', data.session_id)
+      console.log('AI response:', data.response)
       break
   }
 }
 
-// Send voice data
-const sendVoiceData = (audioBlob) => {
-  ws.send(JSON.stringify({
-    type: 'voice_input',
-    audio_data: base64AudioData,
-    session_id: sessionId
-  }))
-}
+// Send messages
+roomWs.send(JSON.stringify({
+  type: 'text_message',
+  message: 'Hello everyone!',
+  user_id: userId
+}))
+
+roomWs.send(JSON.stringify({
+  type: 'voice_message',
+  audio_data: base64AudioData,
+  user_id: userId
+}))
 ```
 
-### **Live Subtitles**
+### Matching Queue WebSocket
 ```javascript
-const subtitleWs = new WebSocket(`${WS_BASE_URL}/api/ai-host/live-subtitle`)
+const matchingWs = new WebSocket('wss://your-app.up.railway.app/api/matching/ws')
 
-subtitleWs.onmessage = (event) => {
+matchingWs.onmessage = (event) => {
   const data = JSON.parse(event.data)
   
-  if (data.type === 'subtitle') {
-    displaySubtitle(data.text)
-  }
-}
-
-// Send text for subtitle generation
-const sendTextForSubtitle = (text) => {
-  subtitleWs.send(JSON.stringify({
-    type: 'text',
-    text: text
-  }))
-}
-```
-
-## 💡 **Frontend Integration Examples**
-
-### **Complete User Flow Implementation**
-
-```javascript
-class VoiceAppClient {
-  constructor(firebaseAuth) {
-    this.baseURL = 'https://your-app.up.railway.app'
-    this.auth = firebaseAuth
-  }
-
-  async getAuthHeaders() {
-    const token = await this.auth.currentUser.getIdToken()
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    }
-  }
-
-  // Step 1: User authentication
-  async registerUser(userData) {
-    const response = await fetch(`${this.baseURL}/api/auth/register`, {
-      method: 'POST',
-      headers: await this.getAuthHeaders(),
-      body: JSON.stringify(userData)
-    })
-    return response.json()
-  }
-
-  // Step 2: Voice input and topic extraction
-  async processVoiceInput(audioFile) {
-    const formData = new FormData()
-    formData.append('audio_file', audioFile)
-    formData.append('extract_topics', 'true')
-
-    const headers = await this.getAuthHeaders()
-    delete headers['Content-Type'] // Let browser set for FormData
-
-    const response = await fetch(`${this.baseURL}/api/ai-host/upload-audio`, {
-      method: 'POST',
-      headers,
-      body: formData
-    })
-    return response.json()
-  }
-
-  // Step 3: AI-powered matching
-  async findMatch(voiceInput) {
-    const response = await fetch(`${this.baseURL}/api/matching/ai-match`, {
-      method: 'POST',
-      headers: await this.getAuthHeaders(),
-      body: JSON.stringify({
-        user_voice_input: voiceInput,
-        max_participants: 2,
-        language_preference: 'en-US'
-      })
-    })
-    return response.json()
-  }
-
-  // Step 4: Generate TTS for subtitles
-  async generateTTS(text, voice = 'nova') {
-    const response = await fetch(`${this.baseURL}/api/ai-host/tts`, {
-      method: 'POST',
-      headers: await this.getAuthHeaders(),
-      body: JSON.stringify({ text, voice, speed: 1.0 })
-    })
-    return response.blob() // Audio blob for playback
-  }
-
-  // Step 5: Get conversation recordings
-  async getRecordings() {
-    const response = await fetch(`${this.baseURL}/api/recordings/`, {
-      headers: await this.getAuthHeaders()
-    })
-    return response.json()
-  }
-}
-
-// Usage example
-const client = new VoiceAppClient(firebase.auth())
-
-// Complete workflow
-async function startVoiceChat() {
-  try {
-    // 1. Record user voice
-    const audioBlob = await recordUserVoice()
-    
-    // 2. Process voice and extract topics
-    const voiceResult = await client.processVoiceInput(audioBlob)
-    console.log('Topics:', voiceResult.extracted_topics)
-    
-    // 3. Find a match
-    const matchResult = await client.findMatch(voiceResult.transcription)
-    
-    if (matchResult.status === 'matched') {
-      // 4. Start voice chat with matched user
-      startRealTimeChat(matchResult.session_id)
-    } else {
-      // Show waiting UI
-      showWaitingForMatch(matchResult.estimated_wait_time)
-    }
-  } catch (error) {
-    console.error('Voice chat error:', error)
+  switch(data.type) {
+    case 'queue_position_update':
+      console.log('Queue position:', data.position)
+      break
+    case 'match_found':
+      console.log('Match found!', data.room_id)
+      // Redirect to room
+      break
+    case 'timeout_match_found':
+      console.log('Timeout match found!', data.partner_id)
+      console.log('You waited:', data.wait_time)
+      console.log('Match type:', data.match_type) // "timeout_fallback"
+      // Show notification and redirect to conversation
+      break
+    case 'estimated_wait_time':
+      console.log('Estimated wait:', data.seconds)
+      break
+    case 'queue_stats':
+      console.log('Queue stats:', data.total_users_in_queue)
+      break
   }
 }
 ```
 
-### **React Hook Example**
-```javascript
-import { useState, useEffect } from 'react'
-import { useAuthState } from 'react-firebase-hooks/auth'
+## Error Handling
 
-export function useVoiceChat() {
-  const [user] = useAuthState(firebase.auth())
-  const [isRecording, setIsRecording] = useState(false)
-  const [transcript, setTranscript] = useState('')
-  const [topics, setTopics] = useState([])
-  const [matchStatus, setMatchStatus] = useState('idle')
-
-  const client = new VoiceAppClient(firebase.auth())
-
-  const startRecording = async () => {
-    setIsRecording(true)
-    // Implement audio recording logic
-  }
-
-  const stopRecording = async (audioBlob) => {
-    setIsRecording(false)
-    
-    try {
-      const result = await client.processVoiceInput(audioBlob)
-      setTranscript(result.transcription)
-      setTopics(result.extracted_topics)
-      
-      // Automatically start matching
-      const matchResult = await client.findMatch(result.transcription)
-      setMatchStatus(matchResult.status)
-      
-    } catch (error) {
-      console.error('Processing error:', error)
-    }
-  }
-
-  return {
-    isRecording,
-    transcript,
-    topics,
-    matchStatus,
-    startRecording,
-    stopRecording
-  }
-}
-```
-
-## 🚨 **Error Handling**
-
-### **Common HTTP Status Codes**
-- `200` - Success
-- `401` - Unauthorized (invalid/missing Firebase token)
-- `403` - Forbidden (insufficient permissions)
-- `404` - Not found
-- `422` - Validation error (invalid request data)
-- `500` - Server error
-
-### **Error Response Format**
+### Standard Error Response
 ```javascript
 {
-  "detail": "Error message description"
+  "detail": "Error message",
+  "error_code": "SPECIFIC_ERROR_CODE",
+  "timestamp": "2023-12-01T10:00:00Z"
 }
 ```
 
-### **Error Handling Example**
+### Common HTTP Status Codes
+- `200` - Success
+- `201` - Created
+- `400` - Bad Request (invalid input)
+- `401` - Unauthorized (invalid/missing token)
+- `403` - Forbidden (insufficient permissions)
+- `404` - Not Found
+- `422` - Validation Error
+- `429` - Rate Limited
+- `500` - Internal Server Error
+
+### Error Handling Example
 ```javascript
-async function makeAPICall(endpoint, options) {
+const apiCall = async () => {
   try {
-    const response = await fetch(endpoint, options)
+    const response = await fetch('/api/auth/profile', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    })
     
     if (!response.ok) {
       const error = await response.json()
-      throw new Error(`API Error ${response.status}: ${error.detail}`)
+      throw new Error(error.detail || 'API request failed')
     }
     
-    return response.json()
+    const data = await response.json()
+    return data
   } catch (error) {
-    console.error('API call failed:', error)
+    console.error('API Error:', error.message)
     throw error
   }
 }
 ```
 
-## 🔧 **Development Tips**
+## Frontend Integration Examples
 
-### **Environment Configuration**
-```javascript
-// config.js
-export const config = {
-  development: {
-    API_BASE_URL: 'http://localhost:8000',
-    WS_BASE_URL: 'ws://localhost:8000'
+### React Integration
+```jsx
+import { useState, useEffect } from 'react'
+
+const VoiceAppAPI = {
+  baseURL: 'https://your-app.up.railway.app',
+  
+  async request(endpoint, options = {}) {
+    const url = `${this.baseURL}${endpoint}`
+    const token = localStorage.getItem('firebaseToken')
+    
+    const config = {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...options.headers
+      },
+      ...options
+    }
+    
+    const response = await fetch(url, config)
+    
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`)
+    }
+    
+    return response.json()
   },
-  production: {
-    API_BASE_URL: 'https://your-app.up.railway.app',
-    WS_BASE_URL: 'wss://your-app.up.railway.app'
+  
+  // Auth methods
+  async getProfile() {
+    return this.request('/api/auth/profile')
+  },
+  
+  // AI methods
+  async extractTopics(text) {
+    return this.request('/api/ai-host/extract-topics', {
+      method: 'POST',
+      body: JSON.stringify({ text })
+    })
+  },
+  
+  // TTS method
+  async textToSpeech(text, voice = 'nova') {
+    const response = await fetch(
+      `${this.baseURL}/api/ai-host/tts/${encodeURIComponent(text)}?voice=${voice}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('firebaseToken')}`
+        }
+      }
+    )
+    return response.blob() // Returns audio blob
   }
 }
 
-export const API_BASE_URL = config[process.env.NODE_ENV].API_BASE_URL
+// Usage in React component
+const MyComponent = () => {
+  const [profile, setProfile] = useState(null)
+  const [topics, setTopics] = useState([])
+  
+  useEffect(() => {
+    VoiceAppAPI.getProfile()
+      .then(setProfile)
+      .catch(console.error)
+  }, [])
+  
+  const handleTopicExtraction = async (text) => {
+    try {
+      const result = await VoiceAppAPI.extractTopics(text)
+      setTopics(result.main_topics)
+    } catch (error) {
+      console.error('Topic extraction failed:', error)
+    }
+  }
+  
+  return (
+    <div>
+      {profile && <h1>Welcome, {profile.display_name}!</h1>}
+      {/* Your UI here */}
+    </div>
+  )
+}
 ```
 
-### **Audio Handling**
+### Audio Recording Integration
 ```javascript
-// Record audio for voice input
-async function recordAudio(duration = 10000) {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-  const mediaRecorder = new MediaRecorder(stream)
-  const chunks = []
-
-  return new Promise((resolve) => {
-    mediaRecorder.ondataavailable = (e) => chunks.push(e.data)
-    mediaRecorder.onstop = () => {
-      const blob = new Blob(chunks, { type: 'audio/wav' })
-      resolve(blob)
+class AudioRecorder {
+  constructor() {
+    this.mediaRecorder = null
+    this.audioChunks = []
+  }
+  
+  async startRecording() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    this.mediaRecorder = new MediaRecorder(stream)
+    
+    this.mediaRecorder.ondataavailable = (event) => {
+      this.audioChunks.push(event.data)
     }
+    
+    this.mediaRecorder.onstop = async () => {
+      const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' })
+      await this.uploadAudio(audioBlob)
+      this.audioChunks = []
+    }
+    
+    this.mediaRecorder.start()
+  }
+  
+  stopRecording() {
+    if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+      this.mediaRecorder.stop()
+    }
+  }
+  
+  async uploadAudio(audioBlob) {
+    const formData = new FormData()
+    formData.append('audio_file', audioBlob, 'recording.wav')
+    formData.append('extract_topics', 'true')
+    
+    const token = localStorage.getItem('firebaseToken')
+    
+    try {
+      const response = await fetch('/api/ai-host/upload-audio', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      })
+      
+      const result = await response.json()
+      console.log('Upload result:', result)
+      return result
+    } catch (error) {
+      console.error('Audio upload failed:', error)
+    }
+  }
+}
+```
 
-    mediaRecorder.start()
-    setTimeout(() => mediaRecorder.stop(), duration)
+## Performance Optimization
+
+### Caching Strategies
+```javascript
+// Cache user profile
+const cachedProfile = localStorage.getItem('userProfile')
+if (cachedProfile && Date.now() - JSON.parse(cachedProfile).timestamp < 300000) {
+  // Use cached data if less than 5 minutes old
+  setProfile(JSON.parse(cachedProfile).data)
+} else {
+  // Fetch fresh data
+  VoiceAppAPI.getProfile().then(profile => {
+    localStorage.setItem('userProfile', JSON.stringify({
+      data: profile,
+      timestamp: Date.now()
+    }))
+    setProfile(profile)
   })
 }
 ```
 
-### **Real-time Features**
+### WebSocket Connection Management
 ```javascript
-// WebSocket connection with reconnection
-class ReconnectingWebSocket {
+class WebSocketManager {
   constructor(url) {
     this.url = url
-    this.connect()
+    this.ws = null
+    this.reconnectAttempts = 0
+    this.maxReconnectAttempts = 5
+    this.reconnectInterval = 1000
   }
-
+  
   connect() {
     this.ws = new WebSocket(this.url)
     
-    this.ws.onopen = () => console.log('Connected')
-    this.ws.onclose = () => {
-      console.log('Disconnected, reconnecting...')
-      setTimeout(() => this.connect(), 1000)
+    this.ws.onopen = () => {
+      console.log('WebSocket connected')
+      this.reconnectAttempts = 0
     }
-    this.ws.onerror = (error) => console.error('WebSocket error:', error)
+    
+    this.ws.onclose = () => {
+      console.log('WebSocket disconnected')
+      this.attemptReconnect()
+    }
+    
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error)
+    }
   }
-
+  
+  attemptReconnect() {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      setTimeout(() => {
+        this.reconnectAttempts++
+        console.log(`Reconnect attempt ${this.reconnectAttempts}`)
+        this.connect()
+      }, this.reconnectInterval * this.reconnectAttempts)
+    }
+  }
+  
   send(data) {
-    if (this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data))
     }
   }
 }
 ```
+
+## Production Considerations
+
+### Security Best Practices
+1. Always validate Firebase tokens on the backend
+2. Use HTTPS in production
+3. Implement rate limiting
+4. Sanitize user inputs
+5. Use secure WebSocket connections (WSS)
+
+### Performance Tips
+1. Cache API responses when appropriate
+2. Use WebSocket connections efficiently
+3. Implement proper error handling and retry logic
+4. Optimize audio file sizes for uploads
+5. Use pagination for large data sets
+
+### Monitoring and Debugging
+1. Implement proper logging
+2. Monitor WebSocket connection status
+3. Track API response times
+4. Monitor error rates
+5. Use proper error boundaries in React
+
+This guide provides comprehensive coverage of the VoiceApp backend API. For additional support or questions, please refer to the main repository documentation.
