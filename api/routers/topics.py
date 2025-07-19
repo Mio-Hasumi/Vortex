@@ -115,17 +115,26 @@ async def get_popular_topics(
             total=len(topic_responses)
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve popular topics")
 
 @router.get("/search", response_model=TopicListResponse)
-async def search_topics(
-    q: str,
-    topic_repo = Depends(get_topic_repository)
-):
+async def search_topics(q: str, limit: int = 20, topic_repo = Depends(get_topic_repository)):
     """Search topics by name or description"""
     try:
-        # Use the dedicated search_topics method
-        matching_topics = topic_repo.search_topics(q)
+        # Basic search implementation
+        topics = topic_repo.find_all()
+        
+        # Filter topics that match the query
+        matching_topics = []
+        query_lower = q.lower()
+        
+        for topic in topics:
+            if (query_lower in topic.name.lower() or 
+                query_lower in topic.description.lower()):
+                matching_topics.append(topic)
+        
+        # Apply limit
+        matching_topics = matching_topics[:limit]
         
         topic_responses = [
             TopicResponse(
@@ -143,7 +152,7 @@ async def search_topics(
             total=len(topic_responses)
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to search topics")
 
 @router.get("/{topic_id}", response_model=TopicResponse)
 async def get_topic(topic_id: str, topic_repo = Depends(get_topic_repository)):
