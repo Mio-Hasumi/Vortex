@@ -40,7 +40,7 @@ def get_user_repository():
     return container.get_user_repository()
 
 # Authentication endpoints
-@router.post("/signup", response_model=AuthResponse)
+@router.post("/register", response_model=AuthResponse)
 async def sign_up(
     request: SignUpRequest,
     user_repo = Depends(get_user_repository)
@@ -90,7 +90,7 @@ async def sign_up(
             detail=str(e)
         )
 
-@router.post("/signin", response_model=AuthResponse)
+@router.post("/login", response_model=AuthResponse)
 async def sign_in(
     request: SignInRequest,
     user_repo = Depends(get_user_repository)

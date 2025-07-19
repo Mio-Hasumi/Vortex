@@ -74,5 +74,5 @@ docker-compose*.yml
 .dockerignore
 
 # Deployment
-DEPLOYMENT_GUIDE.md
+DEPLOYMENT.md
 nginx.conf 

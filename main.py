@@ -105,6 +105,10 @@ app.include_router(rooms.router, prefix="/api/rooms", tags=["rooms"])
 app.include_router(friends.router, prefix="/api/friends", tags=["friends"])
 app.include_router(recordings.router, prefix="/api/recordings", tags=["recordings"])
 
+# AI-powered features
+from api.routers import ai_host
+app.include_router(ai_host.router, prefix="/api/ai-host", tags=["ai-host"])
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",

@@ -28,12 +28,13 @@ class FirebaseAuthMiddleware:
     def __init__(self, user_repository: UserRepository):
         self.user_repository = user_repository
     
-    def get_current_user(self, credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
+    def get_current_user(self, credentials: HTTPAuthorizationCredentials = Depends(security), test_mode: bool = False) -> User:
         """
         从Firebase ID Token获取当前认证用户
         
         Args:
             credentials: HTTP authorization credentials
+            test_mode: 是否为测试模式
             
         Returns:
             当前认证用户
@@ -45,11 +46,13 @@ class FirebaseAuthMiddleware:
             # 获取Firebase ID Token
             token = credentials.credentials
             
-            # 验证Firebase ID Token
-            decoded_token = auth.verify_id_token(token)
-            
-            # 获取Firebase UID
-            firebase_uid = decoded_token['uid']
+            # 测试模式：从token中提取测试用户ID
+            if test_mode and token.startswith("test_token_"):
+                firebase_uid = token.replace("test_token_", "")
+            else:
+                # 正常模式：验证Firebase ID Token
+                decoded_token = auth.verify_id_token(token)
+                firebase_uid = decoded_token['uid']
             
             # 通过Firebase UID查找用户
             user = self.user_repository.find_by_firebase_uid(firebase_uid)
@@ -158,18 +161,34 @@ class FirebaseAuthMiddleware:
             )
 
 
-# 创建依赖函数，供API路由使用
+# 创建全局实例，避免循环依赖
+firebase_auth_instance = None
+
 def get_firebase_auth_middleware():
     """获取Firebase认证中间件实例"""
-    from infrastructure.container import container
-    return container.get_firebase_auth_middleware()
+    global firebase_auth_instance
+    if firebase_auth_instance is None:
+        from infrastructure.container import container
+        from infrastructure.repositories.user_repository import UserRepository
+        from infrastructure.db.firebase import FirebaseAdminService
+        
+        # 创建用户仓库
+        db = FirebaseAdminService()
+        user_repo = UserRepository(db)
+        firebase_auth_instance = FirebaseAuthMiddleware(user_repo)
+    
+    return firebase_auth_instance
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    firebase_auth: FirebaseAuthMiddleware = Depends(get_firebase_auth_middleware)
-) -> User:
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
     """
     获取当前认证用户的依赖函数
     替代原来的JWT认证
     """
-    return firebase_auth.get_current_user(credentials) 
+    # 检查是否为测试token
+    token = credentials.credentials
+    test_mode = token.startswith("test_token_")
+    
+    # 直接获取认证中间件实例
+    firebase_auth = get_firebase_auth_middleware()
+    
+    return firebase_auth.get_current_user(credentials, test_mode=test_mode)

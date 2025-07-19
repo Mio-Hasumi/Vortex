@@ -67,7 +67,7 @@ async def get_topics(
             topics = topic_repo.find_by_difficulty_level(difficulty_level, limit)
         else:
             topics = topic_repo.get_all_topics(limit)
-
+        
         topic_responses = []
         for topic in topics:
             topic_responses.append(TopicResponse(
@@ -78,7 +78,7 @@ async def get_topics(
                 difficulty_level=topic.difficulty_level,
                 is_active=topic.is_active
             ))
-
+        
         return TopicListResponse(
             topics=topic_responses,
             total=len(topic_responses)
@@ -88,6 +88,62 @@ async def get_topics(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+@router.get("/popular", response_model=TopicListResponse)
+async def get_popular_topics(
+    limit: int = 20,
+    topic_repo = Depends(get_topic_repository)
+):
+    """Get popular topics"""
+    try:
+        # Use the dedicated get_popular_topics method
+        popular_topics = topic_repo.get_popular_topics(limit)
+        
+        topic_responses = [
+            TopicResponse(
+                id=str(topic.id),
+                name=topic.name,
+                description=topic.description,
+                category=topic.category,
+                difficulty_level=topic.difficulty_level,
+                is_active=topic.is_active
+            ) for topic in popular_topics
+        ]
+        
+        return TopicListResponse(
+            topics=topic_responses,
+            total=len(topic_responses)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/search", response_model=TopicListResponse)
+async def search_topics(
+    q: str,
+    topic_repo = Depends(get_topic_repository)
+):
+    """Search topics by name or description"""
+    try:
+        # Use the dedicated search_topics method
+        matching_topics = topic_repo.search_topics(q)
+        
+        topic_responses = [
+            TopicResponse(
+                id=str(topic.id),
+                name=topic.name,
+                description=topic.description,
+                category=topic.category,
+                difficulty_level=topic.difficulty_level,
+                is_active=topic.is_active
+            ) for topic in matching_topics
+        ]
+        
+        return TopicListResponse(
+            topics=topic_responses,
+            total=len(topic_responses)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{topic_id}", response_model=TopicResponse)
 async def get_topic(topic_id: str, topic_repo = Depends(get_topic_repository)):
@@ -103,7 +159,7 @@ async def get_topic(topic_id: str, topic_repo = Depends(get_topic_repository)):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Topic not found"
             )
-
+        
         return TopicResponse(
             id=str(topic.id),
             name=topic.name,

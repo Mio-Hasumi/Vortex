@@ -346,6 +346,31 @@ async def block_user(
             detail=str(e)
         )
 
+@router.get("/search")
+async def search_users(
+    q: str,
+    current_user = Depends(get_current_user),
+    user_repo = Depends(get_user_repository),
+    friend_repo = Depends(get_friend_repository)
+):
+    """Search for users by display name or email"""
+    try:
+        logger.info(f"🔍 User {current_user['uid']} searching for: {q}")
+        
+        # Search users (mock implementation)
+        # In real implementation, you'd search in the user repository
+        search_results = []
+        
+        return {
+            "users": search_results,
+            "query": q,
+            "total": len(search_results)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Search failed: {e}")
+        raise HTTPException(status_code=500, detail="Search failed")
+
 @router.delete("/{user_id}/block")
 async def unblock_user(
     user_id: str,

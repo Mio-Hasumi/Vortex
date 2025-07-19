@@ -10,45 +10,45 @@ from uuid import UUID, uuid4
 
 # Status Enums
 class CallStatus(Enum):
-    """生命周期枚举：等待 ➜ 通话中 ➜ 结束"""
+    """Lifecycle Enum: Waiting ➜ In Call ➜ Ended"""
     WAITING = auto()
     ACTIVE = auto()
     ENDED = auto()
 
 
 class RoomStatus(Enum):
-    """多人聊天室状态"""
-    WAITING = auto()      # 等待参与者
-    ACTIVE = auto()       # 活跃聊天中
-    PAUSED = auto()       # 暂停
-    ENDED = auto()        # 结束
+    """Multi-user Chat Room Status"""
+    WAITING = auto()      # Waiting for participants
+    ACTIVE = auto()       # Active chat
+    PAUSED = auto()       # Paused
+    ENDED = auto()        # Ended
 
 
 class MatchStatus(Enum):
-    """匹配状态"""
-    PENDING = auto()      # 等待匹配
-    MATCHED = auto()      # 匹配成功
-    CANCELLED = auto()    # 取消匹配
-    EXPIRED = auto()      # 匹配过期
+    """Match Status"""
+    PENDING = auto()      # Waiting for match
+    MATCHED = auto()      # Match successful
+    CANCELLED = auto()    # Match cancelled
+    EXPIRED = auto()      # Match expired
 
 
 class FriendshipStatus(Enum):
-    """好友关系状态"""
-    PENDING = auto()      # 待确认
-    ACCEPTED = auto()     # 已接受
-    REJECTED = auto()     # 已拒绝
-    BLOCKED = auto()      # 已拉黑
+    """Friendship Status"""
+    PENDING = auto()      # Pending confirmation
+    ACCEPTED = auto()     # Accepted
+    REJECTED = auto()     # Rejected
+    BLOCKED = auto()      # Blocked
 
 
 class RecordingStatus(Enum):
-    """录音状态"""
-    PROCESSING = auto()   # 处理中
-    READY = auto()        # 准备就绪
-    FAILED = auto()       # 处理失败
+    """Recording Status"""
+    PROCESSING = auto()   # Processing
+    READY = auto()        # Ready
+    FAILED = auto()       # Processing failed
 
 
 class UserStatus(Enum):
-    """用户在线状态"""
+    """User Online Status"""
     ONLINE = auto()
     OFFLINE = auto()
     IN_CALL = auto()
@@ -58,12 +58,12 @@ class UserStatus(Enum):
 @dataclass
 class User:
     """
-    Domain entity: 平台用户
+    Domain entity: Platform User
     """
     id: UUID
     display_name: str
     email: str
-    firebase_uid: str  # Firebase Auth UID - 用于Firebase ID Token验证
+    firebase_uid: str  # Firebase Auth UID - Used for Firebase ID Token verification
     password_hash: str
     push_token: Optional[str] = None    # APNs / FCM token
     status: UserStatus = UserStatus.OFFLINE
@@ -79,7 +79,7 @@ class User:
     interest_levels: Dict[str, int] = field(default_factory=dict)  # topic_id -> interest_level (1-5)
 
     def update_status(self, status: UserStatus) -> None:
-        """更新用户状态"""
+        """Update user status"""
         self.status = status
         if status == UserStatus.OFFLINE:
             self.last_seen = datetime.now(timezone.utc)
@@ -88,13 +88,13 @@ class User:
 @dataclass
 class Topic:
     """
-    话题实体 - 用于匹配和聊天
+    Topic entity - Used for matching and chatting
     """
     id: UUID
     name: str
     description: str
     category: str
-    difficulty_level: int  # 1-5 难度等级
+    difficulty_level: int  # Difficulty level 1-5
     is_active: bool = True
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     tags: List[str] = field(default_factory=list)
@@ -108,14 +108,14 @@ class Topic:
 @dataclass
 class Room:
     """
-    多人语音聊天室 (扩展原CallSession)
+    Multi-user Voice Chat Room (extends original CallSession)
     """
     id: UUID
     name: str
     topic_id: UUID
     livekit_room_name: str
-    host_ai_identity: str             # AI主持人在LiveKit中的identity
-    created_by: UUID  # 创建者ID
+    host_ai_identity: str             # AI host identity in LiveKit
+    created_by: UUID  # Creator ID
     max_participants: int = 10
     current_participants: List[UUID] = field(default_factory=list)
     status: RoomStatus = RoomStatus.WAITING
@@ -130,28 +130,28 @@ class Room:
 
     # Domain behaviors
     def add_participant(self, user_id: UUID) -> None:
-        """添加参与者"""
+        """Add participant"""
         if len(self.current_participants) >= self.max_participants:
             raise ValueError("Room is full")
         
         if user_id not in self.current_participants:
             self.current_participants.append(user_id)
             
-        # 如果是第一个参与者，激活房间
+        # If it's the first participant, activate the room
         if len(self.current_participants) == 1 and self.status == RoomStatus.WAITING:
             self.start()
 
     def remove_participant(self, user_id: UUID) -> None:
-        """移除参与者"""
+        """Remove participant"""
         if user_id in self.current_participants:
             self.current_participants.remove(user_id)
             
-        # 如果没有参与者了，结束房间
+        # If there are no participants left, end the room
         if len(self.current_participants) == 0:
             self.end()
 
     def start(self) -> None:
-        """开始聊天"""
+        """Start chat"""
         if self.status != RoomStatus.WAITING:
             raise ValueError("Room cannot be started")
         
@@ -159,7 +159,7 @@ class Room:
         self.started_at = datetime.now(timezone.utc)
 
     def end(self) -> None:
-        """结束聊天"""
+        """End chat"""
         if self.status == RoomStatus.ENDED:
             return
             
@@ -168,12 +168,12 @@ class Room:
         self.current_participants.clear()
 
     def pause(self) -> None:
-        """暂停聊天"""
+        """Pause chat"""
         if self.status == RoomStatus.ACTIVE:
             self.status = RoomStatus.PAUSED
 
     def resume(self) -> None:
-        """恢复聊天"""
+        """Resume chat"""
         if self.status == RoomStatus.PAUSED:
             self.status = RoomStatus.ACTIVE
 
@@ -181,7 +181,7 @@ class Room:
 @dataclass
 class Match:
     """
-    匹配实体 - 用户匹配系统
+    Match entity - User matching system
     """
     id: UUID
     user_id: UUID
@@ -198,12 +198,11 @@ class Match:
     selected_topic_id: Optional[UUID] = None
     room_id: Optional[UUID] = None
     
-    # Queue position
     queue_position: int = 0
     estimated_wait_time: int = 0  # seconds
 
     def mark_as_matched(self, matched_users: List[UUID], topic_id: UUID, room_id: UUID) -> None:
-        """标记为匹配成功"""
+        """Mark as matched"""
         if self.status != MatchStatus.PENDING:
             raise ValueError("Match is not in pending status")
             
@@ -214,12 +213,12 @@ class Match:
         self.room_id = room_id
 
     def cancel(self) -> None:
-        """取消匹配"""
+        """Cancel match"""
         if self.status == MatchStatus.PENDING:
             self.status = MatchStatus.CANCELLED
 
     def expire(self) -> None:
-        """标记为过期"""
+        """Mark as expired"""
         if self.status == MatchStatus.PENDING:
             self.status = MatchStatus.EXPIRED
             self.expired_at = datetime.now(timezone.utc)
@@ -228,7 +227,7 @@ class Match:
 @dataclass
 class Friendship:
     """
-    好友关系实体
+    Friendship entity
     """
     id: UUID
     user_id: UUID
@@ -236,10 +235,10 @@ class Friendship:
     status: FriendshipStatus = FriendshipStatus.PENDING
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     accepted_at: Optional[datetime] = None
-    message: Optional[str] = None  # 好友申请消息
+    message: Optional[str] = None  # Friendship request message
     
     def accept(self) -> None:
-        """接受好友申请"""
+        """Accept friendship request"""
         if self.status != FriendshipStatus.PENDING:
             raise ValueError("Friendship is not in pending status")
             
@@ -247,21 +246,21 @@ class Friendship:
         self.accepted_at = datetime.now(timezone.utc)
 
     def reject(self) -> None:
-        """拒绝好友申请"""
+        """Reject friendship request"""
         if self.status != FriendshipStatus.PENDING:
             raise ValueError("Friendship is not in pending status")
             
         self.status = FriendshipStatus.REJECTED
 
     def block(self) -> None:
-        """拉黑用户"""
+        """Block user"""
         self.status = FriendshipStatus.BLOCKED
 
 
 @dataclass
 class Recording:
     """
-    录音实体
+    Recording entity
     """
     id: UUID
     room_id: UUID
@@ -287,41 +286,41 @@ class Recording:
     share_expires_at: Optional[datetime] = None
 
     def mark_as_ready(self) -> None:
-        """标记为处理完成"""
+        """Mark as ready"""
         self.status = RecordingStatus.READY
         self.processed_at = datetime.now(timezone.utc)
 
     def mark_as_failed(self) -> None:
-        """标记为处理失败"""
+        """Mark as failed"""
         self.status = RecordingStatus.FAILED
         self.processed_at = datetime.now(timezone.utc)
 
     def generate_share_token(self, expires_in_hours: int = 24) -> str:
-        """生成分享token"""
+        """Generate share token"""
         import secrets
         self.share_token = secrets.token_urlsafe(32)
         self.share_expires_at = datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)
         return self.share_token
 
     def increment_download_count(self) -> None:
-        """增加下载次数"""
+        """Increment download count"""
         self.download_count += 1
 
 
 @dataclass
 class Transcript:
     """
-    通话逐句转录 (扩展支持多人)
+    Call transcript (supports multiple participants)
     """
     id: UUID
     room_id: UUID
-    speaker_id: UUID               # 说话者ID
+    speaker_id: UUID               # Speaker ID
     speaker_type: str              # "user" / "ai_host"
     text: str
-    confidence: float = 1.0        # 转录置信度
+    confidence: float = 1.0        # Transcription confidence
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    start_time: float = 0.0        # 在录音中的开始时间(秒)
-    end_time: float = 0.0          # 在录音中的结束时间(秒)
+    start_time: float = 0.0        # Start time in recording (seconds)
+    end_time: float = 0.0          # End time in recording (seconds)
     
     # Language detection
     detected_language: Optional[str] = None
@@ -334,7 +333,7 @@ class Transcript:
 @dataclass
 class Message:
     """
-    聊天消息实体 (支持文本和语音)
+    Chat message entity (supports text and audio)
     """
     id: UUID
     room_id: UUID
@@ -358,7 +357,7 @@ class Message:
 @dataclass
 class AIHostSession:
     """
-    AI主持人会话状态
+    AI Host Session State
     """
     id: UUID
     room_id: UUID
@@ -382,7 +381,7 @@ class AIHostSession:
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def add_exchange(self, user_id: UUID, user_message: str, ai_response: str) -> None:
-        """添加对话交换"""
+        """Add conversation exchange"""
         self.total_exchanges += 1
         self.conversation_context.append({
             "user_id": str(user_id),
@@ -393,7 +392,7 @@ class AIHostSession:
         self.updated_at = datetime.now(timezone.utc)
 
     def update_conversation_state(self, new_state: str) -> None:
-        """更新对话状态"""
+        """Update conversation state"""
         self.conversation_state = new_state
         self.updated_at = datetime.now(timezone.utc)
 
@@ -473,8 +472,8 @@ def new_ai_host_session(room_id: UUID, topic_id: UUID) -> AIHostSession:
 @dataclass
 class CallSession:
     """
-    Legacy: 一次三方通话会话（AI + A + B）
-    保持向后兼容性
+    Legacy: Three-party call session (AI + A + B)
+    Maintains backward compatibility
     """
     id: UUID
     room_name: str
@@ -486,14 +485,14 @@ class CallSession:
     ended_at: Optional[datetime] = None
 
     def activate(self, user_b_id: UUID) -> None:
-        """当B成功加入时调用"""
+        """Called when B successfully joins"""
         if self.status is not CallStatus.WAITING:
             raise ValueError("Session already activated or ended")
         self.user_b_id = user_b_id
         self.status = CallStatus.ACTIVE
 
     def end(self) -> None:
-        """结束会话并打时间戳"""
+        """End session and timestamp"""
         if self.status is CallStatus.ENDED:
             return
         self.status = CallStatus.ENDED

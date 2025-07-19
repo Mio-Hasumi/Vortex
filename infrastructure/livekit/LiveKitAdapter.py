@@ -110,7 +110,7 @@ except ImportError:
     openai = None
 
 
-ORCHESTRATOR_URL = os.getenv("ORCH_URL", "http://localhost:8000")
+ORCHESTRATOR_URL = os.getenv("ORCH_URL", f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN', 'localhost:8000')}")
 
 
 class HostAgent:

@@ -19,11 +19,31 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # Railway specific
-    PORT: int = 8000
+    PORT: int = int(os.getenv("PORT", "8000"))
     
     # API Settings
     API_V1_STR: str = "/api"
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8080"]
+    
+    # CORS - 支持Railway和本地开发
+    @property
+    def ALLOWED_ORIGINS(self) -> List[str]:
+        # 手动设置的CORS（优先级最高）
+        manual_origins = os.getenv("ALLOWED_ORIGINS")
+        if manual_origins:
+            try:
+                import json
+                return json.loads(manual_origins)
+            except:
+                return manual_origins.split(",")
+        
+        # 默认开发环境
+        origins = ["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
+        
+        # Railway生产环境
+        if os.getenv("RAILWAY_PUBLIC_DOMAIN"):
+            origins.append(f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}")
+        
+        return origins
     
     # Database - Firebase
     FIREBASE_PROJECT_ID: str = "voiceapp-8f09a"

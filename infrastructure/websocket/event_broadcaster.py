@@ -6,7 +6,7 @@ import json
 import logging
 import asyncio
 from typing import Dict, List, Optional, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 from datetime import datetime
 
 from infrastructure.redis.redis_service import RedisService
@@ -269,17 +269,96 @@ class EventBroadcaster:
     
     async def _check_for_matches(self, queue_items: List[Dict]) -> None:
         """
-        Check for potential matches in the queue (simplified matching logic)
+        Check for potential matches in the queue (enhanced with AI hashtag matching)
         
         Args:
             queue_items: Current items in the matching queue
         """
         try:
+            # Separate AI-driven matches from traditional topic matches
+            ai_driven_users = []
+            topic_based_users = []
+            
+            for item in queue_items:
+                if not isinstance(item, dict):
+                    continue
+                    
+                match_type = item.get('match_type', 'traditional')
+                if match_type == 'ai_driven':
+                    ai_driven_users.append(item)
+                else:
+                    topic_based_users.append(item)
+            
+            # Process AI-driven hashtag matching (NEW)
+            await self._process_ai_hashtag_matching(ai_driven_users)
+            
+            # Process traditional topic matching (EXISTING)
+            await self._process_traditional_topic_matching(topic_based_users)
+                        
+        except Exception as e:
+            logger.error(f"❌ Error checking for matches: {e}")
+
+    async def _process_ai_hashtag_matching(self, ai_users: List[Dict]) -> None:
+        """
+        Process AI-driven hashtag matching
+        """
+        try:
+            if len(ai_users) < 2:
+                return
+                
+            # Group users by hashtag similarity
+            matched_pairs = []
+            processed_users = set()
+            
+            for i, user1 in enumerate(ai_users):
+                if user1.get('user_id') in processed_users:
+                    continue
+                    
+                user1_hashtags = set(user1.get('hashtags', []))
+                if not user1_hashtags:
+                    continue
+                    
+                best_match = None
+                best_similarity = 0.0
+                
+                # Find best matching user
+                for j, user2 in enumerate(ai_users[i+1:], i+1):
+                    if user2.get('user_id') in processed_users:
+                        continue
+                        
+                    user2_hashtags = set(user2.get('hashtags', []))
+                    if not user2_hashtags:
+                        continue
+                    
+                    # Calculate hashtag similarity
+                    intersection = user1_hashtags.intersection(user2_hashtags)
+                    union = user1_hashtags.union(user2_hashtags)
+                    similarity = len(intersection) / len(union) if union else 0
+                    
+                    # Require at least 20% similarity for a match
+                    if similarity >= 0.2 and similarity > best_similarity:
+                        best_similarity = similarity
+                        best_match = user2
+                
+                # Create match if good similarity found
+                if best_match and best_similarity >= 0.2:
+                    await self._create_ai_match(user1, best_match, best_similarity)
+                    processed_users.add(user1.get('user_id'))
+                    processed_users.add(best_match.get('user_id'))
+                    
+        except Exception as e:
+            logger.error(f"❌ Error in AI hashtag matching: {e}")
+
+    async def _process_traditional_topic_matching(self, topic_users: List[Dict]) -> None:
+        """
+        Process traditional topic-based matching (existing logic)
+        """
+        try:
             # Group users by preferred topics (simplified)
             topic_groups: Dict[str, List[Dict]] = {}
             
-            for item in queue_items:
-                if not isinstance(item, dict) or 'preferred_topics' not in item:
+            for item in topic_users:
+                if 'preferred_topics' not in item:
                     continue
                 
                 preferred_topics = item.get('preferred_topics', [])
@@ -319,7 +398,62 @@ class EventBroadcaster:
                         # Broadcast match found
                         await self.broadcast_match_found(user_ids, room_id, topic)
                         
-                        logger.info(f"🎯 Match created: {len(user_ids)} users, topic={topic}, room={room_id}")
+                        logger.info(f"🎯 Traditional match created: {len(user_ids)} users, topic={topic}, room={room_id}")
                         
         except Exception as e:
-            logger.error(f"❌ Error checking for matches: {e}") 
+            logger.error(f"❌ Error in traditional topic matching: {e}")
+
+    async def _create_ai_match(self, user1: Dict, user2: Dict, similarity: float) -> None:
+        """
+        Create an AI-hosted match between two users
+        """
+        try:
+            user1_id = UUID(user1['user_id'])
+            user2_id = UUID(user2['user_id'])
+            
+            # Remove users from queue
+            self.redis.remove_from_matching_queue(user1_id)
+            self.redis.remove_from_matching_queue(user2_id)
+            
+            # Generate room ID for AI-hosted conversation
+            room_id = UUID(f"ai-room-{uuid4().hex[:8]}")
+            
+            # Get common hashtags for room topic
+            user1_hashtags = set(user1.get('hashtags', []))
+            user2_hashtags = set(user2.get('hashtags', []))
+            common_hashtags = list(user1_hashtags.intersection(user2_hashtags))
+            
+            # Create AI-friendly topic string
+            if common_hashtags:
+                ai_topic = f"AI guided conversation: {', '.join(common_hashtags[:3])}"
+            else:
+                ai_topic = "AI guided general conversation"
+            
+            # Broadcast AI match found with special formatting
+            await self.connection_manager.broadcast_to_user(user1_id, {
+                "type": "ai_match_found",
+                "room_id": str(room_id),
+                "partner_id": str(user2_id),
+                "topic": ai_topic,
+                "hashtags": common_hashtags,
+                "similarity_score": similarity,
+                "ai_hosted": True,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+            await self.connection_manager.broadcast_to_user(user2_id, {
+                "type": "ai_match_found", 
+                "room_id": str(room_id),
+                "partner_id": str(user1_id),
+                "topic": ai_topic,
+                "hashtags": common_hashtags,
+                "similarity_score": similarity,
+                "ai_hosted": True,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+            logger.info(f"🤖 AI match created: {user1_id} + {user2_id}, similarity={similarity:.2f}, room={room_id}")
+            logger.info(f"🏷️ Common hashtags: {common_hashtags}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error creating AI match: {e}") 

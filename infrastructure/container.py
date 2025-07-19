@@ -1,256 +1,246 @@
 """
-Dependency Injection Container
+Dependency injection container
 """
 
+import os
 import logging
-from typing import Any, Dict
+from typing import Dict, Any, Optional
 
+from infrastructure.config import Settings
+from infrastructure.auth.firebase_auth import FirebaseAuth
 from infrastructure.db.firebase import FirebaseAdminService
-
-from infrastructure.middleware.firebase_auth_middleware import FirebaseAuthMiddleware
 from infrastructure.redis.redis_service import RedisService
 from infrastructure.livekit.livekit_service import LiveKitService
 from infrastructure.websocket.connection_manager import ConnectionManager
 from infrastructure.websocket.event_broadcaster import EventBroadcaster
-from infrastructure.config import settings
+
+# Repositories
 from infrastructure.repositories.user_repository import UserRepository
-from infrastructure.repositories.topic_repository import TopicRepository
 from infrastructure.repositories.friend_repository import FriendRepository
+from infrastructure.repositories.topic_repository import TopicRepository
+from infrastructure.repositories.matching_repository import MatchingRepository
 from infrastructure.repositories.room_repository import RoomRepository
 from infrastructure.repositories.recording_repository import RecordingRepository
-from infrastructure.repositories.matching_repository import MatchingRepository
-# Note: 移除了JWT相关的use cases，现在使用Firebase Auth
-from usecase.get_user_profile import GetUserProfileUseCase
-from usecase.update_user_profile import UpdateUserProfileUseCase
-from usecase.manage_topic_preferences import ManageTopicPreferencesUseCase
+
+# AI Services
+from infrastructure.ai.openai_service import OpenAIService
+from infrastructure.ai.ai_host_service import AIHostService
+
+# Middleware
+from infrastructure.middleware.firebase_auth_middleware import FirebaseAuthMiddleware
 
 logger = logging.getLogger(__name__)
 
-
-class DIContainer:
-    """
-    Dependency Injection Container
-    Manages all service dependencies and provides them to the application
-    """
-    
+class Container:
     def __init__(self):
-        self._services: Dict[str, Any] = {}
+        self._instances: Dict[str, Any] = {}
         self._initialized = False
-    
+        
     def initialize(self):
-        """
-        Initialize all services and their dependencies
-        """
+        """Initialize all services"""
         if self._initialized:
             return
+            
+        logger.info("Initializing dependency injection container...")
         
-        logger.info("🔧 Initializing DI Container...")
+        # Core services
+        self._initialize_core_services()
         
-        # Initialize core services
-        self._init_core_services()
+        # Data services
+        self._initialize_data_services()
         
-        # Initialize WebSocket services
-        self._init_websocket_services()
-        
-        # Initialize repositories
-        self._init_repositories()
-        
-        # Initialize use cases
-        self._init_use_cases()
-        
-        # Initialize default data
-        self._init_default_data()
+        # AI services (NEW: GPT-4o Audio support)
+        self._initialize_ai_services()
         
         self._initialized = True
-        logger.info("✅ DI Container initialized successfully")
-    
-    def _init_core_services(self):
+        logger.info("✅ Container initialization completed")
+        
+    def _initialize_core_services(self):
         """Initialize core infrastructure services"""
+        # Settings
+        settings = Settings()
         
-        # Firebase Service (singleton)
-        self._services['firebase'] = FirebaseAdminService()
+        # Firebase Auth
+        self._instances['firebase_auth'] = FirebaseAuth()
         
-        # Redis Service (singleton)
+        # Database
+        self._instances['firebase_db'] = FirebaseAdminService()
+        
+        # Firebase Auth Middleware (handled directly in middleware file to avoid circular dependency)
+        
+        # Redis
         redis_service = RedisService(settings)
-        redis_service.connect()
-        self._services['redis'] = redis_service
+        redis_service.connect()  # Establish Redis connection
+        self._instances['redis_service'] = redis_service
         
-        # LiveKit Service (singleton)
+        # LiveKit
         livekit_service = LiveKitService(settings)
-        livekit_service.connect()
-        self._services['livekit'] = livekit_service
+        livekit_service.connect()  # Establish LiveKit connection
+        self._instances['livekit_service'] = livekit_service
         
-
+        # WebSocket management
+        self._instances['connection_manager'] = ConnectionManager(
+            redis_service=self._instances['redis_service']
+        )
+        self._instances['event_broadcaster'] = EventBroadcaster(
+            connection_manager=self._instances['connection_manager'],
+            redis_service=self._instances['redis_service']
+        )
         
-        logger.info("✅ Core services initialized")
-    
-    def _init_websocket_services(self):
-        """Initialize WebSocket services"""
+    def _initialize_data_services(self):
+        """Initialize data repositories"""
+        db = self._instances['firebase_db']
+        redis_service = self._instances['redis_service']
+        livekit_service = self._instances['livekit_service']
         
-        redis_service = self._services['redis']
+        self._instances['user_repository'] = UserRepository(db)
+        self._instances['friend_repository'] = FriendRepository(db)
+        self._instances['topic_repository'] = TopicRepository(db)
+        self._instances['matching_repository'] = MatchingRepository(
+            db, redis_service
+        )
+        self._instances['room_repository'] = RoomRepository(db, livekit_service)
+        self._instances['recording_repository'] = RecordingRepository(db)
         
-        # WebSocket Connection Manager
-        connection_manager = ConnectionManager(redis_service)
-        self._services['websocket_manager'] = connection_manager
+        # Firebase Auth Middleware is handled directly in middleware file
         
-        # Event Broadcaster (starts background tasks)
-        event_broadcaster = EventBroadcaster(connection_manager, redis_service)
-        self._services['event_broadcaster'] = event_broadcaster
-        
-        logger.info("🔌 WebSocket services initialized")
-    
-    def _init_repositories(self):
-        """Initialize repository services"""
-        
-        firebase_service = self._services['firebase']
-        
-        # User Repository
-        self._services['user_repo'] = UserRepository(firebase_service)
-        
-        # Topic Repository
-        self._services['topic_repo'] = TopicRepository(firebase_service)
-        
-        # Friend Repository
-        self._services['friend_repo'] = FriendRepository(firebase_service)
-        
-        # Room Repository
-        self._services['room_repo'] = RoomRepository(firebase_service, self._services['livekit'])
-        
-        # Recording Repository
-        self._services['recording_repo'] = RecordingRepository(firebase_service)
-        
-        # Matching Repository
-        self._services['matching_repo'] = MatchingRepository(firebase_service, self._services['redis'])
-        
-        logger.info("✅ Repositories initialized")
-    
-    def _init_use_cases(self):
-        """Initialize use case services"""
-        
-        user_repo = self._services['user_repo']
-        topic_repo = self._services['topic_repo']
-        
-        # User profile use cases
-        self._services['get_user_profile_usecase'] = GetUserProfileUseCase(user_repo)
-        self._services['update_user_profile_usecase'] = UpdateUserProfileUseCase(user_repo)
-        
-        # Topic preference use case
-        self._services['manage_topic_preferences_usecase'] = ManageTopicPreferencesUseCase(user_repo, topic_repo)
-        
-        # Note: 现在使用Firebase Auth，不需要复杂的JWT use cases
-        
-        logger.info("✅ Use cases initialized")
-    
-    def _init_default_data(self):
-        """Initialize default data (topics, etc.)"""
+    def _initialize_ai_services(self):
+        """Initialize AI services with GPT-4o Audio support"""
         try:
-            # Initialize default topics
-            topic_repo = self._services['topic_repo']
-            topic_repo.ensure_default_topics()
+            # Get settings instance
+            settings = Settings()
             
-            logger.info("✅ Default data initialized")
+            # NEW: Initialize OpenAI service with GPT-4o Audio Preview
+            openai_api_key = os.getenv("OPENAI_API_KEY") or settings.OPENAI_API_KEY
+            openai_base_url = os.getenv("OPENAI_BASE_URL")  # Optional custom endpoint
+            
+            # Debug info
+            logger.info(f"🔍 Debug - OPENAI_API_KEY found: {bool(openai_api_key)}")
+            logger.info(f"🔍 Debug - API Key starts with: {openai_api_key[:10] if openai_api_key else 'None'}...")
+            
+            if not openai_api_key:
+                logger.warning("⚠️ OPENAI_API_KEY not found, AI features will be limited")
+                # Create a mock service for development
+                self._instances['openai_service'] = None
+            else:
+                logger.info("🎵 Initializing OpenAI service with GPT-4o Audio Preview...")
+                try:
+                    self._instances['openai_service'] = OpenAIService(
+                        api_key=openai_api_key,
+                        base_url=openai_base_url
+                    )
+                    logger.info("✅ OpenAI service created successfully")
+                except Exception as e:
+                    logger.error(f"❌ Failed to create OpenAI service: {e}")
+                    self._instances['openai_service'] = None
+                
+            # AI Host Service (enhanced for GPT-4o Audio)
+            self._instances['ai_host_service'] = AIHostService(
+                openai_service=self._instances.get('openai_service'),
+                redis_service=self._instances['redis_service']
+            )
+            
+            logger.info("✅ AI services initialized successfully")
+            
         except Exception as e:
-            # Don't fail the container initialization for default data issues
-            logger.warning(f"⚠️ Failed to initialize default data: {e}")
-    
-    def get_service(self, service_name: str) -> Any:
-        """
-        Get a service from the container
+            logger.error(f"❌ Failed to initialize AI services: {e}")
+            # Fallback: create placeholder services
+            self._instances['openai_service'] = None
+            self._instances['ai_host_service'] = None
+
+    # Core service getters
+    def get_firebase_auth(self) -> FirebaseAuth:
+        return self._instances['firebase_auth']
         
-        Args:
-            service_name: Name of the service to retrieve
-            
-        Returns:
-            The requested service instance
-            
-        Raises:
-            KeyError: If service is not found
-        """
-        if service_name not in self._services:
-            raise KeyError(f"Service '{service_name}' not found in container")
+    def get_firebase_db(self) -> FirebaseAdminService:
+        return self._instances['firebase_db']
         
-        return self._services[service_name]
-    
-    # Convenience methods for commonly used services
-    def get_firebase_service(self) -> FirebaseAdminService:
-        return self.get_service('firebase')
-    
     def get_redis_service(self) -> RedisService:
-        return self.get_service('redis')
-    
+        return self._instances['redis_service']
+        
     def get_livekit_service(self) -> LiveKitService:
-        return self.get_service('livekit')
-    
-    def get_websocket_manager(self) -> ConnectionManager:
-        return self.get_service('websocket_manager')
-    
+        return self._instances['livekit_service']
+        
+    def get_connection_manager(self) -> ConnectionManager:
+        return self._instances['connection_manager']
+        
     def get_event_broadcaster(self) -> EventBroadcaster:
-        return self.get_service('event_broadcaster')
+        return self._instances['event_broadcaster']
     
+    # Repository getters
     def get_user_repository(self) -> UserRepository:
-        return self.get_service('user_repo')
-    
-    def get_topic_repository(self) -> TopicRepository:
-        return self.get_service('topic_repo')
-    
+        return self._instances['user_repository']
+        
     def get_friend_repository(self) -> FriendRepository:
-        return self.get_service('friend_repo')
-    
-    def get_room_repository(self) -> RoomRepository:
-        return self.get_service('room_repo')
-    
-    def get_recording_repository(self) -> RecordingRepository:
-        return self.get_service('recording_repo')
-    
+        return self._instances['friend_repository']
+        
+    def get_topic_repository(self) -> TopicRepository:
+        return self._instances['topic_repository']
+        
     def get_matching_repository(self) -> MatchingRepository:
-        return self.get_service('matching_repo')
+        return self._instances['matching_repository']
+        
+    def get_room_repository(self) -> RoomRepository:
+        return self._instances['room_repository']
+        
+    def get_recording_repository(self) -> RecordingRepository:
+        return self._instances['recording_repository']
     
-    def get_manage_topic_preferences_usecase(self) -> ManageTopicPreferencesUseCase:
-        return self.get_service('manage_topic_preferences_usecase')
-    
+    # AI service getters (NEW/UPDATED)
+    def get_openai_service(self) -> Optional[OpenAIService]:
+        """Get GPT-4o Audio enabled OpenAI service"""
+        return self._instances.get('openai_service')
+        
+    def get_ai_host_service(self) -> Optional[AIHostService]:
+        """Get AI host service for conversation management"""
+        return self._instances.get('ai_host_service')
+
+    # Lifecycle management methods
     async def start_websocket_services(self):
-        """Start WebSocket background services"""
+        """Start WebSocket and real-time services"""
         try:
+            logger.info("🔌 Starting WebSocket services...")
+            
+            # Start event broadcaster
             event_broadcaster = self.get_event_broadcaster()
-            await event_broadcaster.start()
-            logger.info("🚀 WebSocket services started")
+            if hasattr(event_broadcaster, 'start'):
+                await event_broadcaster.start()
+            
+            logger.info("✅ WebSocket services started")
+            
         except Exception as e:
             logger.error(f"❌ Failed to start WebSocket services: {e}")
             raise
     
     async def shutdown(self):
-        """
-        Shutdown the container and cleanup resources
-        """
-        if not self._initialized:
-            return
-        
-        logger.info("🛑 Shutting down DI Container...")
-        
+        """Shutdown all services gracefully"""
         try:
-            # Stop WebSocket services first
-            if 'event_broadcaster' in self._services:
-                await self._services['event_broadcaster'].stop()
+            logger.info("🛑 Shutting down services...")
             
-            if 'websocket_manager' in self._services:
-                await self._services['websocket_manager'].cleanup()
+            # Stop event broadcaster
+            event_broadcaster = self.get_event_broadcaster()
+            if hasattr(event_broadcaster, 'stop'):
+                await event_broadcaster.stop()
+            
+            # Cleanup connection manager
+            connection_manager = self.get_connection_manager()
+            if hasattr(connection_manager, 'cleanup'):
+                await connection_manager.cleanup()
             
             # Disconnect Redis
-            if 'redis' in self._services:
-                self._services['redis'].disconnect()
+            redis_service = self.get_redis_service()
+            if hasattr(redis_service, 'disconnect'):
+                redis_service.disconnect()
             
             # Disconnect LiveKit
-            if 'livekit' in self._services:
-                self._services['livekit'].disconnect()
+            livekit_service = self.get_livekit_service()
+            if hasattr(livekit_service, 'disconnect'):
+                livekit_service.disconnect()
             
-            # TODO: Add cleanup logic for other services that need it
+            logger.info("✅ Services shutdown completed")
             
         except Exception as e:
-            logger.error(f"❌ Error during container shutdown: {e}")
-        
-        self._initialized = False
-        logger.info("✅ DI Container shut down successfully")
-
+            logger.error(f"❌ Error during shutdown: {e}")
 
 # Global container instance
-container = DIContainer() 
+container = Container() 

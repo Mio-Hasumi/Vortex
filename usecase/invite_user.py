@@ -4,14 +4,14 @@
 from __future__ import annotations
 
 """
-用例：InviteUserInteractor
-    当 AI 主持人决定拉第二位用户进入房间时调用。
-    职责：
-        1. 读取 CallSession
-        2. 依据 InvitationPolicy 校验是否允许邀请
-        3. 生成 User B 的 LiveKit Token
-        4. 更新 CallSession 状态并持久化
-        5. 通过通知网关向 User B 发送邀请
+Use Case: InviteUserInteractor
+    Called when the AI host decides to bring a second user into the room.
+    Responsibilities:
+        1. Read CallSession
+        2. Check if invitation is allowed based on InvitationPolicy
+        3. Generate LiveKit Token for User B
+        4. Update CallSession status and persist
+        5. Send invitation to User B via Notification Gateway
 """
 
 from dataclasses import dataclass
@@ -23,7 +23,7 @@ from domain.policies import InvitationPolicy
 
 
 # --------------------------------------------------------------------------- #
-# 1. 依赖端口（Ports）
+# 1. Dependency Ports
 # --------------------------------------------------------------------------- #
 class CallSessionReader(Protocol):
     def by_id(self, session_id: UUID) -> CallSession | None: ...
@@ -48,13 +48,13 @@ class NotificationGateway(Protocol):
 
 
 # --------------------------------------------------------------------------- #
-# 2. 输入 / 输出 DTO
+# 2. Input / Output DTO
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class InviteUserInput:
     session_id: UUID
     user_b_id: UUID
-    exchanges_count: int = 0   # 已发生的对话往返次数，可由 HostAgent 统计
+    exchanges_count: int = 0   # Number of dialogue exchanges that have occurred, can be tracked by HostAgent
     reason: str | None = None
 
 
@@ -73,11 +73,11 @@ class InviteUserUseCase(Protocol):
 
 
 # --------------------------------------------------------------------------- #
-# 4. 用例实现
+# 4. Use Case Implementation
 # --------------------------------------------------------------------------- #
 class InviteUserInteractor(InviteUserUseCase):
     """
-    执行拉人逻辑；若策略不允许或 session 状态不合法，将抛出 ValueError。
+    Execute the logic to invite a user; if the policy does not allow or the session status is invalid, a ValueError will be raised.
     """
 
     def __init__(
@@ -94,22 +94,22 @@ class InviteUserInteractor(InviteUserUseCase):
         self._notify = notifier
         self._policy = policy or InvitationPolicy()
 
-    # ---------- 业务入口 ----------
+    # ---------- Business Entry ----------
     def execute(self, inp: InviteUserInput) -> InviteUserOutput:
-        # 1. 读取会话
+        # 1. Read session
         session = self._sessions.by_id(inp.session_id)
         if not session:
             raise ValueError("CallSession not found")
 
-        # 2. 校验状态
+        # 2. Validate status
         if session.status is not CallStatus.WAITING:
             raise ValueError("Session already active or ended")
 
-        # 3. 业务策略校验
+        # 3. Business policy validation
         if not self._policy.can_invite(session, exchanges_count=inp.exchanges_count):
             raise ValueError("Invitation policy disallows inviting user now")
 
-        # 4. 生成 LiveKit Token
+        # 4. Generate LiveKit Token
         token = self._lk.build_access_token(
             room=session.room_name,
             identity=str(inp.user_b_id),
@@ -117,18 +117,18 @@ class InviteUserInteractor(InviteUserUseCase):
             can_subscribe=True,
         )
 
-        # 5. 更新会话实体并持久化
+        # 5. Update session entity and persist
         session.activate(inp.user_b_id)
         self._save_session.save(session)
 
-        # 6. 发送推送/邀请
+        # 6. Send push/invitation
         self._notify.push_invite(
             user_id=inp.user_b_id,
             room=session.room_name,
             token=token,
         )
 
-        # 7. 返回 DTO
+        # 7. Return DTO
         return InviteUserOutput(
             token_user_b=token,
             room_name=session.room_name,

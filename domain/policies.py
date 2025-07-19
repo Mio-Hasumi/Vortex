@@ -1,7 +1,6 @@
-# app/domain/policies.py
 """
-业务策略：把“什么时候 AI 可以邀请第二位用户”这种纯业务规则
-与框架/基础设施剥离开，方便单测与演进。
+Business Policy: Separate pure business rules like "When can AI invite a second user"
+from the framework/infrastructure to facilitate unit testing and evolution.
 """
 from __future__ import annotations
 
@@ -13,19 +12,19 @@ from .entities import CallSession, CallStatus
 
 class InvitationPolicy:
     """
-    AI 触发 invite_user 工具前的合规判断
+    Compliance check before AI triggers the invite_user tool
     -------------------------------------------------
-    * 至少等待 MIN_EXCHANGES 轮对话，或者
-    * 已等待超过 MAX_WAIT_SECONDS 秒
+    * Wait at least MIN_EXCHANGES rounds of conversation, or
+    * Wait for more than MAX_WAIT_SECONDS seconds
     """
     MIN_EXCHANGES: int = 4
-    MAX_WAIT_SECONDS: int = 300  # 5 分钟
+    MAX_WAIT_SECONDS: int = 300  # 5 minutes
 
     def __init__(self, clock: Callable[[], datetime] | None = None) -> None:
-        # 方便测试时注入 fake clock
+        # Allows injection of a fake clock for testing
         self._now = clock or (lambda: datetime.now(timezone.utc))
 
-    # ---------- 规则入口 ----------
+    # ---------- Rule Entry ----------
     def can_invite(
         self,
         session: CallSession,
@@ -33,11 +32,11 @@ class InvitationPolicy:
     ) -> bool:
         """
         Args:
-            session: 当前通话会话
-            exchanges_count: A 与 AI 已完成的话语往返次数
+            session: Current call session
+            exchanges_count: Number of exchanges completed between A and AI
         Returns:
-            True  => HostAgent 可调用 invite_user()
-            False => 暂不可邀请
+            True  => HostAgent can call invite_user()
+            False => Cannot invite yet
         """
         if session.status is not CallStatus.WAITING:
             return False

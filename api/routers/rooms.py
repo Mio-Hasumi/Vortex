@@ -2,15 +2,21 @@
 Rooms API routes
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from typing import List, Optional
 from uuid import UUID
+import asyncio
+import json
+import logging
+from datetime import datetime
 
 from infrastructure.container import container
 from infrastructure.middleware.firebase_auth_middleware import get_current_user
 from domain.entities import RoomStatus, User, Room
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -85,7 +91,7 @@ def create_room_entity(name: str, topic: str, created_by: UUID, max_participants
     )
 
 # Room endpoints
-@router.post("/create", response_model=RoomResponse)
+@router.post("/", response_model=RoomResponse)
 async def create_room(
     request: CreateRoomRequest,
     room_repo = Depends(get_room_repository),
@@ -356,3 +362,349 @@ async def get_rooms(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         ) 
+
+# Additional dependency injection for AI features
+def get_ai_host_service():
+    return container.get_ai_host_service()
+
+def get_openai_service():
+    return container.get_openai_service()
+
+def get_websocket_manager():
+    return container.get_websocket_manager()
+
+# NEW: GPT-4o Audio Real-time Room WebSocket
+@router.websocket("/ws/{room_id}")
+async def websocket_room_conversation(
+    websocket: WebSocket,
+    room_id: str,
+    user_id: Optional[str] = None
+):
+    """
+    WebSocket endpoint for GPT-4o Audio powered real-time room conversations
+    
+    Features:
+    - 🎙️ Direct voice input/output using GPT-4o Audio
+    - 🤖 Real-time AI moderator with voice responses  
+    - 💬 Intelligent conversation guidance
+    - 🔍 Live fact-checking and suggestions
+    - 🎪 Automatic conversation flow management
+    """
+    websocket_manager = get_websocket_manager()
+    openai_service = get_openai_service()
+    room_repo = get_room_repository()
+    
+    await websocket.accept()
+    logger.info(f"🎭 GPT-4o Audio room WebSocket connected: room={room_id}, user={user_id}")
+    
+    try:
+        # Join room and register connection
+        room_connection_id = await websocket_manager.join_room(
+            websocket=websocket,
+            room_id=room_id,
+            user_id=user_id
+        )
+        
+        # Initialize conversation context for AI moderator
+        conversation_context = []
+        room_participants = await room_repo.get_room_participants(room_id)
+        
+        # Send welcome message
+        await websocket.send_json({
+            "type": "room_joined",
+            "room_id": room_id,
+            "connection_id": room_connection_id,
+            "ai_enabled": True,
+            "supported_features": [
+                "voice_input", "voice_output", "real_time_moderation", 
+                "fact_checking", "conversation_guidance", "topic_suggestions"
+            ]
+        })
+        
+        # Main message handling loop
+        while True:
+            # Receive message from client
+            data = await websocket.receive_json()
+            message_type = data.get("type")
+            
+            logger.info(f"📥 Received: {message_type} in room {room_id}")
+            
+            if message_type == "voice_message":
+                # User sends voice message - process with GPT-4o Audio
+                await handle_voice_message(
+                    websocket, room_id, user_id, data, 
+                    openai_service, conversation_context, room_participants
+                )
+                
+            elif message_type == "text_message":
+                # User sends text message
+                await handle_text_message(
+                    websocket, room_id, user_id, data,
+                    openai_service, conversation_context, room_participants
+                )
+                
+            elif message_type == "request_ai_assistance":
+                # User explicitly requests AI help
+                await handle_ai_assistance_request(
+                    websocket, room_id, user_id, data,
+                    openai_service, conversation_context, room_participants
+                )
+                
+            elif message_type == "conversation_pause":
+                # Handle conversation silence - AI suggests topics
+                await handle_conversation_pause(
+                    websocket, room_id, openai_service, 
+                    conversation_context, room_participants
+                )
+                
+            else:
+                logger.warning(f"❓ Unknown message type: {message_type}")
+                
+    except WebSocketDisconnect:
+        logger.info(f"👋 User {user_id} disconnected from room {room_id}")
+        await websocket_manager.leave_room(room_connection_id)
+        
+    except Exception as e:
+        logger.error(f"❌ Room WebSocket error: {e}")
+        logger.exception("Full exception details:")
+        await websocket.send_json({
+            "type": "error",
+            "error": str(e),
+            "message": "Room connection error occurred"
+        })
+
+
+async def handle_voice_message(
+    websocket: WebSocket, 
+    room_id: str, 
+    user_id: str, 
+    data: dict,
+    openai_service,
+    conversation_context: list,
+    room_participants: list
+):
+    """
+    处理用户语音消息 - 使用GPT-4o Audio实时响应
+    """
+    try:
+        audio_data = data.get("audio_data")  # base64 encoded audio
+        if not audio_data:
+            await websocket.send_json({
+                "type": "error", 
+                "message": "No audio data provided"
+            })
+            return
+            
+        logger.info(f"🎙️ Processing voice message from {user_id} with GPT-4o Audio...")
+        
+        # Add user message to context
+        user_context = {
+            "role": "user",
+            "content": f"[{user_id} 发送了语音消息]",
+            "timestamp": datetime.utcnow().isoformat(),
+            "type": "voice"
+        }
+        conversation_context.append(user_context)
+        
+        # Use GPT-4o Audio to process and respond
+        ai_response = await openai_service.moderate_room_conversation(
+            audio_data=audio_data,
+            conversation_context=conversation_context,
+            room_participants=room_participants,
+            moderation_mode="active_host"
+        )
+        
+        # Broadcast user's voice message to other participants
+        await broadcast_to_room(websocket, room_id, {
+            "type": "user_voice_message",
+            "user_id": user_id,
+            "audio_data": audio_data,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+        # Send AI moderator response
+        if ai_response.get("ai_response"):
+            ai_reply = ai_response["ai_response"]
+            
+            # Add AI response to context
+            ai_context = {
+                "role": "assistant",
+                "content": ai_reply.get("text", ""),
+                "timestamp": datetime.utcnow().isoformat(),
+                "type": "ai_moderation"
+            }
+            conversation_context.append(ai_context)
+            
+            # Broadcast AI voice response to all participants
+            await broadcast_to_room(websocket, room_id, {
+                "type": "ai_moderator_response",
+                "response_text": ai_reply.get("text"),
+                "response_audio": ai_reply.get("audio"),  # base64 audio
+                "audio_transcript": ai_reply.get("audio_transcript"),
+                "suggestions": ai_response.get("suggestions", []),
+                "moderation_type": ai_response.get("moderation_type"),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        logger.info("✅ Voice message processed and AI response sent")
+        
+    except Exception as e:
+        logger.error(f"❌ Voice message handling failed: {e}")
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Failed to process voice message: {str(e)}"
+        })
+
+
+async def handle_text_message(
+    websocket: WebSocket,
+    room_id: str, 
+    user_id: str,
+    data: dict,
+    openai_service,
+    conversation_context: list,
+    room_participants: list
+):
+    """
+    处理用户文字消息 - AI提供智能回复和建议
+    """
+    try:
+        text_content = data.get("text", "")
+        if not text_content.strip():
+            return
+            
+        logger.info(f"💬 Processing text message from {user_id}: '{text_content[:50]}...'")
+        
+        # Add to context
+        conversation_context.append({
+            "role": "user", 
+            "content": text_content,
+            "user_id": user_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "type": "text"
+        })
+        
+        # Broadcast user message
+        await broadcast_to_room(websocket, room_id, {
+            "type": "user_text_message",
+            "user_id": user_id,
+            "text": text_content,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+        # Get AI moderator response (text + optional voice)
+        ai_response = await openai_service.moderate_room_conversation(
+            text_input=text_content,
+            conversation_context=conversation_context,
+            room_participants=room_participants,
+            moderation_mode="secretary"  # More subtle for text
+        )
+        
+        # Send AI response if meaningful
+        if ai_response.get("ai_response") and ai_response["ai_response"].get("text"):
+            ai_reply = ai_response["ai_response"]
+            
+            conversation_context.append({
+                "role": "assistant",
+                "content": ai_reply.get("text"),
+                "timestamp": datetime.utcnow().isoformat(),
+                "type": "ai_suggestion"
+            })
+            
+            await broadcast_to_room(websocket, room_id, {
+                "type": "ai_suggestion",
+                "suggestion_text": ai_reply.get("text"),
+                "suggestion_audio": ai_reply.get("audio"),
+                "suggestions": ai_response.get("suggestions", []),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Text message handling failed: {e}")
+
+
+async def handle_ai_assistance_request(
+    websocket: WebSocket,
+    room_id: str,
+    user_id: str,
+    data: dict,
+    openai_service,
+    conversation_context: list,
+    room_participants: list
+):
+    """
+    用户主动请求AI协助
+    """
+    try:
+        request_type = data.get("assistance_type", "general")  # general, fact_check, topic_suggestion
+        
+        logger.info(f"🆘 AI assistance requested by {user_id}: {request_type}")
+        
+        ai_response = await openai_service.moderate_room_conversation(
+            text_input=f"用户请求AI协助，类型：{request_type}",
+            conversation_context=conversation_context,
+            room_participants=room_participants,
+            moderation_mode="fact_checker" if request_type == "fact_check" else "active_host"
+        )
+        
+        if ai_response.get("ai_response"):
+            ai_reply = ai_response["ai_response"]
+            
+            await broadcast_to_room(websocket, room_id, {
+                "type": "ai_assistance_response",
+                "requested_by": user_id,
+                "assistance_type": request_type,
+                "response_text": ai_reply.get("text"),
+                "response_audio": ai_reply.get("audio"),
+                "suggestions": ai_response.get("suggestions", []),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ AI assistance handling failed: {e}")
+
+
+async def handle_conversation_pause(
+    websocket: WebSocket,
+    room_id: str,
+    openai_service,
+    conversation_context: list,
+    room_participants: list
+):
+    """
+    处理对话冷场 - AI主动提供话题建议
+    """
+    try:
+        logger.info(f"⏸️ Conversation pause detected in room {room_id}")
+        
+        ai_response = await openai_service.moderate_room_conversation(
+            text_input="对话出现冷场，请提供话题建议活跃气氛",
+            conversation_context=conversation_context,
+            room_participants=room_participants,
+            moderation_mode="active_host"
+        )
+        
+        if ai_response.get("ai_response"):
+            ai_reply = ai_response["ai_response"]
+            
+            await broadcast_to_room(websocket, room_id, {
+                "type": "conversation_revival",
+                "topic_suggestion": ai_reply.get("text"),
+                "suggestion_audio": ai_reply.get("audio"),
+                "suggestions": ai_response.get("suggestions", []),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+    except Exception as e:
+        logger.error(f"❌ Conversation pause handling failed: {e}")
+
+
+async def broadcast_to_room(websocket: WebSocket, room_id: str, message: dict):
+    """广播消息到房间所有参与者"""
+    try:
+        websocket_manager = get_websocket_manager()
+        await websocket_manager.broadcast_to_room(room_id, message)
+    except Exception as e:
+        logger.error(f"❌ Room broadcast failed: {e}")
+        # Fallback: send only to current websocket
+        await websocket.send_json(message) 

@@ -308,33 +308,242 @@ async def share_recording(recording_id: str):
         )
 
 @router.get("/{recording_id}/transcript")
-async def get_recording_transcript(recording_id: str):
+async def get_recording_transcript(
+    recording_id: str,
+    recording_repo = Depends(get_recording_repository),
+    current_user: User = Depends(get_current_user)
+):
     """
-    Get recording transcript
+    Get recording transcript using OpenAI Whisper
     """
     try:
-        # TODO: Implement transcript retrieval
+        import io
+        from infrastructure.container import container
+        
+        # Get recording details
+        recording = recording_repo.find_by_id(recording_id)
+        if not recording:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Recording not found"
+            )
+        
+        # Check if user has access to this recording
+        if recording.created_by != current_user.id:
+            # TODO: Add proper permission check (e.g., if user was a participant)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Check if transcript already exists (cache)
+        if hasattr(recording, 'transcript_data') and recording.transcript_data:
+            return {"transcript": recording.transcript_data}
+        
+        # Get audio file URL and download for processing
+        download_url = recording_repo.get_download_url(recording_id)
+        if not download_url:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Recording file not found"
+            )
+        
+        # Download audio file for STT processing
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.get(download_url) as response:
+                if response.status != 200:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Failed to download recording file"
+                    )
+                
+                audio_content = await response.read()
+        
+        # Create audio buffer for OpenAI
+        audio_buffer = io.BytesIO(audio_content)
+        audio_buffer.name = f"recording_{recording_id}.wav"
+        
+        # Get OpenAI service and perform STT
+        openai_service = container.get_openai_service()
+        stt_result = await openai_service.speech_to_text(
+            audio_file=audio_buffer,
+            language="en-US"  # Could be configurable
+        )
+        
+        # Parse words for speaker diarization (simplified)
+        transcript_entries = []
+        words = stt_result.get("words", [])
+        
+        if words:
+            # Group words into segments (simplified speaker detection)
+            current_segment = []
+            current_speaker = "user-1"
+            
+            for word in words:
+                current_segment.append(word["word"])
+                
+                # Simple heuristic: new speaker every 30 seconds or sentence break
+                if (word.get("end", 0) - (current_segment[0] if current_segment else {"start": 0})["start"] > 30.0 
+                    or word["word"].endswith(('.', '!', '?'))):
+                    
+                    if current_segment:
+                        text = " ".join([w["word"] if isinstance(w, dict) else w for w in current_segment])
+                        start_time = current_segment[0]["start"] if isinstance(current_segment[0], dict) else 0
+                        
+                        transcript_entries.append({
+                            "speaker": current_speaker,
+                            "timestamp": f"{int(start_time//60):02d}:{int(start_time%60):02d}",
+                            "text": text.strip(),
+                            "start_time": start_time,
+                            "confidence": word.get("confidence", 0.0)
+                        })
+                        
+                        # Alternate speaker (simplified)
+                        current_speaker = "user-2" if current_speaker == "user-1" else "user-1"
+                        current_segment = []
+        else:
+            # Fallback: single transcript entry
+            transcript_entries = [{
+                "speaker": "user-1",
+                "timestamp": "00:00:00",
+                "text": stt_result["text"],
+                "start_time": 0,
+                "confidence": stt_result.get("confidence", 0.0)
+            }]
+        
+        # Cache the transcript for future requests
+        try:
+            recording_repo.update_transcript(recording_id, transcript_entries)
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to cache transcript: {e}")
+        
         return {
-            "transcript": [
-                {
-                    "speaker": "user-1",
-                    "timestamp": "00:00:05",
-                    "text": "Hello, how are you doing today?"
-                },
-                {
-                    "speaker": "ai-host",
-                    "timestamp": "00:00:08",
-                    "text": "I'm doing great! Let's talk about technology trends."
-                },
-                {
-                    "speaker": "user-2",
-                    "timestamp": "00:00:12",
-                    "text": "That sounds interesting. What do you think about AI?"
-                }
-            ]
+            "transcript": transcript_entries,
+            "language": stt_result.get("language", "unknown"),
+            "duration": stt_result.get("duration", 0),
+            "processing_info": {
+                "model": "whisper-1",
+                "processed_at": datetime.utcnow().isoformat()
+            }
         }
+        
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"❌ Transcript generation failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recording not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate transcript: {str(e)}"
+        ) 
+
+# NEW: Conversation Summary Endpoint
+@router.get("/{recording_id}/summary")
+async def get_conversation_summary(
+    recording_id: str,
+    summary_type: str = "detailed",  # brief, detailed, highlights
+    recording_repo = Depends(get_recording_repository),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate AI-powered conversation summary
+    """
+    try:
+        from infrastructure.container import container
+        
+        # Get recording details
+        recording = recording_repo.find_by_id(recording_id)
+        if not recording:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Recording not found"
+            )
+        
+        # Check permissions
+        if recording.created_by != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Get transcript first
+        transcript_response = await get_recording_transcript(
+            recording_id, recording_repo, current_user
+        )
+        transcript_entries = transcript_response["transcript"]
+        
+        if not transcript_entries:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No transcript available for summarization"
+            )
+        
+        # Prepare conversation text for summarization
+        conversation_text = ""
+        speakers = set()
+        
+        for entry in transcript_entries:
+            speaker = entry["speaker"]
+            text = entry["text"]
+            speakers.add(speaker)
+            conversation_text += f"{speaker}: {text}\n"
+        
+        # Get OpenAI service for summarization
+        openai_service = container.get_openai_service()
+        
+        # Create context for summarization
+        context = {
+            "conversation_length": len(transcript_entries),
+            "duration": transcript_response.get("duration", 0),
+            "speakers": list(speakers),
+            "summary_type": summary_type
+        }
+        
+        # Generate summary using AI
+        summary_response = await openai_service.generate_conversation_summary(
+            conversation_text=conversation_text,
+            context=context,
+            summary_type=summary_type
+        )
+        
+        # Extract key insights and topics
+        topics_result = await openai_service.extract_topics_and_hashtags(
+            text=conversation_text,
+            context={
+                "source": "conversation_summary",
+                "participants": list(speakers)
+            }
+        )
+        
+        return {
+            "summary": {
+                "brief": summary_response.get("brief_summary", ""),
+                "detailed": summary_response.get("detailed_summary", ""),
+                "key_points": summary_response.get("key_points", []),
+                "highlights": summary_response.get("highlights", []),
+                "action_items": summary_response.get("action_items", []),
+                "insights": summary_response.get("insights", [])
+            },
+            "analysis": {
+                "main_topics": topics_result.get("main_topics", []),
+                "hashtags": topics_result.get("hashtags", []),
+                "sentiment": topics_result.get("sentiment", "neutral"),
+                "conversation_style": topics_result.get("conversation_style", "casual")
+            },
+            "metadata": {
+                "duration": transcript_response.get("duration", 0),
+                "word_count": len(conversation_text.split()),
+                "speakers": list(speakers),
+                "language": transcript_response.get("language", "unknown"),
+                "generated_at": datetime.utcnow().isoformat()
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Conversation summary failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate summary: {str(e)}"
         ) 

@@ -4,14 +4,14 @@
 from __future__ import annotations
 
 """
-用例：EndCallInteractor
+Use Case: EndCallInteractor
 ---------------------------------
-  * 当三方通话结束时，由控制器 / Webhook 调用
-  * 职责：
-      1. 加载 CallSession
-      2. 将其标记为 ENDED（若尚未结束）
-      3. 持久化
-      4. 调用 LiveKit 删除房间（可选；若 Cloud 自动清理，可跳过）
+  * Called by controller / Webhook when a three-party call ends
+  * Responsibilities:
+      1. Load CallSession
+      2. Mark it as ENDED (if not already ended)
+      3. Persist
+      4. Call LiveKit to delete room (optional; can be skipped if Cloud auto-cleans)
 """
 
 from dataclasses import dataclass
@@ -20,11 +20,11 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from domain.entities import CallSession, CallStatus
-# transcripts 可能由其它流程写入；此用例保持轻量，不处理文本
+# transcripts may be written by other processes; this use case remains lightweight and does not handle text
 
 
 # --------------------------------------------------------------------------- #
-# 1. 依赖端口（Ports）
+# 1. Dependency Ports
 # --------------------------------------------------------------------------- #
 class CallSessionReader(Protocol):
     def by_id(self, session_id: UUID) -> CallSession | None: ...
@@ -39,12 +39,12 @@ class LiveKitPort(Protocol):
 
 
 # --------------------------------------------------------------------------- #
-# 2. 输入 / 输出 DTO
+# 2. Input / Output DTO
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class EndCallInput:
     session_id: UUID
-    hard_delete_room: bool = False     # 是否强制调用 LiveKit 删除房间
+    hard_delete_room: bool = False     # Whether to force call LiveKit to delete room
 
 
 @dataclass(frozen=True)
@@ -62,11 +62,11 @@ class EndCallUseCase(Protocol):
 
 
 # --------------------------------------------------------------------------- #
-# 4. 用例实现
+# 4. Use Case Implementation
 # --------------------------------------------------------------------------- #
 class EndCallInteractor(EndCallUseCase):
     """
-    结束通话；若 hard_delete_room=True 则调用 LiveKitPort.delete_room。
+    End the call; if hard_delete_room=True, call LiveKitPort.delete_room.
     """
 
     def __init__(
@@ -79,25 +79,25 @@ class EndCallInteractor(EndCallUseCase):
         self._save_session = session_writer
         self._lk = livekit
 
-    # ---------- 业务入口 ----------
+    # ---------- Business Entry ----------
     def execute(self, inp: EndCallInput) -> EndCallOutput:
         session = self._sessions.by_id(inp.session_id)
         if not session:
             raise ValueError("CallSession not found")
 
-        # 若已结束则幂等化处理
+        # Idempotent handling if already ended
         if session.status is not CallStatus.ENDED:
             session.end()
             self._save_session.save(session)
 
-        # 房间清理
+        # Room cleanup
         room_deleted = False
         if inp.hard_delete_room:
             try:
                 self._lk.delete_room(session.room_name)
                 room_deleted = True
             except Exception:
-                # Cloud 可能已自动清理；忽略 404
+                # Cloud may have auto-cleaned; ignore 404
                 room_deleted = False
 
         return EndCallOutput(
