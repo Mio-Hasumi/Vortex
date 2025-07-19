@@ -8,7 +8,7 @@ Provides endpoints for AI-driven conversation hosting:
 - AI conversation management
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -56,11 +56,22 @@ class TTSRequest(BaseModel):
     voice: Optional[str] = "nova"
     speed: Optional[float] = 1.0
 
-class ExtractTopicsRequest(BaseModel):
+
+
+class TopicExtractionRequest(BaseModel):
     text: str
     user_context: Optional[Dict[str, Any]] = None
 
-class ExtractTopicsResponse(BaseModel):
+class TopicExtractionResponse(BaseModel):
+    main_topics: List[str]
+    hashtags: List[str]
+    category: str
+    sentiment: str
+    conversation_style: str
+    confidence: float
+
+class VoiceTopicExtractionResponse(BaseModel):
+    transcription: str
     main_topics: List[str]
     hashtags: List[str]
     category: str
@@ -236,46 +247,114 @@ async def text_to_speech_get(
         )
 
 # Topic Extraction (Urgently needed by frontend!)
-@router.post("/extract-topics", response_model=ExtractTopicsResponse)
+@router.post("/extract-topics", response_model=TopicExtractionResponse)
 async def extract_topics(
-    request: ExtractTopicsRequest,
-    openai_service = Depends(get_openai_service),
+    request: TopicExtractionRequest,
     current_user: User = Depends(get_current_user)
 ):
     """
-    Extract topics and hashtags from user text
-    The frontend can use this API to extract topics and hashtags from user speech-to-text
+    Extract topics and hashtags from text input using GPT-4
+    
+    This endpoint analyzes text and extracts:
+    - Main topics (3-5 key topics)
+    - Relevant hashtags (5-8 hashtags for matching)
+    - Content category
+    - Sentiment analysis
+    - Conversation style
     """
     try:
+        openai_service = container.get_openai_service()
+        if not openai_service:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI service not available"
+            )
+        
         logger.info(f"🧠 Extracting topics from: '{request.text[:100]}...'")
         
-        # Add user context if not provided
-        context = request.user_context or {}
-        context.update({
-            "user_id": str(current_user.id),
-            "display_name": current_user.display_name
-        })
-        
-        # Extract topics using OpenAI
+        # Extract topics and hashtags using GPT-4
         result = await openai_service.extract_topics_and_hashtags(
             text=request.text,
-            context=context
+            context=request.user_context.model_dump() if request.user_context else {},
+            language="en-US"
         )
         
-        return ExtractTopicsResponse(
-            main_topics=result.get("main_topics", []),
-            hashtags=result.get("hashtags", []),
-            category=result.get("category", "general"),
-            sentiment=result.get("sentiment", "neutral"),
-            conversation_style=result.get("conversation_style", "casual"),
-            confidence=result.get("confidence", 0.0)
-        )
+        return TopicExtractionResponse(**result)
         
     except Exception as e:
-        logger.error(f"❌ Failed to extract topics: {e}")
+        logger.error(f"❌ Topic extraction failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to extract topics: {str(e)}"
+            detail=f"Topic extraction failed: {str(e)}"
+        )
+
+@router.post("/extract-topics-from-voice", response_model=VoiceTopicExtractionResponse)
+async def extract_topics_from_voice(
+    audio_file: UploadFile = File(...),
+    language: str = Form("en-US"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Extract topics and hashtags from voice input using Whisper + GPT-4
+    
+    This endpoint processes voice input and extracts:
+    - Speech transcription (using Whisper)
+    - Main topics (using GPT-4)
+    - Relevant hashtags for matching
+    - Content analysis (sentiment, style, category)
+    
+    The voice-to-hashtag pipeline:
+    Voice → Whisper STT → GPT-4 Topic Analysis → Hashtags for Matching
+    """
+    try:
+        openai_service = container.get_openai_service()
+        if not openai_service:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI service not available"
+            )
+        
+        # Validate file type
+        if not audio_file.content_type or not audio_file.content_type.startswith("audio/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an audio file"
+            )
+        
+        # Read audio content
+        audio_content = await audio_file.read()
+        
+        # Check file size (max 25MB)
+        if len(audio_content) > 25 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Audio file too large. Maximum size is 25MB."
+            )
+        
+        logger.info(f"🎙️ Processing voice input for topic extraction: {len(audio_content)/1024/1024:.2f}MB")
+        
+        # Process voice to extract topics and hashtags
+        result = await openai_service.process_voice_for_hashtags(
+            audio_data=audio_content,
+            audio_format=audio_file.content_type.split('/')[-1],
+            language=language
+        )
+        
+        if result.get("error"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"]
+            )
+        
+        return VoiceTopicExtractionResponse(**result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Voice topic extraction failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Voice topic extraction failed: {str(e)}"
         )
 
 # NEW: Speech-to-Text Upload Endpoint (Core Feature!)

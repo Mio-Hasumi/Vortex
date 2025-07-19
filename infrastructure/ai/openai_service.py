@@ -337,6 +337,73 @@ The response should be natural, friendly, and helpful."""
             logger.error(f"❌ TTS generation failed: {e}")
             raise
 
+    async def speech_to_text(
+        self, 
+        audio_file: Union[bytes, io.BytesIO], 
+        language: str = "en-US"
+    ) -> Dict[str, Any]:
+        """
+        Convert speech to text using OpenAI Whisper API
+        
+        Args:
+            audio_file: Audio file data (bytes or BytesIO)
+            language: Language preference
+            
+        Returns:
+            Dictionary with transcription, language, duration, confidence, etc.
+        """
+        try:
+            logger.info(f"🎙️ Processing speech-to-text with language: {language}")
+            
+            # Prepare audio data
+            if isinstance(audio_file, bytes):
+                audio_buffer = io.BytesIO(audio_file)
+                audio_buffer.name = "audio.mp3"
+            else:
+                audio_buffer = audio_file
+            
+            # Use OpenAI Whisper for STT
+            response = await asyncio.to_thread(
+                lambda: self.client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_buffer,
+                    language=language.split('-')[0] if language else None,  # Convert en-US to en
+                    response_format="verbose_json",
+                    timestamp_granularities=["word"]
+                )
+            )
+            
+            # Extract response data
+            transcription = response.text
+            detected_language = getattr(response, 'language', language)
+            duration = getattr(response, 'duration', 0.0)
+            
+            # Extract word-level timestamps if available
+            words = []
+            if hasattr(response, 'words') and response.words:
+                words = [
+                    {
+                        "word": word.word,
+                        "start": word.start,
+                        "end": word.end
+                    }
+                    for word in response.words
+                ]
+            
+            logger.info(f"✅ STT completed: '{transcription[:100]}...'")
+            
+            return {
+                "text": transcription,
+                "language": detected_language,
+                "duration": duration,
+                "confidence": 0.95,  # Whisper doesn't provide confidence, use default
+                "words": words
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Speech-to-text failed: {e}")
+            raise Exception(f"STT processing failed: {str(e)}")
+
     async def extract_topics_and_hashtags(
         self, 
         text: str, 
@@ -434,5 +501,78 @@ Focus on creating hashtags that will help match users with similar interests.{co
                 "conversation_style": "casual",
                 "confidence": 0.1,
                 "summary": "Could not analyze topics",
+                "error": str(e)
+            }
+
+    async def process_voice_for_hashtags(
+        self,
+        audio_data: Union[bytes, io.BytesIO],
+        audio_format: str = "mp3",
+        language: str = "en-US"
+    ) -> Dict[str, Any]:
+        """
+        Process voice input to extract hashtags and topics for matching
+        
+        This is the main voice-to-hashtag pipeline:
+        1. Voice → STT (Whisper)
+        2. Text → Topic Extraction (GPT-4)
+        3. Return topics + hashtags for matching
+        
+        Args:
+            audio_data: Audio file data
+            audio_format: Audio format (mp3, wav, etc.)
+            language: Language preference
+            
+        Returns:
+            Dictionary with transcription, topics, hashtags, etc.
+        """
+        try:
+            logger.info("🎙️ Processing voice input for hashtag extraction...")
+            
+            # Step 1: Speech to Text
+            stt_result = await self.speech_to_text(audio_data, language)
+            transcription = stt_result["text"]
+            
+            if not transcription.strip():
+                return {
+                    "transcription": "",
+                    "main_topics": [],
+                    "hashtags": [],
+                    "error": "No speech detected in audio"
+                }
+            
+            # Step 2: Extract topics and hashtags from transcription
+            topic_result = await self.extract_topics_and_hashtags(
+                text=transcription,
+                context={
+                    "source": "voice_input",
+                    "language": language,
+                    "audio_format": audio_format
+                }
+            )
+            
+            # Combine results
+            result = {
+                "transcription": transcription,
+                "language": stt_result["language"],
+                "duration": stt_result["duration"],
+                "confidence": stt_result["confidence"],
+                "main_topics": topic_result.get("main_topics", []),
+                "hashtags": topic_result.get("hashtags", []),
+                "category": topic_result.get("category", "other"),
+                "sentiment": topic_result.get("sentiment", "neutral"),
+                "conversation_style": topic_result.get("conversation_style", "casual"),
+                "summary": topic_result.get("summary", transcription[:100])
+            }
+            
+            logger.info(f"✅ Voice processing completed: {len(result['hashtags'])} hashtags generated")
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Voice hashtag processing failed: {e}")
+            return {
+                "transcription": "",
+                "main_topics": [],
+                "hashtags": [],
                 "error": str(e)
             }
