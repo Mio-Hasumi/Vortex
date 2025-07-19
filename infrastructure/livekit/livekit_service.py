@@ -377,6 +377,106 @@ class LiveKitService:
             logger.error(f"❌ Failed to remove participant {identity}: {e}")
             return False
 
+    # Synchronous wrapper methods for usecase compatibility
+    def create_room_if_not_exists(self, room_name: str) -> None:
+        """
+        Synchronous wrapper for create_room to match usecase protocol
+        
+        Args:
+            room_name: Name of the room to create
+        """
+        try:
+            import asyncio
+            
+            # Run async method in sync context
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self.create_room(room_name, max_participants=10))
+            finally:
+                loop.close()
+                
+            logger.info(f"✅ Room created (sync): {room_name}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to create room (sync) {room_name}: {e}")
+            # Don't raise if room already exists
+            if "already exists" not in str(e).lower():
+                raise
+    
+    def build_access_token(
+        self,
+        room: str,
+        identity: str,
+        can_publish: bool = True,
+        can_subscribe: bool = True,
+    ) -> str:
+        """
+        Synchronous wrapper for generate_token to match usecase protocol
+        
+        Args:
+            room: Room name
+            identity: Participant identity
+            can_publish: Can publish audio/video
+            can_subscribe: Can subscribe to audio/video
+            
+        Returns:
+            JWT token
+        """
+        return self.generate_token(
+            room_name=room,
+            identity=identity,
+            can_publish=can_publish,
+            can_subscribe=can_subscribe
+        )
+
+    def delete_room(self, room_name: str) -> None:
+        """
+        Synchronous wrapper for delete_room to match usecase protocol
+        
+        Args:
+            room_name: Name of the room to delete
+        """
+        try:
+            import asyncio
+            
+            # Run async method in sync context
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self.delete_room_async(room_name))
+            finally:
+                loop.close()
+                
+            logger.info(f"✅ Room deleted (sync): {room_name}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to delete room (sync) {room_name}: {e}")
+            # Don't raise for 404 errors (room already deleted)
+            if "not found" not in str(e).lower() and "404" not in str(e):
+                raise
+
+    async def delete_room_async(self, room_name: str) -> None:
+        """
+        Async version of delete_room
+        
+        Args:
+            room_name: Name of the room to delete
+        """
+        try:
+            if not self.client or not DeleteRoomRequest:
+                logger.warning("⚠️ LiveKit not available, mock delete")
+                return
+            
+            request = DeleteRoomRequest(room=room_name)
+            await self.client.room.delete_room(request)
+            
+            logger.info(f"✅ Room deleted: {room_name}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to delete room {room_name}: {e}")
+            raise
+
 
 class MockLiveKitClient:
     """Mock LiveKit client for development"""

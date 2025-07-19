@@ -334,7 +334,7 @@ async def ai_driven_match(
         logger.info(f"   #️⃣ Hashtags: {generated_hashtags}")
         
         # Step 2: Based on hashtags, perform intelligent matching
-        match_candidates = await matching_repo.find_users_by_hashtags(
+        match_candidates = matching_repo.find_users_by_hashtags(
             hashtags=generated_hashtags,
             exclude_user_id=current_user_id,
             max_results=10,
@@ -371,7 +371,7 @@ async def ai_driven_match(
             
             ai_session_id = f"ai_waiting_{current_user_id}_{datetime.utcnow().timestamp()}"
             
-            await matching_repo.add_to_ai_queue(
+            matching_repo.add_to_ai_queue(
                 user_id=current_user_id,
                 hashtags=generated_hashtags,
                 voice_input=understood_text,
