@@ -19,9 +19,9 @@ redis==5.0.1
 hiredis==2.2.3
 
 # Audio and real-time communication
-livekit==0.16.6
+livekit>=0.16.4,<0.18
 livekit-api==0.7.0
-livekit-protocol==0.5.9
+livekit-protocol>=0.5.0,<1.1
 
 # AI Services  
 openai==1.40.0
