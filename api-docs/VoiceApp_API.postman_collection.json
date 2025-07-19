@@ -1,0 +1,1610 @@
+{
+  "info": {
+    "name": "VoiceApp API",
+    "description": "AI-driven voice social platform backend API",
+    "version": "0.1.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "ws_base_url",
+      "value": "ws://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "firebase_token",
+      "value": "your_firebase_id_token_here",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{firebase_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Other",
+      "item": [
+        {
+          "name": "Root",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": []
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Sign Up",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Register a new user (Firebase user already created on client)\nClient should create Firebase user first, then call this endpoint"
+          },
+          "response": []
+        },
+        {
+          "name": "Sign In",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Sign in user (Firebase authentication handled on client)\nThis endpoint just verifies the user exists in our database"
+          },
+          "response": []
+        },
+        {
+          "name": "Sign Out",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/signout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "signout"
+              ]
+            },
+            "description": "Sign out (handled on client with Firebase Auth)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/profile",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "profile"
+              ]
+            },
+            "description": "Get current user profile (requires Firebase ID Token)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Topics",
+      "item": [
+        {
+          "name": "Get Topics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/topics/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "topics"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "<category>",
+                  "disabled": true
+                },
+                {
+                  "key": "difficulty_level",
+                  "value": "<difficulty_level>",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "<limit>",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "<offset>",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get available topics for matching"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Popular Topics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/topics/popular",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                "popular"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "<limit>",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get popular topics"
+          },
+          "response": []
+        },
+        {
+          "name": "Search Topics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/topics/search",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "<q>",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Search topics by name or description"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Topic",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/topics/{{topic_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                "{{topic_id}}"
+              ]
+            },
+            "description": "Get specific topic details"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Topic Preferences",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/topics/preferences",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                "preferences"
+              ]
+            },
+            "description": "Get current user's topic preferences"
+          },
+          "response": []
+        },
+        {
+          "name": "Set Topic Preferences",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/topics/preferences",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                "preferences"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Set user's topic preferences for matching"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Matching",
+      "item": [
+        {
+          "name": "Request Match",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/matching/match",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "match"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Request to be matched with other users"
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Match",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/matching/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "cancel"
+              ]
+            },
+            "description": "Cancel pending match request"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Queue Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/matching/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "status"
+              ]
+            },
+            "description": "Get current position in matching queue"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Match History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/matching/history",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "<limit>",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "<offset>",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get user's match history"
+          },
+          "response": []
+        },
+        {
+          "name": "Process Timeout Matches Manually",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/matching/process-timeout-matches",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "process-timeout-matches"
+              ],
+              "query": [
+                {
+                  "key": "timeout_minutes",
+                  "value": "<timeout_minutes>",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Manually trigger timeout matching process (for testing/admin use)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Timeout Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/matching/timeout-stats",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "timeout-stats"
+              ],
+              "query": [
+                {
+                  "key": "timeout_minutes",
+                  "value": "<timeout_minutes>",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get statistics about users waiting too long"
+          },
+          "response": []
+        },
+        {
+          "name": "Ai Driven Match",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/matching/ai-match",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "matching",
+                "ai-match"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "NEW: Simplified AI-driven matching using GPT-4o Audio Preview\n\nUser registers and directly inputs voice → GPT-4o processes → Intelligent matching\n\nWorkflow:\n1. User voice input: \"I want to talk about AI and entrepreneurship\"\n2. GPT-4o Audio directly understands and extracts hashtags\n3. Match users based on hashtag similarity\n4. Return match results and AI voice confirmation"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Rooms",
+      "item": [
+        {
+          "name": "Create Room",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rooms/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rooms"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Create a new voice chat room"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Rooms",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rooms/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rooms"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "<status>",
+                  "disabled": true
+                },
+                {
+                  "key": "topic",
+                  "value": "<topic>",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "<limit>",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "<offset>",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get available rooms"
+          },
+          "response": []
+        },
+        {
+          "name": "Join Room",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rooms/join",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rooms",
+                "join"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Join an existing room"
+          },
+          "response": []
+        },
+        {
+          "name": "Leave Room",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/rooms/{{room_id}}/leave",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rooms",
+                "{{room_id}}",
+                "leave"
+              ]
+            },
+            "description": "Leave a room"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Room",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rooms/{{room_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rooms",
+                "{{room_id}}"
+              ]
+            },
+            "description": "Get room details"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Room Participants",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rooms/{{room_id}}/participants",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "rooms",
+                "{{room_id}}",
+                "participants"
+              ]
+            },
+            "description": "Get room participants"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Friends",
+      "item": [
+        {
+          "name": "Get Friends",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/friends/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "friends"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "<status>",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "<limit>",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "<offset>",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get user's friends list with real-time online status"
+          },
+          "response": []
+        },
+        {
+          "name": "Send Friend Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/friends/request",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "friends",
+                "request"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Send a friend request"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Friend Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/friends/requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "friends",
+                "requests"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "<type>",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "<limit>",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "<offset>",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get friend requests (received or sent)"
+          },
+          "response": []
+        },
+        {
+          "name": "Accept Friend Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/friends/requests/{{request_id}}/accept",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "friends",
+                "requests",
+                "{{request_id}}",
+                "accept"
+              ]
+            },
+            "description": "Accept a friend request"
+          },
+          "response": []
+        },
+        {
+          "name": "Reject Friend Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/friends/requests/{{request_id}}/reject",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "friends",
+                "requests",
+                "{{request_id}}",
+                "reject"
+              ]
+            },
+            "description": "Reject a friend request"
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Friend",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/friends/{{user_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "friends",
+                "{{user_id}}"
+              ]
+            },
+            "description": "Remove a friend"
+          },
+          "response": []
+        },
+        {
+          "name": "Block User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/friends/{{user_id}}/block",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "friends",
+                "{{user_id}}",
+                "block"
+              ]
+            },
+            "description": "Block a user"
+          },
+          "response": []
+        },
+        {
+          "name": "Unblock User",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/friends/{{user_id}}/block",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "friends",
+                "{{user_id}}",
+                "block"
+              ]
+            },
+            "description": "Unblock a user"
+          },
+          "response": []
+        },
+        {
+          "name": "Search Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/friends/search",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "friends",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "<q>",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Search for users by display name or email"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Recordings",
+      "item": [
+        {
+          "name": "Get Recordings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/recordings/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "recordings"
+              ],
+              "query": [
+                {
+                  "key": "room_id",
+                  "value": "<room_id>",
+                  "disabled": true
+                },
+                {
+                  "key": "topic",
+                  "value": "<topic>",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "<limit>",
+                  "disabled": true
+                },
+                {
+                  "key": "offset",
+                  "value": "<offset>",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get user's recordings"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Recording",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/recordings/{{recording_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                "{{recording_id}}"
+              ]
+            },
+            "description": "Get specific recording details"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Recording",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/recordings/{{recording_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                "{{recording_id}}"
+              ]
+            },
+            "description": "Delete a recording"
+          },
+          "response": []
+        },
+        {
+          "name": "Download Recording",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/recordings/{{recording_id}}/download",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                "{{recording_id}}",
+                "download"
+              ]
+            },
+            "description": "Download recording file"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Recording Metadata",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/recordings/{{recording_id}}/metadata",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                "{{recording_id}}",
+                "metadata"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Update recording metadata"
+          },
+          "response": []
+        },
+        {
+          "name": "Share Recording",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/recordings/{{recording_id}}/share",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                "{{recording_id}}",
+                "share"
+              ]
+            },
+            "description": "Generate shareable link for recording"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Recording Transcript",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/recordings/{{recording_id}}/transcript",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                "{{recording_id}}",
+                "transcript"
+              ]
+            },
+            "description": "Get recording transcript using OpenAI Whisper"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Conversation Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/recordings/{{recording_id}}/summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                "{{recording_id}}",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "summary_type",
+                  "value": "<summary_type>",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Generate AI-powered conversation summary"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Ai-Host",
+      "item": [
+        {
+          "name": "Start Ai Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ai-host/start-session",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-host",
+                "start-session"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Start a new AI host session for the user"
+          },
+          "response": []
+        },
+        {
+          "name": "Process User Input",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ai-host/process-input",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-host",
+                "process-input"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Process user input and get AI host response"
+          },
+          "response": []
+        },
+        {
+          "name": "Text To Speech",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ai-host/tts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-host",
+                "tts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Convert text to speech using OpenAI TTS\nThis endpoint can be called directly by the frontend to obtain AI voice"
+          },
+          "response": []
+        },
+        {
+          "name": "Test Simple Get",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ai-host/test-simple",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-host",
+                "test-simple"
+              ]
+            },
+            "description": "Test GET endpoint"
+          },
+          "response": []
+        },
+        {
+          "name": "Text To Speech Get",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ai-host/tts/{{text}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-host",
+                "tts",
+                "{{text}}"
+              ],
+              "query": [
+                {
+                  "key": "voice",
+                  "value": "<voice>",
+                  "disabled": true
+                },
+                {
+                  "key": "speed",
+                  "value": "<speed>",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "GET endpoint for TTS (convenient for frontend)  \nUsage: /api/ai-host/tts/HelloWorld?voice=nova&speed=1.0"
+          },
+          "response": []
+        },
+        {
+          "name": "Extract Topics",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ai-host/extract-topics",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-host",
+                "extract-topics"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "\"value\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Extract topics and hashtags from text input using GPT-4\n\nThis endpoint analyzes text and extracts:\n- Main topics (3-5 key topics)\n- Relevant hashtags (5-8 hashtags for matching)\n- Content category\n- Sentiment analysis\n- Conversation style"
+          },
+          "response": []
+        },
+        {
+          "name": "Extract Topics From Voice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ai-host/extract-topics-from-voice",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-host",
+                "extract-topics-from-voice"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "description": "Extract topics and hashtags from voice input using Whisper + GPT-4\n\nThis endpoint processes voice input and extracts:\n- Speech transcription (using Whisper)\n- Main topics (using GPT-4)\n- Relevant hashtags for matching\n- Content analysis (sentiment, style, category)\n\nThe voice-to-hashtag pipeline:\nVoice → Whisper STT → GPT-4 Topic Analysis → Hashtags for Matching"
+          },
+          "response": []
+        },
+        {
+          "name": "Upload Audio For Stt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ai-host/upload-audio",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-host",
+                "upload-audio"
+              ],
+              "query": [
+                {
+                  "key": "extract_topics",
+                  "value": "<extract_topics>",
+                  "disabled": true
+                },
+                {
+                  "key": "language",
+                  "value": "<language>",
+                  "disabled": true
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "description": "Upload audio file for speech-to-text transcription\n\nCore user workflow: User registers and directly uploads speech saying what they want to talk about"
+          },
+          "response": []
+        },
+        {
+          "name": "Ai Host Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ai-host/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-host",
+                "health"
+              ]
+            },
+            "description": "Check AI host service health"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Ai Host",
+      "item": [
+        {
+          "name": "Real-time voice chat with GPT-4o Audio Preview",
+          "request": {
+            "method": "WEBSOCKET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ai-host/voice-chat",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-host",
+                "voice-chat"
+              ]
+            },
+            "description": "WebSocket endpoint for real-time voice communication with AI host using GPT-4o Audio Preview"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "WebSocket Examples",
+      "item": [
+        {
+          "name": "Voice Chat with GPT-4o",
+          "request": {
+            "method": "WEBSOCKET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{firebase_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{ws_base_url}}/api/ai-host/voice-chat",
+              "host": [
+                "{{ws_base_url}}"
+              ],
+              "path": [
+                "api",
+                "ai-host",
+                "voice-chat"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"voice_data\",\n  \"data\": \"<base64_audio_data>\",\n  \"format\": \"wav\",\n  \"sample_rate\": 16000\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Example WebSocket test script",
+                  "console.log('Connected to voice chat WebSocket');",
+                  "",
+                  "// Handle incoming messages",
+                  "pm.ws.onMessage((message) => {",
+                  "    const response = JSON.parse(message);",
+                  "    console.log('Received:', response);",
+                  "    ",
+                  "    if (response.type === 'transcription') {",
+                  "        console.log('User said:', response.text);",
+                  "    } else if (response.type === 'ai_response') {",
+                  "        console.log('AI response:', response.text);",
+                  "        // Audio response available at response.audio_url",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
