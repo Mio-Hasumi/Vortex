@@ -315,7 +315,16 @@ async def ai_driven_match(
                 ai_session_id=ai_session_id
             )
             
-            estimated_wait_time = 30  # Estimated wait time
+            # More realistic wait time estimates based on tiered system
+            queue_size = matching_repo.get_queue_size()
+            
+            if queue_size <= 2:
+                estimated_wait_time = 6   # First tier: wait for strict match
+            elif queue_size <= 10:
+                estimated_wait_time = 15  # Might get relaxed match soon
+            else:
+                estimated_wait_time = 30  # Will definitely get random match at 30s
+            
             status_msg = "waiting_for_match"
         
         # Step 4: Generate a unique match ID

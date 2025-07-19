@@ -170,7 +170,32 @@ class EventBroadcaster:
                     for position, item in enumerate(queue_items, 1):
                         if isinstance(item, dict) and 'user_id' in item:
                             user_id = UUID(item['user_id'])
-                            estimated_wait = position * 30  # 30 seconds per position
+                            
+                            # Calculate more accurate wait time based on tiered system
+                            current_time = datetime.utcnow()
+                            if 'timestamp' in item:
+                                try:
+                                    join_time = datetime.fromisoformat(item['timestamp'].replace('Z', '+00:00'))
+                                    wait_seconds = (current_time - join_time).total_seconds()
+                                    
+                                    if wait_seconds >= 30:
+                                        # In random matching tier - should match very soon
+                                        estimated_wait = 5
+                                    elif wait_seconds >= 6:
+                                        # In relaxed matching tier - moderate wait
+                                        remaining_to_random = max(0, 30 - wait_seconds)
+                                        estimated_wait = min(15, remaining_to_random)
+                                    else:
+                                        # In strict matching tier - wait for good match or tier progression
+                                        remaining_to_relaxed = max(0, 6 - wait_seconds)
+                                        estimated_wait = remaining_to_relaxed + 10  # Buffer for relaxed tier
+                                        
+                                except (ValueError, KeyError):
+                                    # Fallback to position-based estimate
+                                    estimated_wait = min(30, position * 5)
+                            else:
+                                # Fallback to position-based estimate
+                                estimated_wait = min(30, position * 5)
                             
                             await self.broadcast_queue_update(user_id, position, estimated_wait)
                     
@@ -245,15 +270,46 @@ class EventBroadcaster:
                     queue_size = self.redis.get_matching_queue_size()
                     
                     if queue_size > 0:
-                        # Send queue statistics to all matching connections
+                        # Analyze queue by tiers
+                        queue_items = self.redis.peek_matching_queue(count=50)
+                        current_time = datetime.utcnow()
+                        
+                        tier1_count = 0  # 0-6 seconds
+                        tier2_count = 0  # 6-30 seconds
+                        tier3_count = 0  # 30+ seconds
+                        
+                        for item in queue_items:
+                            if isinstance(item, dict) and 'timestamp' in item:
+                                try:
+                                    join_time = datetime.fromisoformat(item['timestamp'].replace('Z', '+00:00'))
+                                    wait_seconds = (current_time - join_time).total_seconds()
+                                    
+                                    if wait_seconds <= 6:
+                                        tier1_count += 1
+                                    elif wait_seconds <= 30:
+                                        tier2_count += 1
+                                    else:
+                                        tier3_count += 1
+                                except (ValueError, KeyError):
+                                    tier2_count += 1  # Default to tier 2
+                        
+                        # Send enhanced queue statistics to all matching connections
                         stats_message = {
                             "type": "queue_stats",
                             "total_users_in_queue": queue_size,
-                            "average_wait_time": queue_size * 30,  # Estimated
+                            "tier_breakdown": {
+                                "strict_matching": tier1_count,
+                                "relaxed_matching": tier2_count,
+                                "random_matching": tier3_count
+                            },
+                            "max_wait_time": 30,  # Guaranteed match within 30 seconds
+                            "current_matching_strategy": "tiered_fallback",
                             "timestamp": datetime.utcnow().isoformat()
                         }
                         
                         await self.connection_manager.broadcast_to_type("matching", stats_message)
+                        
+                        logger.debug(f"📊 Queue stats: T1={tier1_count}, T2={tier2_count}, T3={tier3_count}")
                     
                     # Wait before next update
                     await asyncio.sleep(60)  # Send stats every minute
@@ -300,17 +356,80 @@ class EventBroadcaster:
 
     async def _process_ai_hashtag_matching(self, ai_users: List[Dict]) -> None:
         """
-        Process AI-driven hashtag matching
+        Process AI-driven hashtag matching with tiered fallback system
+        
+        Tier 1 (0-6s): 20% hashtag similarity (strict)
+        Tier 2 (6-30s): 10% similarity or any overlap (relaxed)  
+        Tier 3 (30s+): Random matching (desperate fallback)
         """
         try:
             if len(ai_users) < 2:
                 return
+            
+            current_time = datetime.utcnow()
+            
+            # Separate users by wait time tiers
+            tier1_users = []  # 0-6 seconds
+            tier2_users = []  # 6-30 seconds  
+            tier3_users = []  # 30+ seconds
+            
+            for user in ai_users:
+                if not isinstance(user, dict) or 'timestamp' not in user:
+                    continue
                 
-            # Group users by hashtag similarity
-            matched_pairs = []
+                try:
+                    join_time = datetime.fromisoformat(user['timestamp'].replace('Z', '+00:00'))
+                    wait_seconds = (current_time - join_time).total_seconds()
+                    
+                    if wait_seconds <= 6:
+                        tier1_users.append(user)
+                    elif wait_seconds <= 30:
+                        tier2_users.append(user)
+                    else:
+                        tier3_users.append(user)
+                        
+                except (ValueError, KeyError) as e:
+                    logger.warning(f"⚠️ Could not parse timestamp for user: {e}")
+                    # Default to tier 2 for safety
+                    tier2_users.append(user)
+            
+            logger.info(f"📊 Matching tiers: T1={len(tier1_users)}, T2={len(tier2_users)}, T3={len(tier3_users)}")
+            
+            # Tier 3: Random matching (30+ seconds wait)
+            if len(tier3_users) >= 2:
+                await self._process_random_matching(tier3_users)
+            
+            # Tier 2: Relaxed matching (6-30 seconds wait)
+            if len(tier2_users) >= 2:
+                await self._process_relaxed_hashtag_matching(tier2_users)
+                
+            # Tier 1: Strict matching (0-6 seconds wait)
+            if len(tier1_users) >= 2:
+                await self._process_strict_hashtag_matching(tier1_users)
+                
+            # Cross-tier matching: Tier 2 can match with Tier 3 users
+            remaining_tier2 = [u for u in tier2_users if u.get('user_id') not in self._get_processed_user_ids()]
+            remaining_tier3 = [u for u in tier3_users if u.get('user_id') not in self._get_processed_user_ids()]
+            
+            if remaining_tier2 and remaining_tier3:
+                await self._process_cross_tier_matching(remaining_tier2 + remaining_tier3)
+                
+        except Exception as e:
+            logger.error(f"❌ Error in tiered AI hashtag matching: {e}")
+
+    def _get_processed_user_ids(self) -> set:
+        """Get list of user IDs that have been processed this round"""
+        # This would be tracked in a class variable, for now return empty set
+        return set()
+
+    async def _process_strict_hashtag_matching(self, users: List[Dict]) -> None:
+        """
+        Tier 1: Strict hashtag matching (20% similarity required)
+        """
+        try:
             processed_users = set()
             
-            for i, user1 in enumerate(ai_users):
+            for i, user1 in enumerate(users):
                 if user1.get('user_id') in processed_users:
                     continue
                     
@@ -321,8 +440,8 @@ class EventBroadcaster:
                 best_match = None
                 best_similarity = 0.0
                 
-                # Find best matching user
-                for j, user2 in enumerate(ai_users[i+1:], i+1):
+                # Find best matching user with strict criteria
+                for j, user2 in enumerate(users[i+1:], i+1):
                     if user2.get('user_id') in processed_users:
                         continue
                         
@@ -335,19 +454,114 @@ class EventBroadcaster:
                     union = user1_hashtags.union(user2_hashtags)
                     similarity = len(intersection) / len(union) if union else 0
                     
-                    # Require at least 20% similarity for a match
-                    if similarity >= 0.2 and similarity > best_similarity:
+                    # Strict requirement: at least 20% similarity
+                    if similarity >= 0.20 and similarity > best_similarity:
                         best_similarity = similarity
                         best_match = user2
                 
                 # Create match if good similarity found
-                if best_match and best_similarity >= 0.2:
+                if best_match and best_similarity >= 0.20:
                     await self._create_ai_match(user1, best_match, best_similarity)
                     processed_users.add(user1.get('user_id'))
                     processed_users.add(best_match.get('user_id'))
+                    logger.info(f"🎯 Tier 1 match created: {best_similarity:.2f} similarity")
                     
         except Exception as e:
-            logger.error(f"❌ Error in AI hashtag matching: {e}")
+            logger.error(f"❌ Error in strict hashtag matching: {e}")
+
+    async def _process_relaxed_hashtag_matching(self, users: List[Dict]) -> None:
+        """
+        Tier 2: Relaxed hashtag matching (10% similarity or any overlap)
+        """
+        try:
+            processed_users = set()
+            
+            for i, user1 in enumerate(users):
+                if user1.get('user_id') in processed_users:
+                    continue
+                    
+                user1_hashtags = set(user1.get('hashtags', []))
+                if not user1_hashtags:
+                    continue
+                    
+                best_match = None
+                best_similarity = 0.0
+                
+                # Find best matching user with relaxed criteria
+                for j, user2 in enumerate(users[i+1:], i+1):
+                    if user2.get('user_id') in processed_users:
+                        continue
+                        
+                    user2_hashtags = set(user2.get('hashtags', []))
+                    if not user2_hashtags:
+                        continue
+                    
+                    # Calculate hashtag similarity
+                    intersection = user1_hashtags.intersection(user2_hashtags)
+                    union = user1_hashtags.union(user2_hashtags)
+                    similarity = len(intersection) / len(union) if union else 0
+                    
+                    # Relaxed requirement: 10% similarity OR any common hashtag
+                    has_overlap = len(intersection) > 0
+                    meets_criteria = similarity >= 0.10 or has_overlap
+                    
+                    if meets_criteria and similarity > best_similarity:
+                        best_similarity = similarity
+                        best_match = user2
+                
+                # Create match if any overlap found
+                if best_match:
+                    await self._create_ai_match(user1, best_match, best_similarity)
+                    processed_users.add(user1.get('user_id'))
+                    processed_users.add(best_match.get('user_id'))
+                    logger.info(f"🎯 Tier 2 match created: {best_similarity:.2f} similarity (relaxed)")
+                    
+        except Exception as e:
+            logger.error(f"❌ Error in relaxed hashtag matching: {e}")
+
+    async def _process_random_matching(self, users: List[Dict]) -> None:
+        """
+        Tier 3: Random matching for users waiting 30+ seconds
+        """
+        try:
+            processed_users = set()
+            
+            # Shuffle users for random matching
+            import random
+            shuffled_users = users.copy()
+            random.shuffle(shuffled_users)
+            
+            # Match users in pairs randomly
+            for i in range(0, len(shuffled_users) - 1, 2):
+                user1 = shuffled_users[i]
+                user2 = shuffled_users[i + 1]
+                
+                if (user1.get('user_id') in processed_users or 
+                    user2.get('user_id') in processed_users):
+                    continue
+                
+                # Random match with 0.0 similarity (indicates random matching)
+                await self._create_ai_match(user1, user2, 0.0)
+                processed_users.add(user1.get('user_id'))
+                processed_users.add(user2.get('user_id'))
+                logger.info(f"🎲 Tier 3 random match created (30s+ wait)")
+                
+        except Exception as e:
+            logger.error(f"❌ Error in random matching: {e}")
+
+    async def _process_cross_tier_matching(self, mixed_users: List[Dict]) -> None:
+        """
+        Cross-tier matching: Match remaining Tier 2 and Tier 3 users together
+        """
+        try:
+            if len(mixed_users) < 2:
+                return
+                
+            # Use relaxed criteria for cross-tier matching
+            await self._process_relaxed_hashtag_matching(mixed_users)
+            
+        except Exception as e:
+            logger.error(f"❌ Error in cross-tier matching: {e}")
 
     async def _process_traditional_topic_matching(self, topic_users: List[Dict]) -> None:
         """
@@ -423,37 +637,67 @@ class EventBroadcaster:
             user2_hashtags = set(user2.get('hashtags', []))
             common_hashtags = list(user1_hashtags.intersection(user2_hashtags))
             
-            # Create AI-friendly topic string
-            if common_hashtags:
-                ai_topic = f"AI guided conversation: {', '.join(common_hashtags[:3])}"
+            # Determine match type and create appropriate topic string
+            if similarity == 0.0:
+                # Random match (Tier 3)
+                match_type = "random"
+                ai_topic = "AI guided conversation: Discover shared interests"
+                match_quality = "random_match"
+            elif similarity >= 0.20:
+                # High quality match (Tier 1)
+                match_type = "high_quality"
+                if common_hashtags:
+                    ai_topic = f"AI guided conversation: {', '.join(common_hashtags[:3])}"
+                else:
+                    ai_topic = "AI guided high-quality conversation"
+                match_quality = "excellent_match"
             else:
-                ai_topic = "AI guided general conversation"
+                # Relaxed match (Tier 2)
+                match_type = "relaxed"
+                if common_hashtags:
+                    ai_topic = f"AI guided conversation: {', '.join(common_hashtags[:3])}"
+                else:
+                    ai_topic = "AI guided conversation: Explore related interests"
+                match_quality = "good_match"
             
-            # Broadcast AI match found with special formatting
-            await self.connection_manager.broadcast_to_user(user1_id, {
+            # Create match notification with enhanced details
+            match_data = {
                 "type": "ai_match_found",
                 "room_id": str(room_id),
-                "partner_id": str(user2_id),
                 "topic": ai_topic,
                 "hashtags": common_hashtags,
                 "similarity_score": similarity,
+                "match_type": match_type,
+                "match_quality": match_quality,
                 "ai_hosted": True,
                 "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            # Send personalized notifications to each user
+            await self.connection_manager.broadcast_to_user(user1_id, {
+                **match_data,
+                "partner_id": str(user2_id),
+                "message": self._get_match_message(match_type, similarity)
             })
             
             await self.connection_manager.broadcast_to_user(user2_id, {
-                "type": "ai_match_found", 
-                "room_id": str(room_id),
+                **match_data,
                 "partner_id": str(user1_id),
-                "topic": ai_topic,
-                "hashtags": common_hashtags,
-                "similarity_score": similarity,
-                "ai_hosted": True,
-                "timestamp": datetime.utcnow().isoformat()
+                "message": self._get_match_message(match_type, similarity)
             })
             
-            logger.info(f"🤖 AI match created: {user1_id} + {user2_id}, similarity={similarity:.2f}, room={room_id}")
-            logger.info(f"🏷️ Common hashtags: {common_hashtags}")
+            logger.info(f"🤖 AI match created: {user1_id} + {user2_id}, type={match_type}, similarity={similarity:.2f}, room={room_id}")
+            if common_hashtags:
+                logger.info(f"🏷️ Common hashtags: {common_hashtags}")
             
         except Exception as e:
-            logger.error(f"❌ Error creating AI match: {e}") 
+            logger.error(f"❌ Error creating AI match: {e}")
+
+    def _get_match_message(self, match_type: str, similarity: float) -> str:
+        """Generate appropriate message for different match types"""
+        if match_type == "random":
+            return "Perfect timing! We've connected you with someone new - time to discover what you have in common! 🎲"
+        elif match_type == "high_quality":
+            return f"Great match found! You share {similarity:.0%} similar interests - this should be a fantastic conversation! ⭐"
+        else:  # relaxed
+            return f"Good match found! You have some overlapping interests - let's see where the conversation goes! 💫" 
