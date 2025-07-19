@@ -1,6 +1,6 @@
 
 ```
-Frontend (React/Vue/React Native)
+           Frontend (SwiftUI)
            ↓
     FastAPI Backend + WebSockets
            ↓
