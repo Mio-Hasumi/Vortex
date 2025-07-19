@@ -7,7 +7,7 @@
 ## 🎯 **What We Provide**
 
 ### 🤖 **AI Voice Features**
-- **🎙️ GPT-4o Audio Preview** - Real-time voice interactions with state-of-the-art AI
+- **🎙️ GPT-4o Realtime Preview** - Real-time voice interactions with state-of-the-art AI
 - **🗣️ Text-to-Speech & Speech-to-Text** - High-quality voice synthesis and recognition
 - **🧠 Topic Extraction** - Intelligent conversation topic analysis
 - **🤝 AI-Powered Matching** - Smart user pairing based on voice input
