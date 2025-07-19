@@ -6,7 +6,7 @@ import logging
 from typing import Any, Dict
 
 from infrastructure.db.firebase import FirebaseAdminService
-from infrastructure.auth.password_service import PasswordService
+
 from infrastructure.middleware.firebase_auth_middleware import FirebaseAuthMiddleware
 from infrastructure.redis.redis_service import RedisService
 from infrastructure.livekit.livekit_service import LiveKitService
@@ -75,8 +75,7 @@ class DIContainer:
         livekit_service.connect()
         self._services['livekit'] = livekit_service
         
-        # Password Service
-        self._services['password'] = PasswordService()
+
         
         logger.info("✅ Core services initialized")
     
@@ -112,7 +111,6 @@ class DIContainer:
         """Initialize use case interactors"""
         
         user_repo = self._services['user_repo']
-        password_service = self._services['password']
         firebase_service = self._services['firebase']
         
         # Note: 现在使用Firebase Auth，不需要复杂的JWT use cases
@@ -179,9 +177,7 @@ class DIContainer:
         """Get Firebase service"""
         return self.get('firebase')
     
-    def get_password_service(self) -> PasswordService:
-        """Get password service"""
-        return self.get('password')
+
     
     def get_redis_service(self) -> RedisService:
         """Get Redis service"""
