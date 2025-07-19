@@ -593,42 +593,111 @@ async def websocket_live_subtitle(websocket: WebSocket):
 @router.websocket("/voice-chat")
 async def websocket_voice_chat(websocket: WebSocket):
     """
-    WebSocket endpoint for full AI host voice interaction
-    Supports full process of voice input, AI processing, and TTS output
+    AI Host Voice Chat WebSocket
+    Supports real-time voice communication with GPT-4o Realtime Preview
     """
+    await websocket.accept()
+    logger.info("🎙️ AI Host voice chat WebSocket connected")
+    
+    session_id = None
+    authenticated_user = None
+    
     try:
-        await websocket.accept()
-        logger.info("🎤 AI voice chat WebSocket connected")
-        
-        # Send welcome message
-        await websocket.send_text(json.dumps({
-            "type": "connected",
-            "message": "AI voice chat ready",
-            "ai_greeting": "Hi! Welcome to VoiceApp! What topic would you like to discuss today?",
-            "timestamp": datetime.utcnow().isoformat()
-        }))
-        
-        session_id = None
-        
         while True:
             try:
                 message = await websocket.receive_text()
                 data = json.loads(message)
                 
+                # Handle authentication first
+                if data.get("type") == "auth":
+                    try:
+                        token = data.get("token")
+                        if not token:
+                            await websocket.send_text(json.dumps({
+                                "type": "error",
+                                "message": "Authentication token required"
+                            }))
+                            continue
+                        
+                        # Verify Firebase token
+                        from infrastructure.middleware.firebase_auth_middleware import FirebaseAuthMiddleware
+                        from infrastructure.container import container
+                        
+                        auth_middleware = FirebaseAuthMiddleware(container.get_user_repository())
+                        decoded_token = auth_middleware.verify_firebase_token(token)
+                        firebase_uid = decoded_token['uid']
+                        
+                        # Find user
+                        user_repo = container.get_user_repository()
+                        authenticated_user = user_repo.find_by_firebase_uid(firebase_uid)
+                        
+                        if not authenticated_user:
+                            await websocket.send_text(json.dumps({
+                                "type": "error",
+                                "message": "User not found"
+                            }))
+                            continue
+                        
+                        await websocket.send_text(json.dumps({
+                            "type": "authenticated",
+                            "user_id": str(authenticated_user.id),
+                            "display_name": authenticated_user.display_name,
+                            "timestamp": datetime.utcnow().isoformat()
+                        }))
+                        
+                    except Exception as e:
+                        logger.error(f"❌ WebSocket authentication failed: {e}")
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": "Authentication failed"
+                        }))
+                        continue
+                
+                # Require authentication for all other operations
+                if not authenticated_user:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": "Please authenticate first by sending auth message with token"
+                    }))
+                    continue
+                
                 if data.get("type") == "start_session":
                     # Start AI host session
-                    # TODO: Get user from WebSocket auth
-                    user_id = UUID(data.get("user_id"))  # Temporary, should use auth
+                    ai_host_service = container.get_ai_host_service()
                     
-                    # Start session (simplified)
-                    session_id = f"ws_session_{user_id}_{datetime.utcnow().timestamp()}"
-                    
-                    await websocket.send_text(json.dumps({
-                        "type": "session_started",
-                        "session_id": session_id,
-                        "ai_greeting": "Hi! Welcome to VoiceApp! What topic would you like to discuss today?",
-                        "timestamp": datetime.utcnow().isoformat()
-                    }))
+                    if ai_host_service:
+                        try:
+                            session = await ai_host_service.start_session(
+                                user_id=authenticated_user.id,
+                                user_context={
+                                    "user_id": str(authenticated_user.id),
+                                    "display_name": authenticated_user.display_name,
+                                    "email": authenticated_user.email
+                                }
+                            )
+                            session_id = session.session_id
+                            
+                            await websocket.send_text(json.dumps({
+                                "type": "session_started",
+                                "session_id": session_id,
+                                "ai_greeting": "Hi! Welcome to VoiceApp! What topic would you like to discuss today?",
+                                "timestamp": datetime.utcnow().isoformat()
+                            }))
+                        except Exception as e:
+                            logger.error(f"❌ Failed to start AI session: {e}")
+                            await websocket.send_text(json.dumps({
+                                "type": "error",
+                                "message": f"Failed to start session: {str(e)}"
+                            }))
+                    else:
+                        # Fallback without AI service
+                        session_id = f"ws_session_{authenticated_user.id}_{datetime.utcnow().timestamp()}"
+                        await websocket.send_text(json.dumps({
+                            "type": "session_started",
+                            "session_id": session_id,
+                            "ai_greeting": "Hi! Welcome to VoiceApp! What topic would you like to discuss today?",
+                            "timestamp": datetime.utcnow().isoformat()
+                        }))
                 
                 elif data.get("type") == "user_input":
                     if not session_id:
@@ -640,14 +709,38 @@ async def websocket_voice_chat(websocket: WebSocket):
                     
                     user_text = data.get("text", "")
                     
-                    # TODO: Process through AI host service
-                    # For now, send a simple echo response
-                    await websocket.send_text(json.dumps({
-                        "type": "ai_response",
-                        "text": f"I heard you say: {user_text}. This is interesting!",
-                        "session_id": session_id,
-                        "timestamp": datetime.utcnow().isoformat()
-                    }))
+                    # Process through AI host service
+                    ai_host_service = container.get_ai_host_service()
+                    if ai_host_service:
+                        try:
+                            response = await ai_host_service.process_user_input(
+                                session_id=session_id,
+                                user_input=user_text
+                            )
+                            
+                            await websocket.send_text(json.dumps({
+                                "type": "ai_response",
+                                "text": response.get("response_text", "I understand!"),
+                                "session_id": session_id,
+                                "extracted_topics": response.get("extracted_topics", []),
+                                "generated_hashtags": response.get("generated_hashtags", []),
+                                "session_state": response.get("session_state", "active"),
+                                "timestamp": datetime.utcnow().isoformat()
+                            }))
+                        except Exception as e:
+                            logger.error(f"❌ Failed to process user input: {e}")
+                            await websocket.send_text(json.dumps({
+                                "type": "error",
+                                "message": f"Failed to process input: {str(e)}"
+                            }))
+                    else:
+                        # Fallback response
+                        await websocket.send_text(json.dumps({
+                            "type": "ai_response",
+                            "text": f"I heard you say: {user_text}. This is interesting!",
+                            "session_id": session_id,
+                            "timestamp": datetime.utcnow().isoformat()
+                        }))
                 
                 elif data.get("type") == "ping":
                     await websocket.send_text(json.dumps({
