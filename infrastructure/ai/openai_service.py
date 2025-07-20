@@ -50,7 +50,7 @@ class OpenAIService:
         """
         Use GPT-4o Audio to directly process user voice input, extract topics and generate hashtags
         
-        New workflow: Audio → GPT-4o Audio → Understand content + Generate hashtags + Audio response
+        New workflow: Audio → GPT-4o Realtime → Understand content + Generate hashtags + Audio response
         Replaces: Audio → STT → GPT → Hashtags + TTS
         
         Args:
@@ -69,72 +69,133 @@ class OpenAIService:
             }
         """
         try:
-            logger.info("🎙️ Processing voice input with GPT-4o Audio for matching...")
+            logger.info("🎙️ Processing voice input with GPT-4o Realtime for matching...")
             
             # Check if audio_data is actual audio (base64) or just text
             is_audio_data = False
             
             if isinstance(audio_data, bytes):
                 is_audio_data = True
+                audio_bytes = audio_data
             elif isinstance(audio_data, str):
                 # Check if it's base64 audio data (longer than typical text)
                 if len(audio_data) > 1000 and not audio_data.startswith("data:"):
                     is_audio_data = True
+                    audio_bytes = base64.b64decode(audio_data)
                 elif audio_data.startswith("data:"):
                     is_audio_data = True
-            
-            if is_audio_data:
-                logger.info("🎵 Detected audio data, using STT + topic extraction workflow...")
-                
-                # Convert to bytes if base64
-                if isinstance(audio_data, str):
-                    if audio_data.startswith("data:"):
-                        # Extract base64 data from data URI
-                        audio_bytes = base64.b64decode(audio_data.split("base64,")[1])
-                    else:
-                        # Direct base64 string
-                        audio_bytes = base64.b64decode(audio_data)
+                    # Extract base64 data from data URI
+                    audio_bytes = base64.b64decode(audio_data.split("base64,")[1])
                 else:
-                    audio_bytes = audio_data
+                    # Short text, treat as text input
+                    audio_bytes = None
+            
+            if is_audio_data and audio_bytes:
+                logger.info("🎵 Using GPT-4o Realtime for audio processing...")
                 
-                # Use proven STT + topic extraction workflow
-                audio_buffer = io.BytesIO(audio_bytes)
-                audio_buffer.name = f"audio.{audio_format}"
-                
-                # Step 1: Speech to text
-                stt_result = await self.speech_to_text(audio_buffer, language)
-                transcription = stt_result["text"]
-                
-                if not transcription.strip():
-                    return {
-                        "understood_text": "",
-                        "extracted_topics": ["General topic"],
-                        "generated_hashtags": ["#general"],
-                        "match_intent": "General chat",
-                        "error": "No speech detected in audio"
-                    }
-                
-                # Step 2: Extract topics and hashtags
-                topic_result = await self.extract_topics_and_hashtags(
-                    text=transcription,
-                    context={
-                        "source": "voice_matching",
-                        "language": language,
-                        "audio_format": audio_format,
-                    },
-                )
-                
-                logger.info(f"✅ Voice matching processed: transcription='{transcription}', topics={topic_result.get('main_topics', [])}")
-                
-                return {
-                    "understood_text": transcription,
-                    "extracted_topics": topic_result.get("main_topics", []),
-                    "generated_hashtags": topic_result.get("hashtags", []),
-                    "match_intent": f"Wants to discuss: {', '.join(topic_result.get('main_topics', []))}",
-                    "text_response": f"I understand you want to talk about {', '.join(topic_result.get('main_topics', []))}. Let me find you a great conversation partner!",
-                    "confidence": topic_result.get("confidence", 0.8),
-                    "processing_time": datetime.utcnow().isoformat(),
-                }
+                # Use GPT-4o Realtime API for one-step audio processing
+                async with self.async_client.beta.realtime.connect(
+                    model="gpt-4o-realtime-preview"
+                ) as connection:
+                    # Enable audio + text modalities
+                    await connection.session.update(
+                        session={"modalities": ["audio", "text"]}
+                    )
+                    
+                    # Send system prompt for topic extraction
+                    await connection.conversation.item.create(
+                        item={
+                            "type": "message",
+                            "role": "system",
+                            "content": f"""You are an expert at analyzing voice input for social matching. 
+                            
+Your task:
+1. Listen to the user's voice input and understand what they want to discuss
+2. Extract 3-5 main topics from their speech
+3. Generate 5-8 relevant hashtags for matching users with similar interests
+4. Respond with encouragement about finding conversation partners
+
+Respond in this exact JSON format:
+{{
+    "understood_text": "exact transcription of what they said",
+    "extracted_topics": ["Topic1", "Topic2", "Topic3"],
+    "generated_hashtags": ["#hashtag1", "#hashtag2", "#hashtag3", "#hashtag4", "#hashtag5"],
+    "text_response": "Great! I understand you want to discuss [topics]. Let me find you someone interesting to chat with!"
+}}
+
+Language preference: {language}
+Focus on creating hashtags that help match users effectively."""
+                        }
+                    )
+                    
+                    # Send user audio input
+                    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                    await connection.conversation.item.create(
+                        item={
+                            "type": "message",
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "input_audio",
+                                    "input_audio": {"data": audio_base64, "format": audio_format}
+                                }
+                            ]
+                        }
+                    )
+                    
+                    # Request response
+                    await connection.response.create()
+                    
+                    # Process streaming response
+                    text_chunks = []
+                    audio_chunks = []
+                    
+                    async for event in connection:
+                        if event.type == "response.text.delta":
+                            text_chunks.append(event.delta)
+                        elif event.type == "response.audio":
+                            audio_chunks.append(event.audio.data)
+                        elif event.type == "response.done":
+                            break
+                    
+                    # Combine responses
+                    full_response = "".join(text_chunks)
+                    audio_response = b"".join(audio_chunks) if audio_chunks else None
+                    
+                    # Try to parse JSON response
+                    try:
+                        import json
+                        response_data = json.loads(full_response)
+                        
+                        result = {
+                            "understood_text": response_data.get("understood_text", ""),
+                            "extracted_topics": response_data.get("extracted_topics", []),
+                            "generated_hashtags": response_data.get("generated_hashtags", []),
+                            "text_response": response_data.get("text_response", ""),
+                            "confidence": 0.9,
+                            "processing_time": datetime.utcnow().isoformat(),
+                        }
+                        
+                        # Add audio response if available
+                        if audio_response:
+                            result["audio_response"] = base64.b64encode(audio_response).decode("utf-8")
+                            result["audio_format"] = "wav"
+                        
+                        logger.info(f"✅ GPT-4o Realtime processing completed: topics={result.get('extracted_topics', [])}")
+                        return result
+                        
+                    except json.JSONDecodeError:
+                        logger.warning("Failed to parse JSON from GPT-4o Realtime, using fallback")
+                        # Fallback: extract topics from raw response
+                        return {
+                            "understood_text": full_response[:200],
+                            "extracted_topics": ["General conversation"],
+                            "generated_hashtags": ["#chat", "#social"],
+                            "text_response": "I understand you want to have a conversation. Let me find you someone to chat with!",
+                            "confidence": 0.6,
+                            "processing_time": datetime.utcnow().isoformat(),
+                            "raw_response": full_response
+                        }
             else:
                 logger.info("📝 Detected text input, using text-based topic extraction...")
                 
@@ -202,7 +263,7 @@ class OpenAIService:
                 f"🎭 AI moderating room conversation in {moderation_mode} mode..."
             )
             
-            # Use GPT-4o Audio Preview with Realtime API
+            # Use GPT-4o Audio Preview with Realtime API - 所有操作都在同一个作用域
             async with self.async_client.beta.realtime.connect(
                 model="gpt-4o-realtime-preview"
             ) as connection:
@@ -215,8 +276,8 @@ class OpenAIService:
                 await connection.conversation.item.create(
                     item={
                         "type": "message",
-                    "role": "system",
-                    "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
+                        "role": "system",
+                        "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
 
 Your responsibilities:
 1.  Engage the conversation: Actively provide topics when the conversation is cold
@@ -229,84 +290,84 @@ Current room participants: {', '.join(room_participants or [])}
 
 Please provide an appropriate response based on the input content, which can be a voice response, a text suggestion, or a topic recommendation.
 The response should be natural, friendly, and helpful.""",
-                }
-                )
-            
-            # Add conversation history
-            if conversation_context:
-                for msg in conversation_context[-10:]:  # Last 10 messages
-                    await connection.conversation.item.create(
-                        item={
-                            "type": "message",
-                            "role": msg["role"],
-                            "content": msg["content"],
-                        }
-                    )
-            
-            # Build user message
-            user_content = []
-            if audio_data:
-                if isinstance(audio_data, bytes):
-                    audio_base64 = base64.b64encode(audio_data).decode("utf-8")
-                else:
-                    audio_base64 = audio_data
-                    
-                user_content.append(
-                    {
-                    "type": "input_audio",
-                        "input_audio": {"data": audio_base64, "format": "wav"},
                     }
                 )
-            
-            if text_input:
-                user_content.append({"type": "input_text", "text": text_input})
-            
-            # Send user message
-            await connection.conversation.item.create(
-                item={
-                    "type": "message",
-                "role": "user",
-                    "content": user_content
-                    if user_content
-                    else [
+                
+                # Add conversation history
+                if conversation_context:
+                    for msg in conversation_context[-10:]:  # Last 10 messages
+                        await connection.conversation.item.create(
+                            item={
+                                "type": "message",
+                                "role": msg["role"],
+                                "content": msg["content"],
+                            }
+                        )
+                
+                # Build user message
+                user_content = []
+                if audio_data:
+                    if isinstance(audio_data, bytes):
+                        audio_base64 = base64.b64encode(audio_data).decode("utf-8")
+                    else:
+                        audio_base64 = audio_data
+                        
+                    user_content.append(
                         {
-                            "type": "input_text",
-                            "text": "Please assist in moderating the conversation",
+                            "type": "input_audio",
+                            "input_audio": {"data": audio_base64, "format": "wav"},
                         }
-                    ],
+                    )
+                
+                if text_input:
+                    user_content.append({"type": "input_text", "text": text_input})
+                
+                # Send user message
+                await connection.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "user",
+                        "content": user_content
+                        if user_content
+                        else [
+                            {
+                                "type": "input_text",
+                                "text": "Please assist in moderating the conversation",
+                            }
+                        ],
+                    }
+                )
+                
+                # Request response generation
+                await connection.response.create()
+
+                # Process streaming response
+                text_chunks = []
+                audio_chunks = []
+
+                async for event in connection:
+                    if event.type == "response.text.delta":
+                        text_chunks.append(event.delta)
+                    elif event.type == "response.audio":
+                        audio_chunks.append(event.audio.data)
+                    elif event.type == "response.done":
+                        break
+
+                # Combine responses
+                text_response = "".join(text_chunks)
+                audio_response = b"".join(audio_chunks)
+                
+                return {
+                    "ai_response": {
+                        "text": text_response,
+                        "audio": audio_response,
+                        "audio_transcript": None,  # Realtime API doesn't provide transcript
+                    },
+                    "moderation_type": moderation_mode,
+                    "suggestions": self._extract_suggestions(text_response),
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "participants": room_participants,
                 }
-            )
-            
-            # Request response generation
-            await connection.response.create()
-
-            # Process streaming response
-            text_chunks = []
-            audio_chunks = []
-
-            async for event in connection:
-                if event.type == "response.text.delta":
-                    text_chunks.append(event.delta)
-                elif event.type == "response.audio":
-                    audio_chunks.append(event.audio.data)
-                elif event.type == "response.done":
-                    break
-
-            # Combine responses
-            text_response = "".join(text_chunks)
-            audio_response = b"".join(audio_chunks)
-            
-            return {
-                "ai_response": {
-                    "text": text_response,
-                    "audio": audio_response,
-                    "audio_transcript": None,  # Realtime API doesn't provide transcript
-                },
-                "moderation_type": moderation_mode,
-                "suggestions": self._extract_suggestions(text_response),
-                "timestamp": datetime.utcnow().isoformat(),
-                "participants": room_participants,
-            }
             
         except Exception as e:
             logger.error(f"❌ Room moderation failed: {e}")
@@ -995,56 +1056,82 @@ Focus on creating hashtags that will help match users with similar interests.{co
             AI response with text and optional audio
         """
         try:
-            logger.info(f"🤖 Starting realtime conversation with GPT-4o")
+            logger.info(f"🤖 Starting realtime conversation with GPT-4o Realtime API")
             
-            # Build conversation prompt with user context
-            system_prompt = self._build_conversation_system_prompt(user_context)
-            
-            # Prepare messages
-            messages = [{"role": "system", "content": system_prompt}]
-            
-            # Add conversation history
-            if conversation_context:
-                for msg in conversation_context[-10:]:  # Last 10 messages
-                    messages.append({
-                        "role": msg.get("role", "user"),
-                        "content": msg.get("content", "")
-                    })
-            
-            # Add current user input
-            messages.append({"role": "user", "content": user_input})
-            
-            # Generate text response
-            response = await self.async_client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages,
-                max_tokens=500,
-                temperature=0.7
-            )
-            
-            ai_text = response.choices[0].message.content
-            
-            result = {
-                "response_text": ai_text,
-                "timestamp": datetime.utcnow().isoformat(),
-                "model": "gpt-4o"
-            }
-            
-            # Generate audio response if requested
-            if audio_response:
-                try:
-                    audio_data = await self.text_to_speech(
-                        text=ai_text,
-                        voice="nova",  # Natural sounding voice
-                        model="tts-1"
-                    )
+            # Use GPT-4o Realtime API instead of ChatCompletion
+            async with self.async_client.beta.realtime.connect(
+                model="gpt-4o-realtime-preview"
+            ) as connection:
+                # Enable text + audio modalities if audio response requested
+                modalities = ["text", "audio"] if audio_response else ["text"]
+                await connection.session.update(
+                    session={"modalities": modalities}
+                )
+                
+                # Build conversation prompt with user context
+                system_prompt = self._build_conversation_system_prompt(user_context)
+                
+                # Send system prompt
+                await connection.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "system",
+                        "content": system_prompt
+                    }
+                )
+                
+                # Add conversation history
+                if conversation_context:
+                    for msg in conversation_context[-10:]:  # Last 10 messages
+                        await connection.conversation.item.create(
+                            item={
+                                "type": "message",
+                                "role": msg.get("role", "user"),
+                                "content": msg.get("content", "")
+                            }
+                        )
+                
+                # Add current user input
+                await connection.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "user",
+                        "content": user_input
+                    }
+                )
+                
+                # Request response generation
+                await connection.response.create()
+                
+                # Process streaming response
+                text_chunks = []
+                audio_chunks = []
+                
+                async for event in connection:
+                    if event.type == "response.text.delta":
+                        text_chunks.append(event.delta)
+                    elif event.type == "response.audio":
+                        audio_chunks.append(event.audio.data)
+                    elif event.type == "response.done":
+                        break
+                
+                # Combine responses
+                ai_text = "".join(text_chunks)
+                audio_data = b"".join(audio_chunks) if audio_chunks else None
+                
+                result = {
+                    "response_text": ai_text,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "model": "gpt-4o-realtime-preview"
+                }
+                
+                # Add audio data if available
+                if audio_data and audio_response:
                     result["audio_data"] = base64.b64encode(audio_data).decode("utf-8")
-                    result["audio_format"] = "mp3"
-                except Exception as e:
-                    logger.warning(f"⚠️ TTS generation failed: {e}")
-            
-            logger.info(f"✅ Realtime conversation response generated")
-            return result
+                    result["audio_format"] = "wav"  # Realtime API returns WAV
+                
+                logger.info(f"✅ Realtime conversation response generated")
+                return result
             
         except Exception as e:
             logger.error(f"❌ Realtime conversation failed: {e}")
