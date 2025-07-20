@@ -450,7 +450,9 @@ Headers: { Authorization: "Bearer <firebase_token>" }
 
 ## 🎯 Matching System (`/api/matching`)
 
-### Request Match
+### Complete Matching Workflow
+
+#### Step 1: Request Match
 ```javascript
 POST /api/matching/match
 Headers: { Authorization: "Bearer <firebase_token>" }
@@ -469,6 +471,55 @@ Headers: { Authorization: "Bearer <firebase_token>" }
   "status": "pending", // pending, matched, cancelled
   "estimated_wait_time": 30 // seconds
 }
+```
+
+#### Step 2: Confirm Match (NEW)
+```javascript
+GET /api/matching/confirm/{match_id}
+Headers: { Authorization: "Bearer <firebase_token>" }
+
+// Response when match is still pending
+{
+  "match_id": "uuid",
+  "status": "pending",
+  "is_ready": false,
+  "message": "Match is not ready yet. Current status: pending",
+  "estimated_wait_time": 30
+}
+
+// Response when match is successful
+{
+  "match_id": "uuid", 
+  "status": "matched",
+  "is_ready": true,
+  "room_id": "uuid",
+  "room_name": "AI Discussion Room",
+  "livekit_room_name": "room_uuid_timestamp",
+  "livekit_token": "jwt_token_for_livekit",
+  "topic": "Artificial Intelligence",
+  "participants": [
+    {
+      "user_id": "uuid",
+      "display_name": "John Doe",
+      "is_current_user": true
+    },
+    {
+      "user_id": "uuid2", 
+      "display_name": "Jane Smith",
+      "is_current_user": false
+    }
+  ],
+  "match_confidence": 0.85,
+  "created_at": "2023-12-01T10:00:00Z",
+  "matched_at": "2023-12-01T10:01:30Z",
+  "message": "Match confirmed! Ready to join conversation."
+}
+```
+
+#### Step 3: Join Room
+```javascript
+// Use the room details from Step 2 to navigate to conversation
+// Frontend can now safely redirect to room with all necessary info
 ```
 
 ### AI-Driven Match (NEW)
@@ -501,6 +552,9 @@ Headers: { Authorization: "Bearer <firebase_token>" }
   "estimated_wait_time": 45,
   "ai_voice_confirmation": "base64_audio_data" // TTS confirmation
 }
+
+// Then use the same confirmation endpoint:
+GET /api/matching/confirm/{match_id}
 ```
 
 ### Cancel Match
