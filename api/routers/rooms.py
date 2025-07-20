@@ -395,7 +395,7 @@ async def websocket_room_conversation(
     """
     await websocket.accept()
     logger.info(f"🎭 GPT-4o Audio room WebSocket connected: room={room_id}, livekit={livekit_name}, user={user_id}")
-
+    
     try:
         # 1) 先查实体
         room_repo = get_room_repository()
@@ -413,7 +413,7 @@ async def websocket_room_conversation(
             user_id=user_id,
             websocket=websocket
         )
-
+        
         # 3) 发送已加入消息
         await websocket.send_json({
             "type": "room_joined",

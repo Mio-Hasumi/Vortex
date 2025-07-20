@@ -147,3 +147,10 @@ Thumbs.db
 *.temp
 test_*.py
 temp_*.py
+
+# Test audio files
+test_voice*.mp3
+audio_base64*.txt
+
+# Server logs
+server_test.log
