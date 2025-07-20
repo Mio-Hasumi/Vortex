@@ -69,109 +69,91 @@ class OpenAIService:
         try:
             logger.info("🎙️ Processing voice input with GPT-4o Audio for matching...")
 
-            # Convert audio to base64 if needed
+            # Check if audio_data is actual audio (base64) or just text
+            is_audio_data = False
+            
             if isinstance(audio_data, bytes):
-                audio_base64 = base64.b64encode(audio_data).decode("utf-8")
-            elif isinstance(audio_data, str) and audio_data.startswith("data:"):
-                # Extract base64 data from data URI
-                audio_base64 = audio_data.split("base64,")[1]
-            else:
-                audio_base64 = audio_data
-
-            # Use GPT-4o Audio Preview with Realtime API
-            async with self.async_client.beta.realtime.connect(
-                model="gpt-4o-realtime-preview"
-            ) as connection:
-                # Enable text + audio modalities
-                await connection.session.update(
-                    session={"modalities": ["text", "audio"]}
-                )
-
-                # Send system prompt
-                await connection.conversation.item.create(
-                    item={
-                        "type": "message",
-                        "role": "system",
-                        "content": f"""You are an intelligent voice matching assistant. Users will tell you what topics they want to discuss, please:
-
-1. Understand the user's voice content
-2. Extract main topics (in English)
-3. Generate English hashtags (for matching algorithm)
-4. Respond in {language} to confirm understanding and start matching
-
-Please return in JSON format:
-{{
-    "understood_text": "Specific content spoken by the user",
-    "extracted_topics": ["Topic1", "Topic2"],
-    "generated_hashtags": ["#hashtag1", "#hashtag2"],
-    "match_intent": "Summary of user's matching intent"
-}}
-
-Also respond with a friendly voice to confirm understanding and inform that matching is in progress.""",
-                    }
-                )
-
-                # Send audio message
-                await connection.conversation.item.create(
-                    item={
-                        "type": "message",
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "input_audio",
-                                "input_audio": {
-                                    "data": audio_base64,
-                                    "format": audio_format,
-                                },
-                            }
-                        ],
-                    }
-                )
-
-                # Request response generation
-                await connection.response.create()
-
-                # Process streaming response
-                text_chunks = []
-                audio_chunks = []
-                result_data = {}
-
-                async for event in connection:
-                    if event.type == "response.text.delta":
-                        text_chunks.append(event.delta)
-                    elif event.type == "response.audio":
-                        audio_chunks.append(event.audio.data)
-                    elif event.type == "response.done":
-                        break
-
-                # Combine text response
-                text_response = "".join(text_chunks)
-
-                try:
-                    # Try to parse JSON from text response
-                    result_data = json.loads(text_response)
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse JSON response, extracting manually")
-                    result_data = {
-                        "understood_text": text_response,
+                is_audio_data = True
+            elif isinstance(audio_data, str):
+                # Check if it's base64 audio data (longer than typical text)
+                if len(audio_data) > 1000 and not audio_data.startswith("data:"):
+                    is_audio_data = True
+                elif audio_data.startswith("data:"):
+                    is_audio_data = True
+            
+            if is_audio_data:
+                logger.info("🎵 Detected audio data, using STT + topic extraction workflow...")
+                
+                # Convert to bytes if base64
+                if isinstance(audio_data, str):
+                    if audio_data.startswith("data:"):
+                        # Extract base64 data from data URI
+                        audio_bytes = base64.b64decode(audio_data.split("base64,")[1])
+                    else:
+                        # Direct base64 string
+                        audio_bytes = base64.b64decode(audio_data)
+                else:
+                    audio_bytes = audio_data
+                
+                # Use proven STT + topic extraction workflow
+                audio_buffer = io.BytesIO(audio_bytes)
+                audio_buffer.name = f"audio.{audio_format}"
+                
+                # Step 1: Speech to text
+                stt_result = await self.speech_to_text(audio_buffer, language)
+                transcription = stt_result["text"]
+                
+                if not transcription.strip():
+                    return {
+                        "understood_text": "",
                         "extracted_topics": ["General topic"],
                         "generated_hashtags": ["#general"],
-                        "match_intent": "Wants to chat",
+                        "match_intent": "General chat",
+                        "error": "No speech detected in audio"
                     }
-
-                # Add audio response
-                result_data.update(
-                    {
-                        "audio_response": b"".join(audio_chunks),
-                        "text_response": text_response,
-                        "processing_time": datetime.utcnow().isoformat(),
-                    }
+                
+                # Step 2: Extract topics and hashtags
+                topic_result = await self.extract_topics_and_hashtags(
+                    text=transcription,
+                    context={
+                        "source": "voice_matching",
+                        "language": language,
+                        "audio_format": audio_format,
+                    },
                 )
-
-                logger.info(
-                    f"✅ Voice matching processed: {result_data.get('extracted_topics', [])}"
+                
+                logger.info(f"✅ Voice matching processed: transcription='{transcription}', topics={topic_result.get('main_topics', [])}")
+                
+                return {
+                    "understood_text": transcription,
+                    "extracted_topics": topic_result.get("main_topics", []),
+                    "generated_hashtags": topic_result.get("hashtags", []),
+                    "match_intent": f"Wants to discuss: {', '.join(topic_result.get('main_topics', []))}",
+                    "text_response": f"I understand you want to talk about {', '.join(topic_result.get('main_topics', []))}. Let me find you a great conversation partner!",
+                    "confidence": topic_result.get("confidence", 0.8),
+                    "processing_time": datetime.utcnow().isoformat(),
+                }
+            else:
+                logger.info("📝 Detected text input, using text-based topic extraction...")
+                
+                # Fallback to text processing for non-audio input
+                topic_result = await self.extract_topics_and_hashtags(
+                    text=audio_data,
+                    context={
+                        "source": "text_matching",
+                        "language": language,
+                    },
                 )
-                return result_data
+                
+                return {
+                    "understood_text": audio_data,
+                    "extracted_topics": topic_result.get("main_topics", ["General topic"]),
+                    "generated_hashtags": topic_result.get("hashtags", ["#general"]),
+                    "match_intent": f"Wants to discuss: {', '.join(topic_result.get('main_topics', []))}",
+                    "text_response": f"I understand you want to talk about {', '.join(topic_result.get('main_topics', []))}. Let me find you a great conversation partner!",
+                    "confidence": topic_result.get("confidence", 0.8),
+                    "processing_time": datetime.utcnow().isoformat(),
+                }
 
         except Exception as e:
             logger.error(f"❌ Voice input processing failed: {e}")

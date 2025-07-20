@@ -318,7 +318,7 @@ class ConnectionManager:
         self.active_connections.clear()
         self.connection_metadata.clear()
         
-        logger.info("✅ WebSocket Connection Manager cleanup complete")
+        logger.info("✅ WebSocket Connection Manager cleanup complete") 
     
     async def join_room(self, room_name: str, user_id: UUID, websocket: WebSocket) -> str:
         """
