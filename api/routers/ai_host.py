@@ -1134,20 +1134,17 @@ Guidelines:
                         if audio_data:
                             logger.info(f"📥 [ServerVAD] Streaming audio chunk to OpenAI: {len(audio_data)} base64 chars")
                             
-                            # Directly stream audio to OpenAI Realtime API
-                            # Server VAD will automatically detect speech and trigger responses
-                            await conn.conversation.item.create(
-                                item={
-                                    "type": "message",
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "type": "input_audio",
-                                            "audio": {"data": audio_data, "format": "wav"}
-                                        }
-                                    ]
-                                }
-                            )
+                            # Convert base64 audio to raw bytes for Realtime API
+                            try:
+                                audio_bytes = base64.b64decode(audio_data)
+                                logger.info(f"📥 [ServerVAD] Decoded audio: {len(audio_bytes)} bytes")
+                                
+                                # Use appendInputAudio for proper streaming audio
+                                # Server VAD will automatically detect speech and trigger responses
+                                await conn.input_audio_buffer.append(audio_bytes)
+                                
+                            except Exception as e:
+                                logger.error(f"❌ [ServerVAD] Audio processing failed: {e}")
                             
                             # Send acknowledgment
                             await websocket.send_text(json.dumps({

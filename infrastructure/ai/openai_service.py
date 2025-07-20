@@ -128,20 +128,8 @@ Focus on creating hashtags that help match users effectively."""
                         }
                     )
                     
-                    # Send user audio input
-                    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
-                    await connection.conversation.item.create(
-                        item={
-                            "type": "message",
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "input_audio",
-                                    "audio": {"data": audio_base64, "format": audio_format}
-                            }
-                        ]
-                    }
-            )
+                    # Send user audio input using proper streaming method
+                    await connection.input_audio_buffer.append(audio_bytes)
             
                     # Request response
                     await connection.response.create()
@@ -317,30 +305,30 @@ The response should be natural, friendly, and helpful."""
                     else:
                         audio_base64 = audio_data
                     
-                    user_content.append({
-                        "type": "input_audio",
-                        "audio": {"data": audio_base64, "format": "wav"}
-                    })
+                    # For moderation, use appendInputAudio instead of manual content creation
+                    # Convert base64 back to bytes for the API
+                    if isinstance(audio_data, str):
+                        audio_bytes = base64.b64decode(audio_data)
+                    else:
+                        audio_bytes = audio_data
+                    
+                    await connection.input_audio_buffer.append(audio_bytes)
                 
                 # Add text if provided
                 if text_input:
                     user_content.append({"type": "input_text", "text": text_input})
                 
-                # Send user message
-                await connection.conversation.item.create(
-                    item={
-                        "type": "message",
-                        "role": "user",
-                        "content": user_content if user_content else [
-                            {
-                                "type": "input_text",
-                                "text": "Please assist in moderating the conversation"
-                            }
-                        ]
-                    }
-                )
+                # Only create conversation item if we have text content
+                if user_content:
+                    await connection.conversation.item.create(
+                        item={
+                            "type": "message",
+                            "role": "user",
+                            "content": user_content
+                        }
+                    )
                 
-                # Request response generation
+                # Request response generation (works with audio from appendInputAudio)
                 await connection.response.create()
                 
                 # Process streaming response
