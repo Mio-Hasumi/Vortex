@@ -710,11 +710,10 @@ async def websocket_voice_chat(websocket: WebSocket):
                                     "type": "authenticated",
                                     "user_id": str(authenticated_user.id),
                                     "display_name": authenticated_user.display_name,
-                                    "timestamp": datetime.utcnow().isoformat(),
                                 }
                             )
                         )
-
+                        
                     except Exception as e:
                         logger.error(f"❌ WebSocket authentication failed: {e}")
                         await websocket.send_text(
@@ -974,7 +973,7 @@ async def websocket_audio_stream(websocket: WebSocket):
                             
                         await websocket.send_text(json.dumps({
                             "type": "authenticated",
-                            "user_id": str(authenticated_user.user_id),
+                            "user_id": str(authenticated_user.id),
                             "display_name": authenticated_user.display_name
                         }))
                         
@@ -994,7 +993,7 @@ async def websocket_audio_stream(websocket: WebSocket):
                         }))
                         continue
                         
-                    session_id = f"audio_stream_{authenticated_user.user_id}_{datetime.utcnow().timestamp()}"
+                    session_id = f"audio_stream_{authenticated_user.id}_{datetime.utcnow().timestamp()}"
                     
                     await websocket.send_text(json.dumps({
                         "type": "session_started",
