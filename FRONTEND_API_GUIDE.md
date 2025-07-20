@@ -1563,7 +1563,7 @@ ws.onopen = () => {
     type: 'auth',
     token: firebaseIdToken  // Get from Firebase Auth
   }))
-}
+  }
 
 // Handle authentication response
 ws.onmessage = (event) => {
@@ -1591,7 +1591,7 @@ ws.onmessage = (event) => {
       }
       if (response.generated_hashtags) {
         console.log('🏷️ Hashtags:', response.generated_hashtags)
-      }
+  }
       break
       
     case 'error':
@@ -1668,7 +1668,7 @@ class VoiceAppWebSocket {
     
     this.ws.onerror = (error) => {
       console.error('❌ WebSocket error:', error)
-    }
+  }
     
     this.ws.onclose = () => {
       console.log('🔌 WebSocket disconnected')
@@ -1863,7 +1863,7 @@ const handleApiCall = async (url, options = {}) => {
       
       throw new Error(`API Error: ${response.status}`)
     }
-
+    
     return await response.json()
     
   } catch (error) {
@@ -1995,7 +1995,7 @@ class VoiceAppClient {
     })
     
     return await response.blob()
-  }
+    }
 
   // Matching
   async requestMatch(topics, maxParticipants = 3) {

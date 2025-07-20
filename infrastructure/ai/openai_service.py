@@ -12,6 +12,8 @@ from datetime import datetime
 import json
 import asyncio
 import io
+import tempfile
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -898,6 +900,193 @@ Focus on creating hashtags that will help match users with similar interests.{co
                 "hashtags": [],
                 "error": str(e),
             }
+
+    async def streaming_speech_to_text(
+        self, 
+        audio_chunk: bytes, 
+        language: str = "en-US",
+        session_context: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """
+        Process audio chunk for streaming STT
+        
+        Args:
+            audio_chunk: Raw audio bytes
+            language: Target language for STT
+            session_context: Context for better recognition
+            
+        Returns:
+            STT result with partial transcription
+        """
+        try:
+            logger.info(f"🎙️ Processing audio chunk for streaming STT ({len(audio_chunk)} bytes)")
+            
+            # Create temporary file for audio chunk
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+                temp_file.write(audio_chunk)
+                temp_filename = temp_file.name
+            
+            try:
+                # Use OpenAI Whisper for STT
+                with open(temp_filename, "rb") as audio_file:
+                    transcription = await self.async_client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        language=language,
+                        response_format="verbose_json",
+                        timestamp_granularities=["word"]
+                    )
+                
+                # Extract transcription results
+                result = {
+                    "text": transcription.text,
+                    "language": transcription.language,
+                    "duration": transcription.duration,
+                    "confidence": 0.95,  # Whisper doesn't provide confidence, using default
+                    "words": []
+                }
+                
+                # Add word-level timestamps if available
+                if hasattr(transcription, 'words') and transcription.words:
+                    result["words"] = [
+                        {
+                            "word": word.word,
+                            "start": word.start,
+                            "end": word.end
+                        }
+                        for word in transcription.words
+                    ]
+                
+                logger.info(f"✅ Streaming STT completed: '{transcription.text}'")
+                return result
+                
+            finally:
+                # Cleanup temporary file
+                if os.path.exists(temp_filename):
+                    os.unlink(temp_filename)
+                
+        except Exception as e:
+            logger.error(f"❌ Streaming STT failed: {e}")
+            return {
+                "text": "",
+                "language": "unknown",
+                "duration": 0.0,
+                "confidence": 0.0,
+                "error": str(e)
+            }
+    
+    async def realtime_conversation(
+        self,
+        user_input: str,
+        conversation_context: List[Dict[str, Any]] = None,
+        user_context: Dict[str, Any] = None,
+        audio_response: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Enhanced GPT-4o Realtime conversation with audio support
+        
+        Args:
+            user_input: User's text input
+            conversation_context: Previous conversation history
+            user_context: User's topic preferences and context
+            audio_response: Whether to generate audio response
+            
+        Returns:
+            AI response with text and optional audio
+        """
+        try:
+            logger.info(f"🤖 Starting realtime conversation with GPT-4o")
+            
+            # Build conversation prompt with user context
+            system_prompt = self._build_conversation_system_prompt(user_context)
+            
+            # Prepare messages
+            messages = [{"role": "system", "content": system_prompt}]
+            
+            # Add conversation history
+            if conversation_context:
+                for msg in conversation_context[-10:]:  # Last 10 messages
+                    messages.append({
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("content", "")
+                    })
+            
+            # Add current user input
+            messages.append({"role": "user", "content": user_input})
+            
+            # Generate text response
+            response = await self.async_client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                max_tokens=500,
+                temperature=0.7
+            )
+            
+            ai_text = response.choices[0].message.content
+            
+            result = {
+                "response_text": ai_text,
+                "timestamp": datetime.utcnow().isoformat(),
+                "model": "gpt-4o"
+            }
+            
+            # Generate audio response if requested
+            if audio_response:
+                try:
+                    audio_data = await self.text_to_speech(
+                        text=ai_text,
+                        voice="nova",  # Natural sounding voice
+                        model="tts-1"
+                    )
+                    result["audio_data"] = base64.b64encode(audio_data).decode("utf-8")
+                    result["audio_format"] = "mp3"
+                except Exception as e:
+                    logger.warning(f"⚠️ TTS generation failed: {e}")
+            
+            logger.info(f"✅ Realtime conversation response generated")
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Realtime conversation failed: {e}")
+            return {
+                "response_text": "I'm having trouble processing that right now. Could you try again?",
+                "error": str(e),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+    
+    def _build_conversation_system_prompt(self, user_context: Dict[str, Any] = None) -> str:
+        """
+        Build system prompt for conversation based on user context
+        """
+        base_prompt = """You are a friendly, engaging AI conversation partner in a voice chat app. 
+
+Your personality:
+- Enthusiastic and curious about learning
+- Ask thoughtful follow-up questions
+- Share interesting insights and perspectives
+- Keep conversations flowing naturally
+- Use conversational, spoken language (not formal text)
+
+Guidelines:
+- Keep responses concise but engaging (1-3 sentences)
+- Ask questions to encourage participation
+- Don't mention "finding matches" or "waiting for others"
+- Focus on having genuine conversations about the topics
+- Use natural speech patterns suitable for voice chat"""
+
+        if user_context:
+            topics = user_context.get("topics", [])
+            transcription = user_context.get("transcription", "")
+            hashtags = user_context.get("hashtags", [])
+            
+            if topics:
+                base_prompt += f"\n\nThe user is interested in discussing: {', '.join(topics)}"
+            if transcription:
+                base_prompt += f"\nTheir original message was: \"{transcription}\""
+            if hashtags:
+                base_prompt += f"\nRelevant hashtags: {', '.join(hashtags)}"
+                
+        return base_prompt
 
 
 def get_openai_service() -> OpenAIService:
