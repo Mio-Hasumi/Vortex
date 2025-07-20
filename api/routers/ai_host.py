@@ -1064,9 +1064,20 @@ async def _handle_realtime_streaming(websocket: WebSocket, openai_service, sessi
         model="gpt-4o-realtime-preview"
     ) as conn:
         try:
-            # Configure session ONCE
+            # Configure session ONCE with proper audio settings
             await conn.session.update(
-                session={"modalities": ["audio", "text"]}
+                session={
+                    "modalities": ["audio", "text"],
+                    "voice": "shimmer",  # AI voice for responses
+                    "output_audio_format": "pcm16",  # Audio output format
+                    "input_audio_format": "pcm16",   # Audio input format (though we're sending WAV)
+                    "turn_detection": {
+                        "type": "server_vad",  # Server-side voice activity detection
+                        "threshold": 0.5,
+                        "prefix_padding_ms": 300,
+                        "silence_duration_ms": 200
+                    }
+                }
             )
             
             # Send system prompt ONCE
@@ -1172,9 +1183,20 @@ Guidelines:
                                         "confidence": 0.95,
                                         "timestamp": datetime.utcnow().isoformat()
                                     }))
-                                elif event.type == "response.audio":
-                                    audio_chunks.append(event.audio.data)
-                                    logger.info(f"🎵 Audio chunk received: {len(event.audio.data)} bytes (total chunks: {len(audio_chunks)})")
+                                elif event.type == "response.audio.delta":
+                                    # Handle streaming audio chunks (PCM16 format)
+                                    if hasattr(event, 'delta') and event.delta:
+                                        audio_chunks.append(event.delta)
+                                        logger.info(f"🎵 Audio delta received: {len(event.delta)} bytes (total chunks: {len(audio_chunks)})")
+                                        
+                                        # Optionally send real-time audio chunks to client
+                                        import base64
+                                        await websocket.send_text(json.dumps({
+                                            "type": "audio_chunk",
+                                            "audio_delta": base64.b64encode(event.delta).decode("utf-8"),
+                                            "format": "pcm16",
+                                            "timestamp": datetime.utcnow().isoformat()
+                                        }))
                                 elif event.type == "response.done":
                                     logger.info("✅ Response done event received")
                                     break
