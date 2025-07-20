@@ -107,7 +107,10 @@ class OpenAIService:
                         item={
                             "type": "message",
                         "role": "system", 
-                            "content": f"""You are an expert at analyzing voice input for social matching. 
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": f"""You are an expert at analyzing voice input for social matching. 
                             
 Your task:
 1. Listen to the user's voice input and understand what they want to discuss
@@ -125,6 +128,8 @@ Respond in this exact JSON format:
 
 Language preference: {language}
 Focus on creating hashtags that help match users effectively."""
+                                }
+                            ]
                         }
                     )
                     
@@ -268,7 +273,10 @@ Focus on creating hashtags that help match users effectively."""
                     item={
                         "type": "message",
                         "role": "system",
-                        "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
 
 Your responsibilities:
 1. Engage the conversation: Actively provide topics when the conversation is cold
@@ -281,6 +289,8 @@ Current room participants: {', '.join(room_participants or [])}
 
 Please provide an appropriate response based on the input content, which can be a voice response, a text suggestion, or a topic recommendation.
 The response should be natural, friendly, and helpful."""
+                            }
+                        ]
                     }
                 )
                 
@@ -291,7 +301,12 @@ The response should be natural, friendly, and helpful."""
                             item={
                                 "type": "message",
                                 "role": msg.get("role", "user"),
-                                "content": msg.get("content", "")
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": msg.get("content", "")
+                                    }
+                                ]
                             }
                         )
                 
@@ -316,7 +331,7 @@ The response should be natural, friendly, and helpful."""
                 
                 # Add text if provided
                 if text_input:
-                    user_content.append({"type": "input_text", "text": text_input})
+                    user_content.append({"type": "text", "text": text_input})
                 
                 # Only create conversation item if we have text content
                 if user_content:
@@ -1076,7 +1091,12 @@ Focus on creating hashtags that will help match users with similar interests.{co
                     item={
                         "type": "message",
                         "role": "system",
-                        "content": system_prompt
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": system_prompt
+                            }
+                        ]
                     }
                 )
                 
@@ -1087,7 +1107,12 @@ Focus on creating hashtags that will help match users with similar interests.{co
                             item={
                                 "type": "message",
                                 "role": msg.get("role", "user"),
-                                "content": msg.get("content", "")
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": msg.get("content", "")
+                                    }
+                                ]
                             }
                         )
                 
@@ -1096,7 +1121,12 @@ Focus on creating hashtags that will help match users with similar interests.{co
                     item={
                         "type": "message",
                         "role": "user",
-                        "content": user_input
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": user_input
+                            }
+                        ]
                     }
                 )
                 

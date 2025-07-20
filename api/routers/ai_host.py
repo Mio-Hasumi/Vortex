@@ -1108,7 +1108,12 @@ Guidelines:
                 item={
                     "type": "message",
                     "role": "system", 
-                    "content": system_prompt
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": system_prompt
+                        }
+                    ]
                 }
             )
             
