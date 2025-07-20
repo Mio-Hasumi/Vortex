@@ -428,6 +428,16 @@ async def upload_audio_for_stt(
         logger.info(f"🎙️ Processing audio upload for user: {current_user.id}")
         logger.info(f"📁 File: {audio_file.filename}, type: {audio_file.content_type}")
 
+        # Critical: Check if OpenAI service is available
+        if openai_service is None:
+            logger.error("❌ OpenAI service is not available - check OPENAI_API_KEY configuration")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Speech-to-text service is not available. Please check server configuration."
+            )
+        
+        logger.info("✅ OpenAI service is available, proceeding with audio processing")
+
         # Validate file type
         allowed_types = [
             "audio/wav",
