@@ -1143,7 +1143,7 @@ Guidelines:
                                     "content": [
                                         {
                                             "type": "input_audio",
-                                            "input_audio": {"data": audio_data, "format": "wav"}
+                                            "audio": {"data": audio_data, "format": "wav"}
                                         }
                                     ]
                                 }
