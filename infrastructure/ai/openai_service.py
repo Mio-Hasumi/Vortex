@@ -137,7 +137,7 @@ Focus on creating hashtags that help match users effectively."""
                         "content": [
                             {
                                 "type": "input_audio",
-                                    "input_audio": {"data": audio_base64, "format": audio_format}
+                                    "audio": {"data": audio_base64, "format": audio_format}
                             }
                         ]
                     }
@@ -319,7 +319,7 @@ The response should be natural, friendly, and helpful."""
                     
                     user_content.append({
                         "type": "input_audio",
-                        "input_audio": {"data": audio_base64, "format": "wav"}
+                        "audio": {"data": audio_base64, "format": "wav"}
                     })
                 
                 # Add text if provided
