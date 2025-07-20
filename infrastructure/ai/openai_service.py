@@ -20,7 +20,7 @@ class OpenAIService:
     def __init__(self, api_key: str, base_url: Optional[str] = None):
         """
         Initialize OpenAI service with GPT-4o Audio support
-
+        
         Args:
             api_key: OpenAI API key
             base_url: Optional custom base URL for OpenAI API
@@ -40,26 +40,26 @@ class OpenAIService:
         logger.info("🎵 OpenAI Service initialized with GPT-4o Audio Preview support")
 
     async def process_voice_input_for_matching(
-        self,
+        self, 
         audio_data: Union[bytes, str],
         audio_format: str = "wav",
         language: str = "en-US",
     ) -> Dict[str, Any]:
         """
         Use GPT-4o Audio to directly process user voice input, extract topics and generate hashtags
-
+        
         New workflow: Audio → GPT-4o Audio → Understand content + Generate hashtags + Audio response
         Replaces: Audio → STT → GPT → Hashtags + TTS
-
+        
         Args:
             audio_data: Audio data (bytes or base64 string)
             audio_format: Audio format (wav, mp3, etc.)
             language: Language preference
-
+            
         Returns:
             {
                 "understood_text": "Content spoken by the user",
-                "extracted_topics": ["AI", "Entrepreneurship"],
+                "extracted_topics": ["AI", "Entrepreneurship"],  
                 "generated_hashtags": ["#AI", "#Entrepreneurship", "#Tech"],
                 "match_intent": "Wants to find someone to talk about AI and entrepreneurship",
                 "audio_response": "Base64 encoded AI response audio",
@@ -68,7 +68,7 @@ class OpenAIService:
         """
         try:
             logger.info("🎙️ Processing voice input with GPT-4o Audio for matching...")
-
+            
             # Check if audio_data is actual audio (base64) or just text
             is_audio_data = False
             
@@ -154,7 +154,7 @@ class OpenAIService:
                     "confidence": topic_result.get("confidence", 0.8),
                     "processing_time": datetime.utcnow().isoformat(),
                 }
-
+            
         except Exception as e:
             logger.error(f"❌ Voice input processing failed: {e}")
             return {
@@ -177,21 +177,21 @@ class OpenAIService:
     ) -> Dict[str, Any]:
         """
         Use GPT-4o Audio as room AI host and secretary
-
+        
         Features:
         - Real-time voice conversation
         - Fact check
         - Topic suggestions
         - Atmosphere moderation
         - Content moderation
-
+        
         Args:
             audio_data: User voice input (if any)
             text_input: Text input (if any)
             conversation_context: Conversation history
             room_participants: Room participants
             moderation_mode: Host mode (active_host, secretary, fact_checker)
-
+            
         Returns:
             AI host response (audio + text + suggestions)
         """
@@ -199,7 +199,7 @@ class OpenAIService:
             logger.info(
                 f"🎭 AI moderating room conversation in {moderation_mode} mode..."
             )
-
+            
             # Use GPT-4o Audio Preview with Realtime API
             async with self.async_client.beta.realtime.connect(
                 model="gpt-4o-realtime-preview"
@@ -213,8 +213,8 @@ class OpenAIService:
                 await connection.conversation.item.create(
                     item={
                         "type": "message",
-                        "role": "system",
-                        "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
+                    "role": "system",
+                    "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
 
 Your responsibilities:
 1.  Engage the conversation: Actively provide topics when the conversation is cold
@@ -227,9 +227,9 @@ Current room participants: {', '.join(room_participants or [])}
 
 Please provide an appropriate response based on the input content, which can be a voice response, a text suggestion, or a topic recommendation.
 The response should be natural, friendly, and helpful.""",
-                    }
+                }
                 )
-
+            
             # Add conversation history
             if conversation_context:
                 for msg in conversation_context[-10:]:  # Last 10 messages
@@ -240,7 +240,7 @@ The response should be natural, friendly, and helpful.""",
                             "content": msg["content"],
                         }
                     )
-
+            
             # Build user message
             user_content = []
             if audio_data:
@@ -248,22 +248,22 @@ The response should be natural, friendly, and helpful.""",
                     audio_base64 = base64.b64encode(audio_data).decode("utf-8")
                 else:
                     audio_base64 = audio_data
-
+                    
                 user_content.append(
                     {
-                        "type": "input_audio",
+                    "type": "input_audio",
                         "input_audio": {"data": audio_base64, "format": "wav"},
                     }
                 )
-
+            
             if text_input:
                 user_content.append({"type": "input_text", "text": text_input})
-
+            
             # Send user message
             await connection.conversation.item.create(
                 item={
                     "type": "message",
-                    "role": "user",
+                "role": "user",
                     "content": user_content
                     if user_content
                     else [
@@ -274,7 +274,7 @@ The response should be natural, friendly, and helpful.""",
                     ],
                 }
             )
-
+            
             # Request response generation
             await connection.response.create()
 
@@ -293,7 +293,7 @@ The response should be natural, friendly, and helpful.""",
             # Combine responses
             text_response = "".join(text_chunks)
             audio_response = b"".join(audio_chunks)
-
+            
             return {
                 "ai_response": {
                     "text": text_response,
@@ -305,7 +305,7 @@ The response should be natural, friendly, and helpful.""",
                 "timestamp": datetime.utcnow().isoformat(),
                 "participants": room_participants,
             }
-
+            
         except Exception as e:
             logger.error(f"❌ Room moderation failed: {e}")
             return {
@@ -599,11 +599,11 @@ Be an active, helpful conversation facilitator.""",
         if "fact" in ai_text.lower() or "info" in ai_text.lower():
             suggestions.append("🔍 Fact checking")
         return suggestions
-
+    
     def health_check(self) -> Dict[str, Any]:
         """
         Check OpenAI service health status
-
+        
         Returns:
             Health status information
         """
@@ -612,7 +612,7 @@ Be an active, helpful conversation facilitator.""",
             response = self.client.audio.speech.create(
                 model="tts-1", voice="alloy", input="Health check test"
             )
-
+            
             return {
                 "status": "healthy",
                 "service": "openai_tts",
@@ -627,24 +627,24 @@ Be an active, helpful conversation facilitator.""",
                 "error": str(e),
                 "timestamp": datetime.utcnow().isoformat(),
             }
-
+    
     async def text_to_speech(
         self, text: str, voice: str = "alloy", speed: float = 1.0
     ) -> bytes:
         """
         Generate voice using OpenAI TTS API
-
+        
         Args:
             text: Text to convert
             voice: Voice type
             speed: Voice speed
-
+            
         Returns:
             Audio data (bytes)
         """
         try:
             logger.info(f"🔊 Generating TTS: {text[:50]}...")
-
+            
             # Use traditional TTS API, more stable and reliable
             response = await asyncio.to_thread(
                 lambda: self.client.audio.speech.create(
@@ -654,12 +654,12 @@ Be an active, helpful conversation facilitator.""",
                     speed=speed,
                 )
             )
-
+            
             # Return audio bytes directly
             audio_bytes = response.content
             logger.info("✅ TTS generated successfully")
             return audio_bytes
-
+                
         except Exception as e:
             logger.error(f"❌ TTS generation failed: {e}")
             raise
@@ -669,24 +669,24 @@ Be an active, helpful conversation facilitator.""",
     ) -> Dict[str, Any]:
         """
         Convert speech to text using OpenAI Whisper API
-
+        
         Args:
             audio_file: Audio file data (bytes or BytesIO)
             language: Language preference
-
+            
         Returns:
             Dictionary with transcription, language, duration, confidence, etc.
         """
         try:
             logger.info(f"🎙️ Processing speech-to-text with language: {language}")
-
+            
             # Prepare audio data
             if isinstance(audio_file, bytes):
                 audio_buffer = io.BytesIO(audio_file)
                 audio_buffer.name = "audio.mp3"
             else:
                 audio_buffer = audio_file
-
+            
             # Use OpenAI Whisper for STT
             response = await asyncio.to_thread(
                 lambda: self.client.audio.transcriptions.create(
@@ -699,12 +699,12 @@ Be an active, helpful conversation facilitator.""",
                     timestamp_granularities=["word"],
                 )
             )
-
+            
             # Extract response data
             transcription = response.text
             detected_language = getattr(response, "language", language)
             duration = getattr(response, "duration", 0.0)
-
+            
             # Extract word-level timestamps if available
             words = []
             if hasattr(response, "words") and response.words:
@@ -712,9 +712,9 @@ Be an active, helpful conversation facilitator.""",
                     {"word": word.word, "start": word.start, "end": word.end}
                     for word in response.words
                 ]
-
+            
             logger.info(f"✅ STT completed: '{transcription[:100]}...'")
-
+            
             return {
                 "text": transcription,
                 "language": detected_language,
@@ -722,7 +722,7 @@ Be an active, helpful conversation facilitator.""",
                 "confidence": 0.95,  # Whisper doesn't provide confidence, use default
                 "words": words,
             }
-
+            
         except Exception as e:
             logger.error(f"❌ Speech-to-text failed: {e}")
             raise Exception(f"STT processing failed: {str(e)}")
@@ -732,23 +732,23 @@ Be an active, helpful conversation facilitator.""",
     ) -> Dict[str, Any]:
         """
         Extract topics and generate hashtags from text using GPT-4
-
+        
         Args:
             text: Input text to analyze
             context: Additional context (user info, preferences, etc.)
             language: Language preference
-
+            
         Returns:
             Dictionary with extracted topics, hashtags, category, sentiment, etc.
         """
         try:
             logger.info(f"🧠 Extracting topics from text: {text[:100]}...")
-
+            
             # Build context prompt
             context_info = ""
             if context:
                 context_info = f"\nUser context: {json.dumps(context, indent=2)}"
-
+            
             # Use GPT-4 for topic extraction
             response = await asyncio.to_thread(
                 lambda: self.client.chat.completions.create(
@@ -788,10 +788,10 @@ Focus on creating hashtags that will help match users with similar interests.{co
                     temperature=0.3,
                 )
             )
-
+            
             # Parse the response
             content = response.choices[0].message.content
-
+            
             try:
                 result = json.loads(content)
                 logger.info(f"✅ Topics extracted: {result.get('main_topics', [])}")
@@ -802,14 +802,14 @@ Focus on creating hashtags that will help match users with similar interests.{co
                 return {
                     "main_topics": ["general", "conversation"],
                     "hashtags": ["#chat", "#social", "#conversation"],
-                    "category": "other",
+                    "category": "other", 
                     "sentiment": "neutral",
                     "conversation_style": "casual",
                     "confidence": 0.5,
                     "summary": "General conversation topic",
                     "raw_response": content,
                 }
-
+                
         except Exception as e:
             logger.error(f"❌ Topic extraction failed: {e}")
             # Return fallback data
@@ -817,7 +817,7 @@ Focus on creating hashtags that will help match users with similar interests.{co
                 "main_topics": ["general"],
                 "hashtags": ["#general", "#chat"],
                 "category": "other",
-                "sentiment": "neutral",
+                "sentiment": "neutral", 
                 "conversation_style": "casual",
                 "confidence": 0.1,
                 "summary": "Could not analyze topics",
@@ -832,27 +832,27 @@ Focus on creating hashtags that will help match users with similar interests.{co
     ) -> Dict[str, Any]:
         """
         Process voice input to extract hashtags and topics for matching
-
+        
         This is the main voice-to-hashtag pipeline:
         1. Voice → STT (Whisper)
         2. Text → Topic Extraction (GPT-4)
         3. Return topics + hashtags for matching
-
+        
         Args:
             audio_data: Audio file data
             audio_format: Audio format (mp3, wav, etc.)
             language: Language preference
-
+            
         Returns:
             Dictionary with transcription, topics, hashtags, etc.
         """
         try:
             logger.info("🎙️ Processing voice input for hashtag extraction...")
-
+            
             # Step 1: Speech to Text
             stt_result = await self.speech_to_text(audio_data, language)
             transcription = stt_result["text"]
-
+            
             if not transcription.strip():
                 return {
                     "transcription": "",
@@ -860,7 +860,7 @@ Focus on creating hashtags that will help match users with similar interests.{co
                     "hashtags": [],
                     "error": "No speech detected in audio",
                 }
-
+            
             # Step 2: Extract topics and hashtags from transcription
             topic_result = await self.extract_topics_and_hashtags(
                 text=transcription,
@@ -870,7 +870,7 @@ Focus on creating hashtags that will help match users with similar interests.{co
                     "audio_format": audio_format,
                 },
             )
-
+            
             # Combine results
             result = {
                 "transcription": transcription,
@@ -884,12 +884,12 @@ Focus on creating hashtags that will help match users with similar interests.{co
                 "conversation_style": topic_result.get("conversation_style", "casual"),
                 "summary": topic_result.get("summary", transcription[:100]),
             }
-
+            
             logger.info(
                 f"✅ Voice processing completed: {len(result['hashtags'])} hashtags generated"
             )
             return result
-
+            
         except Exception as e:
             logger.error(f"❌ Voice hashtag processing failed: {e}")
             return {
@@ -907,19 +907,58 @@ def get_openai_service() -> OpenAIService:
     """
     from fastapi import HTTPException
     from infrastructure.config import Settings
-
-    settings = Settings()
-    api_key = settings.OPENAI_API_KEY
-
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.",
-        )
+    import os
 
     try:
-        return OpenAIService(api_key=api_key)
+        settings = Settings()
+        
+        # Try multiple sources for API key
+        api_key = (
+            os.getenv("OPENAI_API_KEY") or 
+            getattr(settings, 'OPENAI_API_KEY', None)
+        )
+        
+        logger.info(f"🔍 [get_openai_service] Checking API key availability...")
+        logger.info(f"🔍 [get_openai_service] API key found: {bool(api_key)}")
+        if api_key:
+            logger.info(f"🔍 [get_openai_service] API key prefix: {api_key[:20]}...")
+
+        if not api_key:
+            logger.error("❌ [get_openai_service] OPENAI_API_KEY not found in environment or settings")
+            raise HTTPException(
+                status_code=500,
+                detail="OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.",
+            )
+
+        # Test API key format
+        if not api_key.startswith('sk-'):
+            logger.error(f"❌ [get_openai_service] Invalid API key format: {api_key[:10]}...")
+            raise HTTPException(
+                status_code=500,
+                detail="Invalid OpenAI API key format. Key should start with 'sk-'.",
+            )
+
+        logger.info("🎵 [get_openai_service] Creating OpenAI service instance...")
+        service = OpenAIService(api_key=api_key)
+        
+        # Test the service by doing a simple health check
+        try:
+            health_status = service.health_check()
+            if health_status.get("status") != "healthy":
+                logger.warning(f"⚠️ [get_openai_service] Service health check failed: {health_status}")
+        except Exception as health_error:
+            logger.warning(f"⚠️ [get_openai_service] Health check failed but continuing: {health_error}")
+        
+        logger.info("✅ [get_openai_service] OpenAI service created successfully")
+        return service
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
+        logger.error(f"❌ [get_openai_service] Failed to initialize OpenAI service: {e}")
+        logger.exception("Full exception details:")
         raise HTTPException(
-            status_code=500, detail=f"Failed to initialize OpenAI service: {str(e)}"
+            status_code=500, 
+            detail=f"Failed to initialize OpenAI service: {str(e)}"
         )
