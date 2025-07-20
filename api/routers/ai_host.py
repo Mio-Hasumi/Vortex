@@ -931,7 +931,7 @@ async def websocket_audio_stream(websocket: WebSocket):
     Uses proper async context manager for persistent connection
     """
     await websocket.accept()
-    logger.info("🎙️ GPT-4o Realtime audio streaming WebSocket connected")
+    logger.info("🎙️ 🔗 WEBSOCKET CONNECTED: GPT-4o Realtime audio streaming WebSocket connected")
     
     authenticated_user = None
     openai_service = None
@@ -941,11 +941,16 @@ async def websocket_audio_stream(websocket: WebSocket):
         # Handle authentication and initial setup
         while True:
             try:
+                logger.info("⏳ 📨 Waiting for WebSocket message in main loop...")
                 message = await websocket.receive_text()
                 data = json.loads(message)
                 
+                message_type = data.get("type")
+                logger.info(f"📥 🔍 MAIN LOOP: Received message type: {message_type}")
+                
                 # Handle authentication
                 if data.get("type") == "auth":
+                    logger.info("🔐 🚀 Processing authentication request...")
                     try:
                         token = data.get("token")
                         if not token:
@@ -985,6 +990,7 @@ async def websocket_audio_stream(websocket: WebSocket):
                             "user_id": str(authenticated_user.id),
                             "display_name": authenticated_user.display_name
                         }))
+                        logger.info(f"🔐 🔑 Authentication successful for user: {authenticated_user.id}")
                         
                     except Exception as e:
                         logger.error(f"❌ Authentication failed: {e}")
@@ -995,9 +1001,11 @@ async def websocket_audio_stream(websocket: WebSocket):
                         
                 # Handle session start - Initialize GPT-4o Realtime connection and enter streaming loop
                 elif data.get("type") == "start_session":
-                    logger.info("🚀 Received start_session request")
+                    logger.info("🚀 🎯 RECEIVED START_SESSION REQUEST")
                     if not authenticated_user or not openai_service:
-                        logger.error("❌ start_session failed - missing auth or service")
+                        logger.error("❌ 🚫 start_session failed - missing auth or service")
+                        logger.error(f"❌ 🚫 authenticated_user: {authenticated_user is not None}")
+                        logger.error(f"❌ 🚫 openai_service: {openai_service is not None}")
                         await websocket.send_text(json.dumps({
                             "type": "error",
                             "message": "Must authenticate first"
@@ -1005,6 +1013,7 @@ async def websocket_audio_stream(websocket: WebSocket):
                         continue
                         
                     try:
+                        logger.info("🔧 ⚙️ Extracting user context from start_session message...")
                         # Extract user context from frontend
                         user_context = data.get("user_context", {})
                         topics = user_context.get("topics", [])
@@ -1021,25 +1030,26 @@ async def websocket_audio_stream(websocket: WebSocket):
                             "conversation_context": conversation_context
                         }
                         
-                        logger.info(f"🤖 Starting GPT-4o Realtime session for user: {authenticated_user.id}")
-                        logger.info(f"🎯 Session context: topics={topics}, hashtags={hashtags}")
+                        logger.info(f"🤖 🎯 Starting GPT-4o Realtime session for user: {authenticated_user.id}")
+                        logger.info(f"🎯 📝 Session context: topics={topics}, hashtags={hashtags}")
                         
+                        logger.info("📤 📋 Sending session_started message to client...")
                         await websocket.send_text(json.dumps({
                             "type": "session_started",
                             "session_id": f"realtime_{authenticated_user.id}_{datetime.utcnow().timestamp()}",
                             "message": "GPT-4o Realtime session ready",
                             "context": session_context
                         }))
-                        logger.info("✅ session_started message sent to client")
+                        logger.info("✅ 📋 session_started message sent to client")
                         
                         # Start the persistent Realtime connection and streaming loop
-                        logger.info("🔗 About to call _handle_realtime_streaming...")
+                        logger.info("🔗 🚀 About to call _handle_realtime_streaming...")
                         await _handle_realtime_streaming(websocket, openai_service, session_context)
-                        logger.info("🔗 _handle_realtime_streaming returned, exiting main loop")
+                        logger.info("🔗 🏁 _handle_realtime_streaming returned, exiting main loop")
                         return  # Exit after streaming session ends
                         
                     except Exception as e:
-                        logger.error(f"❌ Failed to start Realtime session: {e}")
+                        logger.error(f"❌ 💥 Failed to start Realtime session: {e}")
                         logger.exception("Full start_session error details:")
                         await websocket.send_text(json.dumps({
                             "type": "error",
@@ -1047,18 +1057,20 @@ async def websocket_audio_stream(websocket: WebSocket):
                         }))
                 
                 else:
-                    logger.warning(f"❓ Unknown message type in main loop: {data.get('type')}")
+                    logger.warning(f"❓ ❓ Unknown message type in main loop: {data.get('type')}")
                 
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ 📄 JSON decode error in main loop: {e}")
                 await websocket.send_text(json.dumps({
                     "type": "error",
                     "message": "Invalid JSON format"
                 }))
                 
     except WebSocketDisconnect:
-        logger.info("🎤 GPT-4o Realtime audio streaming WebSocket disconnected")
+        logger.info("🎤 👋 GPT-4o Realtime audio streaming WebSocket disconnected")
     except Exception as e:
-        logger.error(f"❌ GPT-4o Realtime audio streaming WebSocket error: {e}")
+        logger.error(f"❌ 💥 GPT-4o Realtime audio streaming WebSocket error: {e}")
+        logger.exception("Full WebSocket error details:")
 
 
 async def _handle_realtime_streaming(websocket: WebSocket, openai_service, session_context: dict):
