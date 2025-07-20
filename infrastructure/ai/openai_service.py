@@ -86,7 +86,7 @@ class OpenAIService:
                     is_audio_data = True
                     # Extract base64 data from data URI
                     audio_bytes = base64.b64decode(audio_data.split("base64,")[1])
-                else:
+            else:
                     # Short text, treat as text input
                     audio_bytes = None
             
@@ -97,16 +97,27 @@ class OpenAIService:
                 async with self.async_client.beta.realtime.connect(
                     model="gpt-4o-realtime-preview"
                 ) as connection:
-                    # Enable audio + text modalities
+                    # Configure session for audio input/output
                     await connection.session.update(
-                        session={"modalities": ["audio", "text"]}
+                        session={
+                            "modalities": ["audio", "text"],
+                            "voice": "alloy",  # Clear voice for topic extraction
+                            "output_audio_format": "pcm16",
+                            "input_audio_format": "pcm16",
+                            "turn_detection": {
+                                "type": "server_vad",
+                                "threshold": 0.5,
+                                "prefix_padding_ms": 300,
+                                "silence_duration_ms": 200
+                            }
+                        }
                     )
                     
                     # Send system prompt for topic extraction
                     await connection.conversation.item.create(
                         item={
                             "type": "message",
-                            "role": "system",
+                        "role": "system", 
                             "content": f"""You are an expert at analyzing voice input for social matching. 
                             
 Your task:
@@ -133,16 +144,16 @@ Focus on creating hashtags that help match users effectively."""
                     await connection.conversation.item.create(
                         item={
                             "type": "message",
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "input_audio",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_audio",
                                     "input_audio": {"data": audio_base64, "format": audio_format}
-                                }
-                            ]
-                        }
-                    )
-                    
+                            }
+                        ]
+                    }
+            )
+            
                     # Request response
                     await connection.response.create()
                     
@@ -153,9 +164,16 @@ Focus on creating hashtags that help match users effectively."""
                     async for event in connection:
                         if event.type == "response.text.delta":
                             text_chunks.append(event.delta)
-                        elif event.type == "response.audio":
-                            audio_chunks.append(event.audio.data)
+                        elif event.type == "response.audio.delta":
+                            # Handle streaming audio chunks (PCM16 format)
+                            if hasattr(event, 'delta') and event.delta:
+                                audio_chunks.append(event.delta)
+                                logger.debug(f"🎵 Voice matching audio delta: {len(event.delta)} bytes")
                         elif event.type == "response.done":
+                            logger.info(f"✅ Voice matching response complete - text: {len(text_chunks)} chunks, audio: {len(audio_chunks)} chunks")
+                            break
+                        elif event.type == "error":
+                            logger.error(f"❌ Voice matching Realtime API error: {event}")
                             break
                     
                     # Combine responses
@@ -184,7 +202,7 @@ Focus on creating hashtags that help match users effectively."""
                         logger.info(f"✅ GPT-4o Realtime processing completed: topics={result.get('extracted_topics', [])}")
                         return result
                         
-                    except json.JSONDecodeError:
+                except json.JSONDecodeError:
                         logger.warning("Failed to parse JSON from GPT-4o Realtime, using fallback")
                         # Fallback: extract topics from raw response
                         return {
@@ -267,17 +285,28 @@ Focus on creating hashtags that help match users effectively."""
             async with self.async_client.beta.realtime.connect(
                 model="gpt-4o-realtime-preview"
             ) as connection:
-                # Enable text + audio modalities
+                # Configure session for audio input/output
                 await connection.session.update(
-                    session={"modalities": ["text", "audio"]}
+                    session={
+                        "modalities": ["text", "audio"],
+                        "voice": "nova",  # Professional voice for room moderation
+                        "output_audio_format": "pcm16",
+                        "input_audio_format": "pcm16",
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                            "prefix_padding_ms": 300,
+                            "silence_duration_ms": 200
+                        }
+                    }
                 )
 
                 # Send system prompt
                 await connection.conversation.item.create(
                     item={
                         "type": "message",
-                        "role": "system",
-                        "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
+                    "role": "system",
+                    "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
 
 Your responsibilities:
 1.  Engage the conversation: Actively provide topics when the conversation is cold
@@ -290,11 +319,11 @@ Current room participants: {', '.join(room_participants or [])}
 
 Please provide an appropriate response based on the input content, which can be a voice response, a text suggestion, or a topic recommendation.
 The response should be natural, friendly, and helpful.""",
-                    }
+                }
                 )
-                
-                # Add conversation history
-                if conversation_context:
+            
+            # Add conversation history
+            if conversation_context:
                     for msg in conversation_context[-10:]:  # Last 10 messages
                         await connection.conversation.item.create(
                             item={
@@ -303,30 +332,30 @@ The response should be natural, friendly, and helpful.""",
                                 "content": msg["content"],
                             }
                         )
-                
-                # Build user message
-                user_content = []
-                if audio_data:
-                    if isinstance(audio_data, bytes):
+            
+            # Build user message
+            user_content = []
+            if audio_data:
+                if isinstance(audio_data, bytes):
                         audio_base64 = base64.b64encode(audio_data).decode("utf-8")
-                    else:
-                        audio_base64 = audio_data
-                        
+                else:
+                    audio_base64 = audio_data
+                    
                     user_content.append(
                         {
-                            "type": "input_audio",
+                    "type": "input_audio",
                             "input_audio": {"data": audio_base64, "format": "wav"},
-                        }
+                    }
                     )
-                
-                if text_input:
+            
+            if text_input:
                     user_content.append({"type": "input_text", "text": text_input})
-                
+            
                 # Send user message
                 await connection.conversation.item.create(
                     item={
                         "type": "message",
-                        "role": "user",
+                "role": "user",
                         "content": user_content
                         if user_content
                         else [
@@ -337,7 +366,7 @@ The response should be natural, friendly, and helpful.""",
                         ],
                     }
                 )
-                
+            
                 # Request response generation
                 await connection.response.create()
 
@@ -348,26 +377,33 @@ The response should be natural, friendly, and helpful.""",
                 async for event in connection:
                     if event.type == "response.text.delta":
                         text_chunks.append(event.delta)
-                    elif event.type == "response.audio":
-                        audio_chunks.append(event.audio.data)
+                    elif event.type == "response.audio.delta":
+                        # Handle streaming audio chunks (PCM16 format)
+                        if hasattr(event, 'delta') and event.delta:
+                            audio_chunks.append(event.delta)
+                            logger.debug(f"🎵 Room moderation audio delta: {len(event.delta)} bytes")
                     elif event.type == "response.done":
+                        logger.info(f"✅ Room moderation response complete - text: {len(text_chunks)} chunks, audio: {len(audio_chunks)} chunks")
+                        break
+                    elif event.type == "error":
+                        logger.error(f"❌ Room moderation Realtime API error: {event}")
                         break
 
                 # Combine responses
                 text_response = "".join(text_chunks)
                 audio_response = b"".join(audio_chunks)
-                
-                return {
-                    "ai_response": {
+            
+            return {
+                "ai_response": {
                         "text": text_response,
                         "audio": audio_response,
                         "audio_transcript": None,  # Realtime API doesn't provide transcript
-                    },
-                    "moderation_type": moderation_mode,
+                },
+                "moderation_type": moderation_mode,
                     "suggestions": self._extract_suggestions(text_response),
-                    "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.utcnow().isoformat(),
                     "participants": room_participants,
-                }
+            }
             
         except Exception as e:
             logger.error(f"❌ Room moderation failed: {e}")
@@ -1064,9 +1100,26 @@ Focus on creating hashtags that will help match users with similar interests.{co
             ) as connection:
                 # Enable text + audio modalities if audio response requested
                 modalities = ["text", "audio"] if audio_response else ["text"]
-                await connection.session.update(
-                    session={"modalities": modalities}
-                )
+                
+                # Configure session for audio input/output
+                session_config = {
+                    "modalities": modalities,
+                }
+                
+                if audio_response:
+                    session_config.update({
+                        "voice": "shimmer",  # Choose voice: alloy, echo, fable, onyx, nova, shimmer
+                        "output_audio_format": "pcm16",  # Audio output format
+                        "input_audio_format": "pcm16",   # Audio input format
+                        "turn_detection": {
+                            "type": "server_vad",  # Server-side voice activity detection
+                            "threshold": 0.5,
+                            "prefix_padding_ms": 300,
+                            "silence_duration_ms": 200
+                        }
+                    })
+                
+                await connection.session.update(session=session_config)
                 
                 # Build conversation prompt with user context
                 system_prompt = self._build_conversation_system_prompt(user_context)
@@ -1110,9 +1163,16 @@ Focus on creating hashtags that will help match users with similar interests.{co
                 async for event in connection:
                     if event.type == "response.text.delta":
                         text_chunks.append(event.delta)
-                    elif event.type == "response.audio":
-                        audio_chunks.append(event.audio.data)
+                    elif event.type == "response.audio.delta":
+                        # Handle streaming audio chunks (PCM16 format)
+                        if hasattr(event, 'delta') and event.delta:
+                            audio_chunks.append(event.delta)
+                            logger.debug(f"🎵 Received audio delta: {len(event.delta)} bytes")
                     elif event.type == "response.done":
+                        logger.info(f"✅ Response complete - text chunks: {len(text_chunks)}, audio chunks: {len(audio_chunks)}")
+                        break
+                    elif event.type == "error":
+                        logger.error(f"❌ Realtime API error: {event}")
                         break
                 
                 # Combine responses
