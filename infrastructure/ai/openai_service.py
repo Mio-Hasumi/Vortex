@@ -97,20 +97,9 @@ class OpenAIService:
                 async with self.async_client.beta.realtime.connect(
                     model="gpt-4o-realtime-preview"
                 ) as connection:
-                    # Configure session for audio input/output
+                    # Enable audio + text modalities
                     await connection.session.update(
-                        session={
-                            "modalities": ["audio", "text"],
-                            "voice": "alloy",  # Clear voice for topic extraction
-                            "output_audio_format": "pcm16",
-                            "input_audio_format": "pcm16",
-                            "turn_detection": {
-                                "type": "server_vad",
-                                "threshold": 0.5,
-                                "prefix_padding_ms": 300,
-                                "silence_duration_ms": 200
-                            }
-                        }
+                        session={"modalities": ["audio", "text"]}
                     )
                     
                     # Send system prompt for topic extraction
@@ -164,16 +153,9 @@ Focus on creating hashtags that help match users effectively."""
                     async for event in connection:
                         if event.type == "response.text.delta":
                             text_chunks.append(event.delta)
-                        elif event.type == "response.audio.delta":
-                            # Handle streaming audio chunks (PCM16 format)
-                            if hasattr(event, 'delta') and event.delta:
-                                audio_chunks.append(event.delta)
-                                logger.debug(f"🎵 Voice matching audio delta: {len(event.delta)} bytes")
+                        elif event.type == "response.audio":
+                            audio_chunks.append(event.audio.data)
                         elif event.type == "response.done":
-                            logger.info(f"✅ Voice matching response complete - text: {len(text_chunks)} chunks, audio: {len(audio_chunks)} chunks")
-                            break
-                        elif event.type == "error":
-                            logger.error(f"❌ Voice matching Realtime API error: {event}")
                             break
                     
                     # Combine responses
@@ -285,20 +267,9 @@ Focus on creating hashtags that help match users effectively."""
             async with self.async_client.beta.realtime.connect(
                 model="gpt-4o-realtime-preview"
             ) as connection:
-                # Configure session for audio input/output
+                # Enable text + audio modalities
                 await connection.session.update(
-                    session={
-                        "modalities": ["text", "audio"],
-                        "voice": "nova",  # Professional voice for room moderation
-                        "output_audio_format": "pcm16",
-                        "input_audio_format": "pcm16",
-                        "turn_detection": {
-                            "type": "server_vad",
-                            "threshold": 0.5,
-                            "prefix_padding_ms": 300,
-                            "silence_duration_ms": 200
-                        }
-                    }
+                    session={"modalities": ["text", "audio"]}
                 )
 
                 # Send system prompt
@@ -377,16 +348,9 @@ The response should be natural, friendly, and helpful.""",
                 async for event in connection:
                     if event.type == "response.text.delta":
                         text_chunks.append(event.delta)
-                    elif event.type == "response.audio.delta":
-                        # Handle streaming audio chunks (PCM16 format)
-                        if hasattr(event, 'delta') and event.delta:
-                            audio_chunks.append(event.delta)
-                            logger.debug(f"🎵 Room moderation audio delta: {len(event.delta)} bytes")
+                    elif event.type == "response.audio":
+                        audio_chunks.append(event.audio.data)
                     elif event.type == "response.done":
-                        logger.info(f"✅ Room moderation response complete - text: {len(text_chunks)} chunks, audio: {len(audio_chunks)} chunks")
-                        break
-                    elif event.type == "error":
-                        logger.error(f"❌ Room moderation Realtime API error: {event}")
                         break
 
                 # Combine responses
@@ -1100,26 +1064,19 @@ Focus on creating hashtags that will help match users with similar interests.{co
             ) as connection:
                 # Enable text + audio modalities if audio response requested
                 modalities = ["text", "audio"] if audio_response else ["text"]
+                session_config = {"modalities": modalities}
                 
-                # Configure session for audio input/output
-                session_config = {
-                    "modalities": modalities,
-                }
-                
+                # Configure audio formats if audio response is requested
                 if audio_response:
                     session_config.update({
-                        "voice": "shimmer",  # Choose voice: alloy, echo, fable, onyx, nova, shimmer
-                        "output_audio_format": "pcm16",  # Audio output format
-                        "input_audio_format": "pcm16",   # Audio input format
-                        "turn_detection": {
-                            "type": "server_vad",  # Server-side voice activity detection
-                            "threshold": 0.5,
-                            "prefix_padding_ms": 300,
-                            "silence_duration_ms": 200
-                        }
+                        "voice": "shimmer",  # or "alloy", "echo", "fable", "onyx", "nova", "shimmer"
+                        "input_audio_format": "pcm16",
+                        "output_audio_format": "pcm16",
+                        "input_audio_transcription": {"model": "whisper-1"}
                     })
                 
                 await connection.session.update(session=session_config)
+                logger.info(f"✅ Session configured with audio support: {audio_response}")
                 
                 # Build conversation prompt with user context
                 system_prompt = self._build_conversation_system_prompt(user_context)
@@ -1164,12 +1121,11 @@ Focus on creating hashtags that will help match users with similar interests.{co
                     if event.type == "response.text.delta":
                         text_chunks.append(event.delta)
                     elif event.type == "response.audio.delta":
-                        # Handle streaming audio chunks (PCM16 format)
-                        if hasattr(event, 'delta') and event.delta:
-                            audio_chunks.append(event.delta)
-                            logger.debug(f"🎵 Received audio delta: {len(event.delta)} bytes")
+                        # Correctly handle streaming audio chunks
+                        audio_chunks.append(event.delta)
+                        logger.debug(f"🎵 Audio delta received: {len(event.delta)} bytes")
                     elif event.type == "response.done":
-                        logger.info(f"✅ Response complete - text chunks: {len(text_chunks)}, audio chunks: {len(audio_chunks)}")
+                        logger.info("✅ Response stream completed")
                         break
                     elif event.type == "error":
                         logger.error(f"❌ Realtime API error: {event}")
@@ -1187,8 +1143,11 @@ Focus on creating hashtags that will help match users with similar interests.{co
                 
                 # Add audio data if available
                 if audio_data and audio_response:
-                    result["audio_data"] = base64.b64encode(audio_data).decode("utf-8")
-                    result["audio_format"] = "wav"  # Realtime API returns WAV
+                    # Convert raw PCM16 to WAV format for iOS compatibility
+                    wav_audio = self._pcm16_to_wav(audio_data)
+                    result["audio_data"] = base64.b64encode(wav_audio).decode("utf-8")
+                    result["audio_format"] = "wav"
+                    logger.info(f"✅ Audio converted to WAV format: {len(wav_audio)} bytes")
                 
                 logger.info(f"✅ Realtime conversation response generated")
                 return result
@@ -1234,6 +1193,44 @@ Guidelines:
                 base_prompt += f"\nRelevant hashtags: {', '.join(hashtags)}"
                 
         return base_prompt
+    
+    def _pcm16_to_wav(self, pcm_data: bytes, sample_rate: int = 24000, channels: int = 1) -> bytes:
+        """
+        Convert raw PCM16 audio data to WAV format for iOS compatibility
+        
+        Args:
+            pcm_data: Raw PCM16 audio bytes
+            sample_rate: Sample rate (GPT-4o uses 24000Hz)
+            channels: Number of channels (mono = 1)
+            
+        Returns:
+            WAV formatted audio bytes
+        """
+        import struct
+        
+        # WAV file header
+        byte_rate = sample_rate * channels * 2  # 2 bytes per sample for PCM16
+        block_align = channels * 2
+        data_size = len(pcm_data)
+        file_size = 36 + data_size
+        
+        wav_header = struct.pack('<4sL4s4sLHHLLHH4sL',
+            b'RIFF',           # Chunk ID
+            file_size,         # File size
+            b'WAVE',           # Format
+            b'fmt ',           # Subchunk1 ID
+            16,                # Subchunk1 size (PCM)
+            1,                 # Audio format (PCM)
+            channels,          # Number of channels
+            sample_rate,       # Sample rate
+            byte_rate,         # Byte rate
+            block_align,       # Block align
+            16,                # Bits per sample
+            b'data',           # Subchunk2 ID
+            data_size          # Subchunk2 size
+        )
+        
+        return wav_header + pcm_data
 
 
 def get_openai_service() -> OpenAIService:
