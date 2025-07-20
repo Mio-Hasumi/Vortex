@@ -1108,12 +1108,12 @@ Guidelines:
                 item={
                     "type": "message",
                     "role": "system", 
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": system_prompt
-                        }
-                    ]
+                                            "content": [
+                            {
+                                "type": "input_text",
+                                "text": system_prompt
+                            }
+                        ]
                 }
             )
             
