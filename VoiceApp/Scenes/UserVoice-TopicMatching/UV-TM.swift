@@ -313,6 +313,10 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     private var forceUtteranceTimer: Timer?  // 强制超时，防止永远不发utterance_end
     private var audioStartTime: Date?
     private var audioChunkIndex: Int = 0  // 追踪发送的音频块序号
+    private var consecutiveSpeechFrames: Int = 0  // 连续检测到语音的帧数
+    private var consecutiveSilenceFrames: Int = 0  // 连续检测到静音的帧数
+    private let minSpeechFrames: Int = 3  // 至少3帧连续检测到语音才算说话
+    private let minSilenceFrames: Int = 5  // 至少5帧连续静音才算停止说话
     
     override init() {
         // 获取认证令牌
@@ -351,14 +355,16 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         let inputFormat = inputNode.inputFormat(forBus: 0)
         print("🎙️ [AIVoice] Hardware input format: \(inputFormat)")
         
-        // 创建目标格式 (16kHz, Int16, mono)
+        // 创建目标格式 (24kHz, Int16, mono) - 匹配OpenAI Realtime API要求
         guard let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, 
-                                             sampleRate: 16000, 
+                                             sampleRate: 24000,  // OpenAI要求24kHz
                                              channels: 1, 
                                              interleaved: false) else {
             print("❌ [AIVoice] Failed to create target audio format")
             return
         }
+        
+        print("🎵 [AIVoice] Target format for OpenAI: 24kHz, PCM16, mono")
         
         // 安装tap使用硬件的原生格式
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, time in
@@ -430,50 +436,16 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             return 
         }
         
-        // 检测音频活动 (简单的能量检测)
+        // 🔑 SERVER-SIDE VAD: No client-side speech detection needed!
+        // OpenAI's server will handle voice activity detection automatically
         let audioLevel = calculateAudioLevel(buffer)
-        let speechThreshold: Float = 0.002  // 降低阈值，适应安静环境
-        let isSpeechDetected = audioLevel > speechThreshold
         
-        // 添加详细的语音检测日志
+        // 只记录音频电平用于调试，不做语音检测
         if audioLevel > 0.001 {
-            print("🎤 [AIVoice] Audio level: \(audioLevel), threshold: \(speechThreshold), detected: \(isSpeechDetected)")
+            print("🎤 [AIVoice] Audio level: \(audioLevel) - SERVER VAD ENABLED")
         }
         
-        if isSpeechDetected {
-            // 如果这是第一次检测到语音，记录开始时间
-            if !hasDetectedSpeech {
-                speechStartTime = Date()
-                print("🎤 [AIVoice] Speech started, setting up max utterance timer (\(maxUtteranceDuration)s)")
-                
-                // 设置最大utterance时长计时器
-                maxUtteranceTimer = Timer.scheduledTimer(withTimeInterval: maxUtteranceDuration, repeats: false) { [weak self] _ in
-                    print("⏱️ [AIVoice] Max utterance duration reached - forcing utterance end")
-                    self?.triggerUtteranceEnd()
-                }
-            }
-            
-            hasDetectedSpeech = true
-            lastAudioTime = Date()
-            
-            // 取消静音计时器
-            if silenceTimer != nil {
-                print("🔇 [AIVoice] Speech detected, canceling silence timer")
-                silenceTimer?.invalidate()
-                silenceTimer = nil
-            }
-        } else if hasDetectedSpeech {
-            // 如果之前检测到语音，现在是静音，开始计时
-            if silenceTimer == nil {
-                print("🔇 [AIVoice] Silence detected, starting 2s timer...")
-                silenceTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
-                    print("⏰ [AIVoice] Silence timer fired - triggering utterance end")
-                    self?.triggerUtteranceEnd()
-                }
-            }
-        }
-        
-        print("🎤 [AIVoice] Processing audio buffer - frames: \(buffer.frameLength), level: \(audioLevel), speech: \(isSpeechDetected)")
+        print("🎤 [AIVoice] Processing audio buffer - frames: \(buffer.frameLength), level: \(audioLevel) - using server-side VAD")
         
         // 创建音频转换器
         guard let converter = AVAudioConverter(from: originalFormat, to: targetFormat) else {
@@ -511,14 +483,10 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         // 编码为base64并发送
         let base64Audio = audioData.base64EncodedString()
         
-        // 如果这是第一个音频块，启动强制超时计时器
+        // 记录首次音频时间（仅用于调试）
         if audioStartTime == nil {
             audioStartTime = Date()
-            print("⏱️ [AIVoice] Starting force utterance timer (15s backup)")
-            forceUtteranceTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
-                print("🚨 [AIVoice] Force utterance timer fired - sending utterance_end as backup")
-                self?.forceUtteranceEnd()
-            }
+            print("⏱️ [AIVoice] First audio chunk - server VAD will handle turn detection")
         }
         
         let audioMessage: [String: Any] = [
@@ -536,14 +504,21 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     private func calculateAudioLevel(_ buffer: AVAudioPCMBuffer) -> Float {
         guard let channelData = buffer.floatChannelData?[0] else { return 0.0 }
         
-        var sum: Float = 0.0
+        var maxLevel: Float = 0.0
+        var rmsSum: Float = 0.0
         let frameCount = Int(buffer.frameLength)
         
+        // 计算RMS（均方根）和峰值电平
         for i in 0..<frameCount {
-            sum += abs(channelData[i])
+            let sample = abs(channelData[i])
+            maxLevel = max(maxLevel, sample)
+            rmsSum += sample * sample
         }
         
-        return frameCount > 0 ? sum / Float(frameCount) : 0.0
+        let rmsLevel = sqrt(rmsSum / Float(frameCount))
+        
+        // 结合RMS和峰值，给予RMS更大权重
+        return (rmsLevel * 0.7 + maxLevel * 0.3)
     }
     
     private func triggerUtteranceEnd() {
@@ -598,6 +573,8 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         speechStartTime = nil
         audioStartTime = nil
         audioChunkIndex = 0
+        consecutiveSpeechFrames = 0
+        consecutiveSilenceFrames = 0
         
         // 清理所有计时器
         silenceTimer?.invalidate()
