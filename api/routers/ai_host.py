@@ -928,18 +928,17 @@ async def websocket_voice_chat(websocket: WebSocket):
 async def websocket_audio_stream(websocket: WebSocket):
     """
     Real-time audio streaming WebSocket for GPT-4o Realtime API
-    Maintains a single persistent connection for optimal performance
+    Uses proper async context manager for persistent connection
     """
     await websocket.accept()
     logger.info("🎙️ GPT-4o Realtime audio streaming WebSocket connected")
     
     authenticated_user = None
     openai_service = None
-    realtime_connection = None
     session_context = {}
-    session_initialized = False
     
     try:
+        # Handle authentication and initial setup
         while True:
             try:
                 message = await websocket.receive_text()
@@ -994,19 +993,12 @@ async def websocket_audio_stream(websocket: WebSocket):
                             "message": f"Authentication failed: {str(e)}"
                         }))
                         
-                # Handle session start - Initialize GPT-4o Realtime connection ONCE
+                # Handle session start - Initialize GPT-4o Realtime connection and enter streaming loop
                 elif data.get("type") == "start_session":
                     if not authenticated_user or not openai_service:
                         await websocket.send_text(json.dumps({
                             "type": "error",
                             "message": "Must authenticate first"
-                        }))
-                        continue
-                        
-                    if session_initialized:
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "message": "Session already started"
                         }))
                         continue
                         
@@ -1027,21 +1019,63 @@ async def websocket_audio_stream(websocket: WebSocket):
                             "conversation_context": conversation_context
                         }
                         
-                        logger.info(f"🤖 Starting persistent GPT-4o Realtime session for user: {authenticated_user.id}")
+                        logger.info(f"🤖 Starting GPT-4o Realtime session for user: {authenticated_user.id}")
                         logger.info(f"🎯 Session context: topics={topics}, hashtags={hashtags}")
                         
-                        # Create SINGLE persistent Realtime connection
-                        realtime_connection = await openai_service.async_client.beta.realtime.connect(
-                            model="gpt-4o-realtime-preview"
-                        )
+                        await websocket.send_text(json.dumps({
+                            "type": "session_started",
+                            "session_id": f"realtime_{authenticated_user.id}_{datetime.utcnow().timestamp()}",
+                            "message": "GPT-4o Realtime session ready",
+                            "context": session_context
+                        }))
                         
-                        # Configure modalities ONCE
-                        await realtime_connection.session.update(
-                            session={"modalities": ["audio", "text"]}
-                        )
+                        # Start the persistent Realtime connection and streaming loop
+                        await _handle_realtime_streaming(websocket, openai_service, session_context)
+                        return  # Exit after streaming session ends
                         
-                        # Send system prompt ONCE
-                        system_prompt = f"""You are a friendly AI conversation partner in a voice chat app. 
+                    except Exception as e:
+                        logger.error(f"❌ Failed to start Realtime session: {e}")
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": f"Session start failed: {str(e)}"
+                        }))
+                        
+            except json.JSONDecodeError:
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": "Invalid JSON format"
+                }))
+                
+    except WebSocketDisconnect:
+        logger.info("🎤 GPT-4o Realtime audio streaming WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"❌ GPT-4o Realtime audio streaming WebSocket error: {e}")
+
+
+async def _handle_realtime_streaming(websocket: WebSocket, openai_service, session_context: dict):
+    """
+    Handle the persistent GPT-4o Realtime connection and streaming loop
+    Uses proper async context manager for connection lifecycle
+    """
+    logger.info("🔗 Establishing persistent GPT-4o Realtime connection...")
+    
+    # Use proper async context manager for the Realtime connection
+    async with openai_service.async_client.beta.realtime.connect(
+        model="gpt-4o-realtime-preview"
+    ) as conn:
+        try:
+            # Configure session ONCE
+            await conn.session.update(
+                session={"modalities": ["audio", "text"]}
+            )
+            
+            # Send system prompt ONCE
+            topics = session_context.get("topics", [])
+            hashtags = session_context.get("hashtags", [])
+            conversation_context = session_context.get("conversation_context", "")
+            transcription = session_context.get("transcription", "")
+            
+            system_prompt = f"""You are a friendly AI conversation partner in a voice chat app. 
 
 User context:
 - Topics of interest: {', '.join(topics) if topics else 'General conversation'}
@@ -1056,46 +1090,32 @@ Guidelines:
 - Stay focused on the user's interests
 - Use natural speech patterns suitable for voice chat"""
 
-                        await realtime_connection.conversation.item.create(
-                            item={
-                                "type": "message",
-                                "role": "system", 
-                                "content": system_prompt
-                            }
-                        )
-                        
-                        session_initialized = True
-                        
-                        await websocket.send_text(json.dumps({
-                            "type": "session_started",
-                            "session_id": f"realtime_{authenticated_user.id}_{datetime.utcnow().timestamp()}",
-                            "message": "GPT-4o Realtime session ready",
-                            "context": session_context
-                        }))
-                        
-                        logger.info("✅ GPT-4o Realtime session initialized successfully")
-                        
-                    except Exception as e:
-                        logger.error(f"❌ Failed to start Realtime session: {e}")
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "message": f"Session start failed: {str(e)}"
-                        }))
+            await conn.conversation.item.create(
+                item={
+                    "type": "message",
+                    "role": "system", 
+                    "content": system_prompt
+                }
+            )
+            
+            logger.info("✅ GPT-4o Realtime session initialized, entering streaming loop...")
+            
+            # Main streaming loop - handle audio chunks and responses
+            while True:
+                try:
+                    # Wait for WebSocket message
+                    message = await websocket.receive_text()
+                    data = json.loads(message)
                     
-                # Handle audio chunks - Use existing persistent connection
-                elif data.get("type") == "audio_chunk":
-                    if not session_initialized or not realtime_connection:
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "message": "Session not started or connection lost"
-                        }))
-                        continue
-                        
-                    audio_data = data.get("audio_data")  # base64 encoded
-                    if audio_data:
-                        try:
-                            # Send audio to existing persistent connection
-                            await realtime_connection.conversation.item.create(
+                    message_type = data.get("type")
+                    
+                    if message_type == "audio_chunk":
+                        audio_data = data.get("audio_data")  # base64 encoded
+                        if audio_data:
+                            logger.info("🎵 Processing audio chunk with persistent connection...")
+                            
+                            # Send audio to the same persistent connection
+                            await conn.conversation.item.create(
                                 item={
                                     "type": "message",
                                     "role": "user",
@@ -1108,17 +1128,17 @@ Guidelines:
                                 }
                             )
                             
-                            # Request response from AI
-                            await realtime_connection.response.create()
+                            # Request AI response
+                            await conn.response.create()
                             
-                            # Process streaming response from existing connection
+                            # Process streaming response from same connection
                             text_chunks = []
                             audio_chunks = []
                             
-                            async for event in realtime_connection:
+                            async for event in conn:
                                 if event.type == "response.text.delta":
                                     text_chunks.append(event.delta)
-                                    # Send partial text to frontend for real-time display
+                                    # Send partial text for real-time display
                                     await websocket.send_text(json.dumps({
                                         "type": "stt_chunk",
                                         "text": event.delta,
@@ -1148,42 +1168,44 @@ Guidelines:
                                     "format": "wav"
                                 }))
                             
-                            logger.info(f"✅ Processed audio chunk, response length: {len(full_text)} chars")
-                                    
-                        except Exception as e:
-                            logger.error(f"❌ Audio chunk processing failed: {e}")
-                            await websocket.send_text(json.dumps({
-                                "type": "error",
-                                "message": f"Audio processing failed: {str(e)}"
-                            }))
-                            
-                # Handle end of utterance
-                elif data.get("type") == "utterance_end":
-                    # With persistent connection, just acknowledge
-                    await websocket.send_text(json.dumps({
-                        "type": "utterance_end",
-                        "message": "Utterance processing complete"
-                    }))
+                            logger.info(f"✅ Processed audio chunk, AI response: {len(full_text)} chars")
+                    
+                    elif message_type == "utterance_end":
+                        # Acknowledge utterance end
+                        await websocket.send_text(json.dumps({
+                            "type": "utterance_end",
+                            "message": "Utterance processing complete"
+                        }))
                         
-            except json.JSONDecodeError:
-                await websocket.send_text(json.dumps({
-                    "type": "error",
-                    "message": "Invalid JSON format"
-                }))
-                
-    except WebSocketDisconnect:
-        logger.info("🎤 GPT-4o Realtime audio streaming WebSocket disconnected")
-    except Exception as e:
-        logger.error(f"❌ GPT-4o Realtime audio streaming WebSocket error: {e}")
-    finally:
-        # Cleanup - properly close the persistent connection
-        if realtime_connection:
-            try:
-                await realtime_connection.close()
-                logger.info("🧹 GPT-4o Realtime connection closed properly")
-            except Exception as e:
-                logger.warning(f"⚠️ Error closing Realtime connection: {e}")
-        logger.info("🧹 Audio streaming WebSocket cleanup completed")
+                    elif message_type == "ping":
+                        await websocket.send_text(json.dumps({
+                            "type": "pong",
+                            "timestamp": datetime.utcnow().isoformat()
+                        }))
+                    
+                except WebSocketDisconnect:
+                    logger.info("🎤 Client disconnected from streaming session")
+                    break
+                except json.JSONDecodeError:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": "Invalid JSON format"
+                    }))
+                except Exception as e:
+                    logger.error(f"❌ Error in streaming loop: {e}")
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": f"Streaming error: {str(e)}"
+                    }))
+                    
+        except Exception as e:
+            logger.error(f"❌ Realtime connection error: {e}")
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": f"Connection error: {str(e)}"
+            }))
+        finally:
+            logger.info("🧹 GPT-4o Realtime connection will be closed by context manager")
 
 
 async def process_ai_response(websocket: WebSocket, user_text: str, session_id: str):
