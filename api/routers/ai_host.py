@@ -1100,6 +1100,10 @@ Guidelines:
             
             logger.info("✅ GPT-4o Realtime session initialized, entering streaming loop...")
             
+            # Audio accumulation state
+            accumulated_audio_chunks = []
+            is_accumulating = False
+            
             # Main streaming loop - handle audio chunks and responses
             while True:
                 try:
@@ -1112,23 +1116,40 @@ Guidelines:
                     if message_type == "audio_chunk":
                         audio_data = data.get("audio_data")  # base64 encoded
                         if audio_data:
-                            logger.info("🎵 Processing audio chunk with persistent connection...")
+                            logger.info("🎵 Accumulating audio chunk...")
                             
-                            # Send audio to the same persistent connection
-                            await conn.conversation.item.create(
-                                item={
-                                    "type": "message",
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "type": "input_audio",
-                                            "input_audio": {"data": audio_data, "format": "wav"}
-                                        }
-                                    ]
-                                }
-                            )
+                            # Accumulate audio chunks instead of processing each individually
+                            accumulated_audio_chunks.append(audio_data)
+                            is_accumulating = True
                             
-                            # Request AI response
+                            # Send acknowledgment
+                            await websocket.send_text(json.dumps({
+                                "type": "audio_received",
+                                "chunks_accumulated": len(accumulated_audio_chunks)
+                            }))
+                    
+                    elif message_type == "utterance_end":
+                        if accumulated_audio_chunks and is_accumulating:
+                            logger.info(f"🎯 Processing complete utterance with {len(accumulated_audio_chunks)} chunks...")
+                            
+                            # Combine all accumulated audio chunks
+                            # For now, we'll process them as separate items, but could be combined
+                            for i, audio_chunk in enumerate(accumulated_audio_chunks):
+                                await conn.conversation.item.create(
+                                    item={
+                                        "type": "message",
+                                        "role": "user",
+                                        "content": [
+                                            {
+                                                "type": "input_audio",
+                                                "input_audio": {"data": audio_chunk, "format": "wav"}
+                                            }
+                                        ]
+                                    }
+                                )
+                            
+                            # NOW request AI response (only after complete utterance)
+                            logger.info("🤖 Requesting AI response for complete utterance...")
                             await conn.response.create()
                             
                             # Process streaming response from same connection
@@ -1142,7 +1163,8 @@ Guidelines:
                                     await websocket.send_text(json.dumps({
                                         "type": "stt_chunk",
                                         "text": event.delta,
-                                        "confidence": 0.95
+                                        "confidence": 0.95,
+                                        "timestamp": datetime.utcnow().isoformat()
                                     }))
                                 elif event.type == "response.audio":
                                     audio_chunks.append(event.audio.data)
@@ -1159,6 +1181,7 @@ Guidelines:
                                     "text": full_text,
                                     "timestamp": datetime.utcnow().isoformat()
                                 }))
+                                logger.info(f"✅ AI response sent: {len(full_text)} chars")
                             
                             if full_audio:
                                 import base64
@@ -1168,14 +1191,24 @@ Guidelines:
                                     "format": "wav"
                                 }))
                             
-                            logger.info(f"✅ Processed audio chunk, AI response: {len(full_text)} chars")
-                    
-                    elif message_type == "utterance_end":
-                        # Acknowledge utterance end
-                        await websocket.send_text(json.dumps({
-                            "type": "utterance_end",
-                            "message": "Utterance processing complete"
-                        }))
+                            # Reset accumulation state
+                            accumulated_audio_chunks = []
+                            is_accumulating = False
+                            
+                        else:
+                            # Acknowledge utterance end even if no audio
+                            await websocket.send_text(json.dumps({
+                                "type": "utterance_processed",
+                                "message": "No audio to process"
+                            }))
+                        
+                    elif message_type == "silence_detected":
+                        # Auto-trigger utterance_end on silence
+                        logger.info("🔇 Silence detected, auto-processing utterance...")
+                        if accumulated_audio_chunks and is_accumulating:
+                            # Trigger the same logic as utterance_end
+                            data["type"] = "utterance_end"
+                            continue  # Re-process this message as utterance_end
                         
                     elif message_type == "ping":
                         await websocket.send_text(json.dumps({
