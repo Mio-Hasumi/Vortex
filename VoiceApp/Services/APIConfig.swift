@@ -1,8 +1,8 @@
 import Foundation
 
 enum APIConfig {
-    static let baseURL = "https://voiceapp-production.up.railway.app"
-    static let wsBaseURL = "wss://voiceapp-production.up.railway.app"
+    static let baseURL = "https://vortex-production-3f32.up.railway.app"
+    static let wsBaseURL = "wss://vortex-production-3f32.up.railway.app"
     
     enum Endpoints {
         // Auth
@@ -62,7 +62,7 @@ enum APIConfig {
     
     // MARK: - Environment Info
     static let environment = "production"
-    static let apiDocsURL = "https://voiceapp-production.up.railway.app/docs"
+    static let apiDocsURL = "https://vortex-production-3f32.up.railway.app/docs"
     
     // MARK: - Helper Methods
     static func roomPath(_ roomId: String) -> String {
