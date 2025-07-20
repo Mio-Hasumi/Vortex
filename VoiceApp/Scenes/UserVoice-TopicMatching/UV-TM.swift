@@ -743,12 +743,11 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             }
             
         case "audio_chunk":
-            print("🎵 [AIVoice] Received real-time audio chunk")
-            if let audioDelta = message["audio_delta"] as? String {
-                print("🔊🎵 [AIVoice] Audio chunk length: \(audioDelta.count) base64 chars")
-                print("🔊🎵 [AIVoice] Audio format: \(message["format"] ?? "pcm16")")
-                // For now, we'll accumulate chunks and play the complete response
-                // Real-time streaming would require more complex audio handling
+            print("🔊 [AIVoice] Received real-time audio chunk")
+            if let audioData = message["audio"] as? String {
+                print("🔊🎵 [AIVoice] Real-time audio chunk: \(audioData.count) base64 chars")
+                // For real-time chunks, you might want to accumulate them or play immediately
+                playAudioResponse(audioData)
             }
             
         case "utterance_end":
