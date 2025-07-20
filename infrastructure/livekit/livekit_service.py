@@ -75,10 +75,17 @@ class LiveKitService:
         """Check LiveKit health"""
         try:
             if isinstance(self.client, MockLiveKitClient):
+                logger.info("🔧 Using mock LiveKit client, health check passed")
                 return True
+                
+            logger.info(f"🔍 Testing LiveKit connection to {self.server_url}")
             rooms = await self.client.room.list_rooms(ListRoomsRequest())
+            logger.info("✅ LiveKit connection test successful")
             return True
-        except Exception:
+            
+        except Exception as e:
+            logger.error(f"❌ LiveKit health check failed: {str(e)}")
+            logger.error(f"🔑 API Key: {self.api_key[:5]}... Server: {self.server_url}")
             return False
     
     # Room Management
