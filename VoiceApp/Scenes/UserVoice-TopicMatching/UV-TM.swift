@@ -426,21 +426,30 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         
         // 检测音频活动 (简单的能量检测)
         let audioLevel = calculateAudioLevel(buffer)
-        let speechThreshold: Float = 0.01  // 可调整的阈值
+        let speechThreshold: Float = 0.005  // 降低阈值以适应较低的音频级别
         let isSpeechDetected = audioLevel > speechThreshold
+        
+        // 添加详细的语音检测日志
+        if audioLevel > 0.001 {
+            print("🎤 [AIVoice] Audio level: \(audioLevel), threshold: \(speechThreshold), detected: \(isSpeechDetected)")
+        }
         
         if isSpeechDetected {
             hasDetectedSpeech = true
             lastAudioTime = Date()
             // 取消静音计时器
-            silenceTimer?.invalidate()
-            silenceTimer = nil
+            if silenceTimer != nil {
+                print("🔇 [AIVoice] Speech detected, canceling silence timer")
+                silenceTimer?.invalidate()
+                silenceTimer = nil
+            }
         } else if hasDetectedSpeech {
             // 如果之前检测到语音，现在是静音，开始计时
             if silenceTimer == nil {
-                print("🔇 [AIVoice] Silence detected, starting timer...")
-                silenceTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
-                    self.triggerUtteranceEnd()
+                print("🔇 [AIVoice] Silence detected, starting 2s timer...")
+                silenceTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+                    print("⏰ [AIVoice] Silence timer fired - triggering utterance end")
+                    self?.triggerUtteranceEnd()
                 }
             }
         }
@@ -508,23 +517,32 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     }
     
     private func triggerUtteranceEnd() {
-        guard hasDetectedSpeech else { return }
+        print("🔚 [AIVoice] triggerUtteranceEnd called - hasDetectedSpeech: \(hasDetectedSpeech)")
+        guard hasDetectedSpeech else { 
+            print("🔚 [AIVoice] No speech detected, skipping utterance end")
+            return 
+        }
         
-        print("🔚 [AIVoice] Triggering utterance end...")
+        print("🔚 [AIVoice] ✅ Triggering utterance end...")
         
         let utteranceEndMessage: [String: Any] = [
             "type": "utterance_end",
             "timestamp": Date().timeIntervalSince1970
         ]
         
-        webSocketService?.send(utteranceEndMessage)
+        if webSocketService != nil {
+            webSocketService?.send(utteranceEndMessage)
+            print("🔚 [AIVoice] ✅ Utterance end message sent to backend")
+        } else {
+            print("🔚 [AIVoice] ❌ WebSocket service is nil!")
+        }
         
         // 重置状态
         hasDetectedSpeech = false
         silenceTimer?.invalidate()
         silenceTimer = nil
         
-        print("🔚 [AIVoice] Utterance end sent, state reset")
+        print("🔚 [AIVoice] State reset complete")
     }
     
     private func sendStartSession() {
@@ -756,6 +774,36 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             hasDetectedSpeech = false
             lastAudioTime = Date()
             print("🔊 [AIVoice] New state - hasDetectedSpeech: \(hasDetectedSpeech), lastAudioTime: \(lastAudioTime)")
+            
+        // GPT-4o Realtime API 标准事件
+        case "response.audio.delta":
+            print("🔊 [AIVoice] Received GPT-4o audio delta")
+            if let audioData = message["delta"] as? String {
+                print("🔊🎵 [AIVoice] GPT-4o audio delta: \(audioData.count) base64 chars")
+                playAudioResponse(audioData)
+            }
+            
+        case "response.text.delta":
+            print("📝 [AIVoice] Received GPT-4o text delta")
+            if let textDelta = message["delta"] as? String {
+                print("📝🤖 [AIVoice] GPT-4o text: '\(textDelta)'")
+                DispatchQueue.main.async {
+                    self.currentResponse += textDelta
+                }
+            }
+            
+        case "response.done":
+            print("✅ [AIVoice] GPT-4o response completed")
+            DispatchQueue.main.async {
+                self.isListening = false
+                self.isAISpeaking = false
+            }
+            
+        case "audio_received":
+            print("📥 [AIVoice] Backend acknowledgment - audio received")
+            if let chunksAccumulated = message["chunks_accumulated"] as? Int {
+                print("🎵 [AIVoice] Audio chunks accumulated: \(chunksAccumulated)")
+            }
             
         case "error":
             print("❌ [AIVoice] WebSocket error: \(message["message"] as? String ?? "unknown")")
