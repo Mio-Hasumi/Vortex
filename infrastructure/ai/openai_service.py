@@ -183,8 +183,7 @@ Focus on creating hashtags that help match users effectively."""
                         
                         logger.info(f"✅ GPT-4o Realtime processing completed: topics={result.get('extracted_topics', [])}")
                         return result
-                        
-                except json.JSONDecodeError:
+                    except json.JSONDecodeError:
                         logger.warning("Failed to parse JSON from GPT-4o Realtime, using fallback")
                         # Fallback: extract topics from raw response
                         return {
