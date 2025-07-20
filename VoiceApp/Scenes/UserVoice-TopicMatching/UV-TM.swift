@@ -307,6 +307,12 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     private var silenceTimer: Timer?
     private var lastAudioTime: Date = Date()
     private var hasDetectedSpeech = false
+    private var speechStartTime: Date?
+    private var maxUtteranceDuration: TimeInterval = 8.0  // 最大8秒utterance
+    private var maxUtteranceTimer: Timer?
+    private var forceUtteranceTimer: Timer?  // 强制超时，防止永远不发utterance_end
+    private var audioStartTime: Date?
+    private var audioChunkIndex: Int = 0  // 追踪发送的音频块序号
     
     override init() {
         // 获取认证令牌
@@ -426,7 +432,7 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         
         // 检测音频活动 (简单的能量检测)
         let audioLevel = calculateAudioLevel(buffer)
-        let speechThreshold: Float = 0.005  // 降低阈值以适应较低的音频级别
+        let speechThreshold: Float = 0.002  // 降低阈值，适应安静环境
         let isSpeechDetected = audioLevel > speechThreshold
         
         // 添加详细的语音检测日志
@@ -435,8 +441,21 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         }
         
         if isSpeechDetected {
+            // 如果这是第一次检测到语音，记录开始时间
+            if !hasDetectedSpeech {
+                speechStartTime = Date()
+                print("🎤 [AIVoice] Speech started, setting up max utterance timer (\(maxUtteranceDuration)s)")
+                
+                // 设置最大utterance时长计时器
+                maxUtteranceTimer = Timer.scheduledTimer(withTimeInterval: maxUtteranceDuration, repeats: false) { [weak self] _ in
+                    print("⏱️ [AIVoice] Max utterance duration reached - forcing utterance end")
+                    self?.triggerUtteranceEnd()
+                }
+            }
+            
             hasDetectedSpeech = true
             lastAudioTime = Date()
+            
             // 取消静音计时器
             if silenceTimer != nil {
                 print("🔇 [AIVoice] Speech detected, canceling silence timer")
@@ -492,6 +511,16 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         // 编码为base64并发送
         let base64Audio = audioData.base64EncodedString()
         
+        // 如果这是第一个音频块，启动强制超时计时器
+        if audioStartTime == nil {
+            audioStartTime = Date()
+            print("⏱️ [AIVoice] Starting force utterance timer (15s backup)")
+            forceUtteranceTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
+                print("🚨 [AIVoice] Force utterance timer fired - sending utterance_end as backup")
+                self?.forceUtteranceEnd()
+            }
+        }
+        
         let audioMessage: [String: Any] = [
             "type": "audio_chunk",
             "audio_data": base64Audio,
@@ -499,8 +528,9 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             "timestamp": Date().timeIntervalSince1970
         ]
         
+        audioChunkIndex += 1
         webSocketService?.send(audioMessage)
-        print("📤 [AIVoice] Sent audio chunk: \(audioData.count) bytes (\(base64Audio.count) base64 chars)")
+        print("📤 [AIVoice] Sent audio chunk #\(audioChunkIndex): \(audioData.count) bytes (\(base64Audio.count) base64 chars)")
     }
     
     private func calculateAudioLevel(_ buffer: AVAudioPCMBuffer) -> Float {
@@ -533,16 +563,51 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         if webSocketService != nil {
             webSocketService?.send(utteranceEndMessage)
             print("🔚 [AIVoice] ✅ Utterance end message sent to backend")
+            print("🔚 [AIVoice] Utterance end sent:", utteranceEndMessage)
+            print("🔚 [AIVoice] Current state - isRecording: \(isRecording), sessionStarted: \(sessionStarted)")
         } else {
             print("🔚 [AIVoice] ❌ WebSocket service is nil!")
         }
         
-        // 重置状态
+        // 重置状态和计时器
+        resetAudioState()
+    }
+    
+    private func forceUtteranceEnd() {
+        print("🚨 [AIVoice] Force utterance end triggered - safety mechanism")
+        
+        let utteranceEndMessage: [String: Any] = [
+            "type": "utterance_end",
+            "timestamp": Date().timeIntervalSince1970,
+            "reason": "force_timeout"
+        ]
+        
+        if webSocketService != nil {
+            webSocketService?.send(utteranceEndMessage)
+            print("🚨 [AIVoice] ✅ Force utterance end message sent to backend")
+            print("🚨 [AIVoice] Force utterance end sent:", utteranceEndMessage)
+            print("🚨 [AIVoice] Current state - isRecording: \(isRecording), sessionStarted: \(sessionStarted)")
+        }
+        
+        // 重置所有状态和计时器
+        resetAudioState()
+    }
+    
+    private func resetAudioState() {
         hasDetectedSpeech = false
+        speechStartTime = nil
+        audioStartTime = nil
+        audioChunkIndex = 0
+        
+        // 清理所有计时器
         silenceTimer?.invalidate()
         silenceTimer = nil
+        maxUtteranceTimer?.invalidate()
+        maxUtteranceTimer = nil
+        forceUtteranceTimer?.invalidate()
+        forceUtteranceTimer = nil
         
-        print("🔚 [AIVoice] State reset complete")
+        print("🔄 [AIVoice] All audio state and timers reset (chunk index reset to 0)")
     }
     
     private func sendStartSession() {
@@ -620,9 +685,7 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             isRecording = false
             
             // 清理语音检测状态
-            silenceTimer?.invalidate()
-            silenceTimer = nil
-            hasDetectedSpeech = false
+            resetAudioState()
             
             Task { @MainActor in
                 isListening = false
@@ -710,9 +773,11 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             print("✅ [AIVoice] Session started")
             print("🎯 [AIVoice] Session message data: \(message)")
             sessionStarted = true
+            print("✅ [AIVoice] sessionStarted flag set →", sessionStarted)
             
             // 会话开始后自动开始监听
             print("🚀 [AIVoice] About to start listening...")
+            print("🚀 [AIVoice] Current state before startListening - sessionStarted: \(sessionStarted), isMuted: \(isMuted)")
             Task {
                 await startListening()
             }
@@ -771,9 +836,9 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         case "utterance_end":
             print("✅ [AIVoice] Utterance ended")
             // 当语音活动结束时，重置语音检测状态
-            hasDetectedSpeech = false
+            resetAudioState()
             lastAudioTime = Date()
-            print("🔊 [AIVoice] New state - hasDetectedSpeech: \(hasDetectedSpeech), lastAudioTime: \(lastAudioTime)")
+            print("🔊 [AIVoice] Audio state reset, lastAudioTime updated")
             
         // GPT-4o Realtime API 标准事件
         case "response.audio.delta":

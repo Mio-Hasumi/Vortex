@@ -27,6 +27,7 @@ import json
 import io
 import logging
 import base64
+import asyncio
 from datetime import datetime
 
 from infrastructure.container import container
@@ -1109,12 +1110,27 @@ Guidelines:
             # Audio accumulation state
             accumulated_audio_chunks = []
             is_accumulating = False
+            first_audio_time = None
+            audio_timeout = 20.0  # 20秒后强制处理，防止永远等待utterance_end
             
             # Main streaming loop - handle audio chunks and responses
             while True:
                 try:
-                    # Wait for WebSocket message
-                    message = await websocket.receive_text()
+                    # Check for timeout if we're accumulating audio
+                    if is_accumulating and first_audio_time:
+                        elapsed = datetime.utcnow().timestamp() - first_audio_time
+                        if elapsed > audio_timeout:
+                            logger.warning(f"🚨 Audio timeout after {elapsed:.1f}s - forcing utterance processing")
+                            # Force process accumulated audio as if utterance_end was received
+                            break
+                    
+                    # Wait for WebSocket message with timeout
+                    try:
+                        message = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        # Continue loop to check for audio timeout
+                        continue
+                        
                     data = json.loads(message)
                     
                     message_type = data.get("type")
@@ -1122,11 +1138,17 @@ Guidelines:
                     if message_type == "audio_chunk":
                         audio_data = data.get("audio_data")  # base64 encoded
                         if audio_data:
-                            logger.info("🎵 Accumulating audio chunk...")
+                            # Record first audio time for timeout tracking
+                            if first_audio_time is None:
+                                first_audio_time = datetime.utcnow().timestamp()
+                                logger.info(f"⏰ First audio chunk received, timeout set to {audio_timeout}s")
                             
                             # Accumulate audio chunks instead of processing each individually
                             accumulated_audio_chunks.append(audio_data)
                             is_accumulating = True
+                            
+                            logger.info(f"📥 [Audio] Received audio chunk, total chunks: {len(accumulated_audio_chunks)}")
+                            logger.info(f"📥 [Audio] Chunk size: {len(audio_data)} base64 chars")
                             
                             # Send acknowledgment
                             await websocket.send_text(json.dumps({
@@ -1135,8 +1157,12 @@ Guidelines:
                             }))
                     
                     elif message_type == "utterance_end":
+                        logger.info(f"📥 [Utterance] Received utterance_end, current chunks: {len(accumulated_audio_chunks)}")
+                        logger.info(f"📥 [Utterance] is_accumulating: {is_accumulating}")
+                        logger.info(f"📥 [Utterance] Received at: {datetime.utcnow().isoformat()}")
+                        
                         if accumulated_audio_chunks and is_accumulating:
-                            logger.info(f"🎯 Processing complete utterance with {len(accumulated_audio_chunks)} chunks...")
+                            logger.info(f"🎯 [Processing] Starting utterance processing with {len(accumulated_audio_chunks)} chunks...")
                             
                             # Combine all accumulated audio chunks
                             # For now, we'll process them as separate items, but could be combined
@@ -1155,8 +1181,11 @@ Guidelines:
                                 )
                             
                             # NOW request AI response (only after complete utterance)
-                            logger.info("🤖 Requesting AI response for complete utterance...")
+                            logger.info("🤖 [Critical] About to call conn.response.create() - this should trigger AI response")
+                            logger.info(f"🤖 [Critical] Audio items added to conversation: {len(accumulated_audio_chunks)}")
+                            
                             await conn.response.create()
+                            logger.info("🤖 [Critical] conn.response.create() called successfully, waiting for events...")
                             
                             # Process streaming response from same connection
                             text_chunks = []
@@ -1270,9 +1299,11 @@ Respond naturally and conversationally to continue the discussion. Keep it brief
                                         "source": "hardcoded_fallback"
                                     }))
                             
-                            # Reset accumulation state
+                            # Reset accumulation state for next utterance
                             accumulated_audio_chunks = []
                             is_accumulating = False
+                            first_audio_time = None
+                            logger.info("🔄 Accumulation state reset - ready for next utterance")
                         
                         else:
                             # Acknowledge utterance end even if no audio
@@ -1308,6 +1339,74 @@ Respond naturally and conversationally to continue the discussion. Keep it brief
                     await websocket.send_text(json.dumps({
                         "type": "error",
                         "message": f"Streaming error: {str(e)}"
+                    }))
+            
+            # Handle timeout - process accumulated audio if any
+            if accumulated_audio_chunks and is_accumulating:
+                logger.info(f"🚨 Processing accumulated audio due to timeout ({len(accumulated_audio_chunks)} chunks)")
+                
+                try:
+                    # Process accumulated audio chunks like utterance_end
+                    for audio_chunk in accumulated_audio_chunks:
+                        await conn.conversation.item.create(
+                            item={
+                                "type": "message",
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "input_audio",
+                                        "input_audio": {"data": audio_chunk, "format": "wav"}
+                                    }
+                                ]
+                            }
+                        )
+                    
+                    # Request AI response
+                    logger.info("🤖 Requesting AI response for timeout-triggered utterance...")
+                    await conn.response.create()
+                    
+                    # Process response (simplified version)
+                    text_chunks = []
+                    audio_chunks = []
+                    
+                    async for event in conn:
+                        if event.type == "response.text.delta":
+                            text_chunks.append(event.delta)
+                        elif event.type == "response.audio.delta":
+                            audio_chunks.append(event.delta)
+                        elif event.type == "response.done":
+                            break
+                        elif event.type == "error":
+                            logger.error(f"❌ GPT-4o Realtime error during timeout processing: {event}")
+                            break
+                    
+                    # Send responses
+                    full_text = "".join(text_chunks)
+                    full_audio = b"".join(audio_chunks) if audio_chunks else None
+                    
+                    if full_text:
+                        await websocket.send_text(json.dumps({
+                            "type": "ai_response",
+                            "text": full_text,
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "source": "timeout_recovery"
+                        }))
+                    
+                    if full_audio:
+                        wav_audio = openai_service._pcm16_to_wav(full_audio)
+                        await websocket.send_text(json.dumps({
+                            "type": "audio_response",
+                            "audio": base64.b64encode(wav_audio).decode("utf-8"),
+                            "format": "wav"
+                        }))
+                        
+                except Exception as timeout_error:
+                    logger.error(f"❌ Error processing timeout audio: {timeout_error}")
+                    await websocket.send_text(json.dumps({
+                        "type": "ai_response",
+                        "text": "I received your audio but had trouble processing it. Could you try again?",
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "source": "timeout_fallback"
                     }))
                     
         except Exception as e:
