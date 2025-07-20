@@ -56,6 +56,23 @@ class QueueStatusResponse(BaseModel):
     estimated_wait_time: int
     queue_size: int
 
+# NEW: Match confirmation response model
+class MatchConfirmationResponse(BaseModel):
+    match_id: str
+    status: str
+    is_ready: bool
+    room_id: Optional[str] = None
+    room_name: Optional[str] = None
+    livekit_room_name: Optional[str] = None
+    livekit_token: Optional[str] = None
+    topic: Optional[str] = None
+    participants: Optional[List[dict]] = None
+    match_confidence: Optional[float] = None
+    created_at: Optional[str] = None
+    matched_at: Optional[str] = None
+    message: Optional[str] = None
+    estimated_wait_time: Optional[int] = None
+
 # Dependency injection
 def get_matching_repository():
     return container.get_matching_repository()
@@ -68,6 +85,9 @@ def get_websocket_manager():
 
 def get_event_broadcaster():
     return container.get_event_broadcaster()
+
+def get_room_repository():
+    return container.get_room_repository()
 
 # NEW: AI service dependencies
 def get_ai_host_service():
@@ -425,6 +445,123 @@ async def ai_driven_match(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"AI matching service error: {str(e)}"
+        )
+
+@router.get("/confirm/{match_id}", response_model=MatchConfirmationResponse)
+async def confirm_match(
+    match_id: str,
+    matching_repo = Depends(get_matching_repository),
+    room_repo = Depends(get_room_repository),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Confirm a match and get room details for joining
+    
+    This endpoint allows the frontend to:
+    1. Confirm that a match was successful
+    2. Get room details (room_id, livekit_token, etc.)
+    3. Get participant information
+    4. Navigate to the conversation room
+    """
+    try:
+        current_user_id = current_user.id
+        
+        logger.info(f"🔍 Confirming match {match_id} for user {current_user_id}")
+        
+        # Find the match record
+        match = matching_repo.find_match_by_id(match_id)
+        if not match:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Match {match_id} not found"
+            )
+        
+        # Verify the user is part of this match
+        if match.user_id != current_user_id and current_user_id not in match.matched_users:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not part of this match"
+            )
+        
+        # Check match status
+        if match.status.name.lower() != "matched":
+            return MatchConfirmationResponse(
+                match_id=match_id,
+                status=match.status.name.lower(),
+                is_ready=False,
+                message=f"Match is not ready yet. Current status: {match.status.name.lower()}",
+                estimated_wait_time=match.estimated_wait_time if hasattr(match, 'estimated_wait_time') else 30
+            )
+        
+        # Get room details if match is successful
+        if match.room_id:
+            room = room_repo.find_by_id(match.room_id)
+            if not room:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Matched room not found"
+                )
+            
+            # Generate LiveKit token for the user
+            livekit_token = room_repo.generate_livekit_token(match.room_id, current_user_id)
+            
+            # Get participant details
+            user_repo = container.get_user_repository()
+            participants = []
+            all_participant_ids = [match.user_id] + match.matched_users
+            
+            for participant_id in all_participant_ids:
+                user = user_repo.find_by_id(participant_id)
+                if user:
+                    participants.append({
+                        "user_id": str(participant_id),
+                        "display_name": user.display_name,
+                        "is_current_user": participant_id == current_user_id
+                    })
+            
+            # Get topic information
+            topic_repo = container.get_topic_repository()
+            topic_name = "General Chat"
+            if match.selected_topic_id:
+                topic = topic_repo.find_by_id(match.selected_topic_id)
+                if topic:
+                    topic_name = topic.name
+            
+            logger.info(f"✅ Match confirmed successfully: {match_id}")
+            
+            return MatchConfirmationResponse(
+                match_id=match_id,
+                status="matched",
+                is_ready=True,
+                room_id=str(match.room_id),
+                room_name=room.name,
+                livekit_room_name=room.livekit_room_name,
+                livekit_token=livekit_token,
+                topic=topic_name,
+                participants=participants,
+                match_confidence=getattr(match, 'confidence', 1.0),
+                created_at=match.created_at.isoformat(),
+                matched_at=match.matched_at.isoformat() if match.matched_at else None,
+                message="Match confirmed! Ready to join conversation."
+            )
+        else:
+            # Match exists but no room yet (shouldn't happen)
+            logger.warning(f"⚠️ Match {match_id} has no room_id")
+            return MatchConfirmationResponse(
+                match_id=match_id,
+                status="matched",
+                is_ready=False,
+                message="Match found but room is being prepared. Please try again in a moment.",
+                estimated_wait_time=10
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to confirm match {match_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to confirm match: {str(e)}"
         )
 
 # WebSocket endpoint for real-time matching updates
