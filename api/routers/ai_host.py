@@ -995,7 +995,9 @@ async def websocket_audio_stream(websocket: WebSocket):
                         
                 # Handle session start - Initialize GPT-4o Realtime connection and enter streaming loop
                 elif data.get("type") == "start_session":
+                    logger.info("🚀 Received start_session request")
                     if not authenticated_user or not openai_service:
+                        logger.error("❌ start_session failed - missing auth or service")
                         await websocket.send_text(json.dumps({
                             "type": "error",
                             "message": "Must authenticate first"
@@ -1028,18 +1030,25 @@ async def websocket_audio_stream(websocket: WebSocket):
                             "message": "GPT-4o Realtime session ready",
                             "context": session_context
                         }))
+                        logger.info("✅ session_started message sent to client")
                         
                         # Start the persistent Realtime connection and streaming loop
+                        logger.info("🔗 About to call _handle_realtime_streaming...")
                         await _handle_realtime_streaming(websocket, openai_service, session_context)
+                        logger.info("🔗 _handle_realtime_streaming returned, exiting main loop")
                         return  # Exit after streaming session ends
                         
                     except Exception as e:
                         logger.error(f"❌ Failed to start Realtime session: {e}")
+                        logger.exception("Full start_session error details:")
                         await websocket.send_text(json.dumps({
                             "type": "error",
                             "message": f"Session start failed: {str(e)}"
                         }))
-                        
+                
+                else:
+                    logger.warning(f"❓ Unknown message type in main loop: {data.get('type')}")
+                
             except json.JSONDecodeError:
                 await websocket.send_text(json.dumps({
                     "type": "error",
@@ -1057,25 +1066,31 @@ async def _handle_realtime_streaming(websocket: WebSocket, openai_service, sessi
     Handle the persistent GPT-4o Realtime connection and streaming loop
     Uses proper async context manager for connection lifecycle
     """
-    logger.info("🔗 Establishing persistent GPT-4o Realtime connection...")
+    logger.info("🔗 ▶️ _handle_realtime_streaming START - Establishing persistent GPT-4o Realtime connection...")
     
-    # Use proper async context manager for the Realtime connection
-    async with openai_service.async_client.beta.realtime.connect(
-        model="gpt-4o-realtime-preview"
-    ) as conn:
-        try:
-            # Configure session ONCE
-            await conn.session.update(
-                session={"modalities": ["audio", "text"]}
-            )
+    try:
+        # Use proper async context manager for the Realtime connection
+        logger.info("🔌 About to create GPT-4o Realtime connection...")
+        async with openai_service.async_client.beta.realtime.connect(
+            model="gpt-4o-realtime-preview"
+        ) as conn:
+            logger.info("✅ GPT-4o Realtime connection established successfully")
             
-            # Send system prompt ONCE
-            topics = session_context.get("topics", [])
-            hashtags = session_context.get("hashtags", [])
-            conversation_context = session_context.get("conversation_context", "")
-            transcription = session_context.get("transcription", "")
-            
-            system_prompt = f"""You are a friendly AI conversation partner in a voice chat app. 
+            try:
+                # Configure session ONCE
+                logger.info("⚙️ Configuring session modalities...")
+                await conn.session.update(
+                    session={"modalities": ["audio", "text"]}
+                )
+                logger.info("✅ Session modalities configured")
+                
+                # Send system prompt ONCE
+                topics = session_context.get("topics", [])
+                hashtags = session_context.get("hashtags", [])
+                conversation_context = session_context.get("conversation_context", "")
+                transcription = session_context.get("transcription", "")
+                
+                system_prompt = f"""You are a friendly AI conversation partner in a voice chat app. 
 
 User context:
 - Topics of interest: {', '.join(topics) if topics else 'General conversation'}
@@ -1090,122 +1105,159 @@ Guidelines:
 - Stay focused on the user's interests
 - Use natural speech patterns suitable for voice chat"""
 
-            await conn.conversation.item.create(
-                item={
-                    "type": "message",
-                    "role": "system", 
-                    "content": system_prompt
-                }
-            )
-            
-            logger.info("✅ GPT-4o Realtime session initialized, entering streaming loop...")
-            
-            # Main streaming loop - handle audio chunks and responses
-            while True:
-                try:
-                    # Wait for WebSocket message
-                    message = await websocket.receive_text()
-                    data = json.loads(message)
-                    
-                    message_type = data.get("type")
-                    
-                    if message_type == "audio_chunk":
-                        audio_data = data.get("audio_data")  # base64 encoded
-                        if audio_data:
-                            logger.info("🎵 Processing audio chunk with persistent connection...")
-                            
-                            # Send audio to the same persistent connection
-                            await conn.conversation.item.create(
-                                item={
-                                    "type": "message",
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "type": "input_audio",
-                                            "input_audio": {"data": audio_data, "format": "wav"}
-                                        }
-                                    ]
-                                }
-                            )
-                            
-                            # Request AI response
-                            await conn.response.create()
-                            
-                            # Process streaming response from same connection
-                            text_chunks = []
-                            audio_chunks = []
-                            
-                            async for event in conn:
-                                if event.type == "response.text.delta":
-                                    text_chunks.append(event.delta)
-                                    # Send partial text for real-time display
+                logger.info("📝 Sending system prompt...")
+                await conn.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "system", 
+                        "content": system_prompt
+                    }
+                )
+                logger.info("✅ System prompt sent successfully")
+                
+                logger.info("🔄 ✅ GPT-4o Realtime session initialized, entering streaming loop...")
+                
+                # Main streaming loop - handle audio chunks and responses
+                while True:
+                    try:
+                        # Wait for WebSocket message
+                        logger.info("⏳ Waiting for WebSocket message...")
+                        message = await websocket.receive_text()
+                        data = json.loads(message)
+                        
+                        message_type = data.get("type")
+                        logger.info(f"📥 Got WS message: {message_type}")
+                        
+                        if message_type == "audio_chunk":
+                            audio_data = data.get("audio_data")  # base64 encoded
+                            if audio_data:
+                                logger.info(f"🎵 Processing audio chunk with persistent connection... (data length: {len(audio_data)} chars)")
+                                
+                                # Send audio to the same persistent connection
+                                logger.info("📤 Sending audio to GPT-4o Realtime...")
+                                await conn.conversation.item.create(
+                                    item={
+                                        "type": "message",
+                                        "role": "user",
+                                        "content": [
+                                            {
+                                                "type": "input_audio",
+                                                "input_audio": {"data": audio_data, "format": "wav"}
+                                            }
+                                        ]
+                                    }
+                                )
+                                logger.info("✅ Audio sent to GPT-4o")
+                                
+                                # Request AI response
+                                logger.info("🤖 Requesting AI response...")
+                                await conn.response.create()
+                                logger.info("✅ Response creation requested")
+                                
+                                # Process streaming response from same connection
+                                logger.info("🔄 Starting to process streaming response...")
+                                text_chunks = []
+                                audio_chunks = []
+                                event_count = 0
+                                
+                                async for event in conn:
+                                    event_count += 1
+                                    logger.info(f"📨 Event #{event_count}: {event.type}")
+                                    
+                                    if event.type == "response.text.delta":
+                                        text_chunks.append(event.delta)
+                                        # Send partial text for real-time display
+                                        logger.info(f"📝 Sending partial text: '{event.delta}'")
+                                        await websocket.send_text(json.dumps({
+                                            "type": "stt_chunk",
+                                            "text": event.delta,
+                                            "confidence": 0.95
+                                        }))
+                                    elif event.type == "response.audio":
+                                        audio_chunks.append(event.audio.data)
+                                        logger.info(f"🔊 Received audio chunk: {len(event.audio.data)} bytes")
+                                    elif event.type == "response.done":
+                                        logger.info("✅ Response done event received")
+                                        break
+                                
+                                # Send complete responses
+                                full_text = "".join(text_chunks)
+                                full_audio = b"".join(audio_chunks) if audio_chunks else None
+                                
+                                logger.info(f"📊 Complete response - Text: {len(full_text)} chars, Audio: {len(full_audio) if full_audio else 0} bytes")
+                                
+                                if full_text:
+                                    logger.info(f"📤 Sending complete AI response: '{full_text}'")
                                     await websocket.send_text(json.dumps({
-                                        "type": "stt_chunk",
-                                        "text": event.delta,
-                                        "confidence": 0.95
+                                        "type": "ai_response",
+                                        "text": full_text,
+                                        "timestamp": datetime.utcnow().isoformat()
                                     }))
-                                elif event.type == "response.audio":
-                                    audio_chunks.append(event.audio.data)
-                                elif event.type == "response.done":
-                                    break
+                                
+                                if full_audio:
+                                    import base64
+                                    logger.info(f"📤 Sending audio response: {len(full_audio)} bytes")
+                                    await websocket.send_text(json.dumps({
+                                        "type": "audio_response",
+                                        "audio": base64.b64encode(full_audio).decode("utf-8"),
+                                        "format": "wav"
+                                    }))
+                                
+                                logger.info(f"✅ Processed audio chunk successfully - events: {event_count}, AI response: {len(full_text)} chars")
+                            else:
+                                logger.warning("⚠️ Received audio_chunk without audio_data")
+                        
+                        elif message_type == "utterance_end":
+                            logger.info("🔚 Received utterance_end")
+                            # Acknowledge utterance end
+                            await websocket.send_text(json.dumps({
+                                "type": "utterance_end",
+                                "message": "Utterance processing complete"
+                            }))
+                            logger.info("✅ Utterance end acknowledged")
                             
-                            # Send complete responses
-                            full_text = "".join(text_chunks)
-                            full_audio = b"".join(audio_chunks) if audio_chunks else None
-                            
-                            if full_text:
-                                await websocket.send_text(json.dumps({
-                                    "type": "ai_response",
-                                    "text": full_text,
-                                    "timestamp": datetime.utcnow().isoformat()
-                                }))
-                            
-                            if full_audio:
-                                import base64
-                                await websocket.send_text(json.dumps({
-                                    "type": "audio_response",
-                                    "audio": base64.b64encode(full_audio).decode("utf-8"),
-                                    "format": "wav"
-                                }))
-                            
-                            logger.info(f"✅ Processed audio chunk, AI response: {len(full_text)} chars")
-                    
-                    elif message_type == "utterance_end":
-                        # Acknowledge utterance end
+                        elif message_type == "ping":
+                            logger.info("🏓 Received ping")
+                            await websocket.send_text(json.dumps({
+                                "type": "pong",
+                                "timestamp": datetime.utcnow().isoformat()
+                            }))
+                            logger.info("✅ Pong sent")
+                        
+                        else:
+                            logger.warning(f"❓ Unknown message type: {message_type}")
+                        
+                    except WebSocketDisconnect:
+                        logger.info("🎤 Client disconnected from streaming session")
+                        break
+                    except json.JSONDecodeError as e:
+                        logger.error(f"❌ JSON decode error: {e}")
                         await websocket.send_text(json.dumps({
-                            "type": "utterance_end",
-                            "message": "Utterance processing complete"
+                            "type": "error",
+                            "message": "Invalid JSON format"
+                        }))
+                    except Exception as e:
+                        logger.error(f"❌ Error in streaming loop: {e}")
+                        logger.exception("Full exception details:")
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": f"Streaming error: {str(e)}"
                         }))
                         
-                    elif message_type == "ping":
-                        await websocket.send_text(json.dumps({
-                            "type": "pong",
-                            "timestamp": datetime.utcnow().isoformat()
-                        }))
-                    
-                except WebSocketDisconnect:
-                    logger.info("🎤 Client disconnected from streaming session")
-                    break
-                except json.JSONDecodeError:
-                    await websocket.send_text(json.dumps({
-                        "type": "error",
-                        "message": "Invalid JSON format"
-                    }))
-                except Exception as e:
-                    logger.error(f"❌ Error in streaming loop: {e}")
-                    await websocket.send_text(json.dumps({
-                        "type": "error",
-                        "message": f"Streaming error: {str(e)}"
-                    }))
-                    
-        except Exception as e:
-            logger.error(f"❌ Realtime connection error: {e}")
-            await websocket.send_text(json.dumps({
-                "type": "error",
-                "message": f"Connection error: {str(e)}"
-            }))
-        finally:
-            logger.info("🧹 GPT-4o Realtime connection will be closed by context manager")
+            except Exception as e:
+                logger.error(f"❌ Realtime connection error: {e}")
+                logger.exception("Full connection error details:")
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": f"Connection error: {str(e)}"
+                }))
+            finally:
+                logger.info("🧹 GPT-4o Realtime connection will be closed by context manager")
+    except Exception as e:
+        logger.error(f"❌ Failed to establish Realtime connection: {e}")
+        logger.exception("Full establishment error details:")
+    finally:
+        logger.info("🔗 ◀️ _handle_realtime_streaming END")
 
 
 async def process_ai_response(websocket: WebSocket, user_text: str, session_id: str):
