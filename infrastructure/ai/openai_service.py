@@ -109,7 +109,7 @@ class OpenAIService:
                         "role": "system", 
                             "content": [
                                 {
-                                    "type": "text",
+                                    "type": "input_text",
                                     "text": f"""You are an expert at analyzing voice input for social matching. 
                             
 Your task:
@@ -275,7 +275,7 @@ Focus on creating hashtags that help match users effectively."""
                         "role": "system",
                         "content": [
                             {
-                                "type": "text",
+                                "type": "input_text",
                                 "text": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
 
 Your responsibilities:
@@ -303,7 +303,7 @@ The response should be natural, friendly, and helpful."""
                                 "role": msg.get("role", "user"),
                                 "content": [
                                     {
-                                        "type": "text",
+                                        "type": "input_text",
                                         "text": msg.get("content", "")
                                     }
                                 ]
@@ -331,7 +331,7 @@ The response should be natural, friendly, and helpful."""
                 
                 # Add text if provided
                 if text_input:
-                    user_content.append({"type": "text", "text": text_input})
+                    user_content.append({"type": "input_text", "text": text_input})
                 
                 # Only create conversation item if we have text content
                 if user_content:
@@ -1093,7 +1093,7 @@ Focus on creating hashtags that will help match users with similar interests.{co
                         "role": "system",
                         "content": [
                             {
-                                "type": "text",
+                                "type": "input_text",
                                 "text": system_prompt
                             }
                         ]
@@ -1109,7 +1109,7 @@ Focus on creating hashtags that will help match users with similar interests.{co
                                 "role": msg.get("role", "user"),
                                 "content": [
                                     {
-                                        "type": "text",
+                                        "type": "input_text",
                                         "text": msg.get("content", "")
                                     }
                                 ]
@@ -1123,7 +1123,7 @@ Focus on creating hashtags that will help match users with similar interests.{co
                         "role": "user",
                         "content": [
                             {
-                                "type": "text",
+                                "type": "input_text",
                                 "text": user_input
                             }
                         ]
