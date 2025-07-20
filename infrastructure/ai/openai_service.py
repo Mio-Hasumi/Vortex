@@ -258,92 +258,95 @@ Focus on creating hashtags that help match users effectively."""
             AI host response (audio + text + suggestions)
         """
         try:
-            logger.info(
-                f"🎭 AI moderating room conversation in {moderation_mode} mode..."
-            )
+            logger.info(f"🎭 AI moderating room conversation in {moderation_mode} mode...")
             
-            # Use GPT-4o Audio Preview with Realtime API - 所有操作都在同一个作用域
+            # Use GPT-4o Audio Preview with Realtime API
             async with self.async_client.beta.realtime.connect(
                 model="gpt-4o-realtime-preview"
             ) as connection:
-                # Enable text + audio modalities
+                # Configure session
                 await connection.session.update(
-                    session={"modalities": ["text", "audio"]}
+                    session={
+                        "modalities": ["audio", "text"],
+                        "voice": "shimmer",
+                        "input_audio_format": "pcm16",
+                        "output_audio_format": "pcm16",
+                        "input_audio_transcription": {"model": "whisper-1"}
+                    }
                 )
-
+                
                 # Send system prompt
                 await connection.conversation.item.create(
                     item={
                         "type": "message",
-                    "role": "system",
-                    "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
+                        "role": "system",
+                        "content": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
 
 Your responsibilities:
-1.  Engage the conversation: Actively provide topics when the conversation is cold
-2.  Fact Check: When participants mention potentially inaccurate information, provide friendly verification
-3.  Comment: Respond appropriately to conversation content and provide suggestions
-4.  Content Moderation: Ensure the conversation is friendly and harmonious
-5.  Assistive Guidance: Help participants communicate better
+1. Engage the conversation: Actively provide topics when the conversation is cold
+2. Fact Check: When participants mention potentially inaccurate information, provide friendly verification
+3. Comment: Respond appropriately to conversation content and provide suggestions
+4. Content Moderation: Ensure the conversation is friendly and harmonious
+5. Assistive Guidance: Help participants communicate better
 
 Current room participants: {', '.join(room_participants or [])}
 
 Please provide an appropriate response based on the input content, which can be a voice response, a text suggestion, or a topic recommendation.
-The response should be natural, friendly, and helpful.""",
-                }
+The response should be natural, friendly, and helpful."""
+                    }
                 )
-            
-            # Add conversation history
-            if conversation_context:
+                
+                # Add conversation history
+                if conversation_context:
                     for msg in conversation_context[-10:]:  # Last 10 messages
                         await connection.conversation.item.create(
                             item={
                                 "type": "message",
-                                "role": msg["role"],
-                                "content": msg["content"],
+                                "role": msg.get("role", "user"),
+                                "content": msg.get("content", "")
                             }
                         )
-            
-            # Build user message
-            user_content = []
-            if audio_data:
-                if isinstance(audio_data, bytes):
+                
+                # Prepare user content
+                user_content = []
+                
+                # Add audio if provided
+                if audio_data:
+                    if isinstance(audio_data, bytes):
                         audio_base64 = base64.b64encode(audio_data).decode("utf-8")
-                else:
-                    audio_base64 = audio_data
+                    else:
+                        audio_base64 = audio_data
                     
-                    user_content.append(
-                        {
-                    "type": "input_audio",
-                            "input_audio": {"data": audio_base64, "format": "wav"},
-                    }
-                    )
-            
-            if text_input:
+                    user_content.append({
+                        "type": "input_audio",
+                        "input_audio": {"data": audio_base64, "format": "wav"}
+                    })
+                
+                # Add text if provided
+                if text_input:
                     user_content.append({"type": "input_text", "text": text_input})
-            
+                
                 # Send user message
                 await connection.conversation.item.create(
                     item={
                         "type": "message",
-                "role": "user",
-                        "content": user_content
-                        if user_content
-                        else [
+                        "role": "user",
+                        "content": user_content if user_content else [
                             {
                                 "type": "input_text",
-                                "text": "Please assist in moderating the conversation",
+                                "text": "Please assist in moderating the conversation"
                             }
-                        ],
+                        ]
                     }
                 )
-            
+                
                 # Request response generation
                 await connection.response.create()
-
+                
                 # Process streaming response
                 text_chunks = []
                 audio_chunks = []
-
+                
                 async for event in connection:
                     if event.type == "response.text.delta":
                         text_chunks.append(event.delta)
@@ -351,31 +354,31 @@ The response should be natural, friendly, and helpful.""",
                         audio_chunks.append(event.audio.data)
                     elif event.type == "response.done":
                         break
-
+                
                 # Combine responses
                 text_response = "".join(text_chunks)
                 audio_response = b"".join(audio_chunks)
-            
-            return {
-                "ai_response": {
+                
+                return {
+                    "ai_response": {
                         "text": text_response,
                         "audio": audio_response,
-                        "audio_transcript": None,  # Realtime API doesn't provide transcript
-                },
-                "moderation_type": moderation_mode,
+                        "audio_transcript": None  # Realtime API doesn't provide transcript
+                    },
+                    "moderation_type": moderation_mode,
                     "suggestions": self._extract_suggestions(text_response),
-                "timestamp": datetime.utcnow().isoformat(),
-                    "participants": room_participants,
-            }
-            
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "participants": room_participants
+                }
+        
         except Exception as e:
             logger.error(f"❌ Room moderation failed: {e}")
             return {
                 "ai_response": {
                     "text": f"AI host encountered an issue: {str(e)}",
-                    "audio": None,
+                    "audio": None
                 },
-                "error": str(e),
+                "error": str(e)
             }
 
     async def generate_ai_host_response(
