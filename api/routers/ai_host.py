@@ -1064,16 +1064,23 @@ async def _handle_realtime_streaming(websocket: WebSocket, openai_service, sessi
         model="gpt-4o-realtime-preview"
     ) as conn:
         try:
-            # Configure session ONCE with proper audio settings
+            # Configure session ONCE with proper audio settings and SERVER-SIDE VAD
             await conn.session.update(
                 session={
                     "modalities": ["audio", "text"],
                     "voice": "shimmer",  # Choose voice: alloy, echo, fable, onyx, nova, shimmer
                     "input_audio_format": "pcm16",
-                    "output_audio_format": "pcm16",
-                    "input_audio_transcription": {"model": "whisper-1"}
+                    "output_audio_format": "pcm16", 
+                    "input_audio_transcription": {"model": "whisper-1"},
+                    "turn_detection": {
+                        "type": "server_vad",  # 🔑 KEY: Use OpenAI's server-side VAD
+                        "threshold": 0.5,      # Sensitivity: 0.0 to 1.0
+                        "prefix_padding_ms": 300,   # Audio before speech starts
+                        "silence_duration_ms": 500  # How long to wait for silence
+                    }
                 }
             )
+            logger.info("✅ GPT-4o session configured with SERVER-SIDE VAD (pcm16, 24kHz expected)")
             logger.info("✅ GPT-4o session configured with audio I/O support")
             
             # Send system prompt ONCE
@@ -1107,30 +1114,17 @@ Guidelines:
             
             logger.info("✅ GPT-4o Realtime session initialized, entering streaming loop...")
             
-            # Audio accumulation state
-            accumulated_audio_chunks = []
-            is_accumulating = False
-            first_audio_time = None
-            audio_timeout = 20.0  # 20秒后强制处理，防止永远等待utterance_end
+            # Server VAD Mode - continuous audio streaming
+            logger.info("🎯 Using OpenAI server-side VAD - no manual utterance detection needed")
             
-            # Main streaming loop - handle audio chunks and responses
+            # Start the event listener task for OpenAI Realtime events
+            event_listener_task = asyncio.create_task(handle_realtime_events(conn, websocket, openai_service))
+            
+            # Main streaming loop - handle audio chunks and AI responses
             while True:
                 try:
-                    # Check for timeout if we're accumulating audio
-                    if is_accumulating and first_audio_time:
-                        elapsed = datetime.utcnow().timestamp() - first_audio_time
-                        if elapsed > audio_timeout:
-                            logger.warning(f"🚨 Audio timeout after {elapsed:.1f}s - forcing utterance processing")
-                            # Force process accumulated audio as if utterance_end was received
-                            break
-                    
-                    # Wait for WebSocket message with timeout
-                    try:
-                        message = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
-                    except asyncio.TimeoutError:
-                        # Continue loop to check for audio timeout
-                        continue
-                        
+                    # Wait for WebSocket message (audio chunks or control messages)
+                    message = await websocket.receive_text()
                     data = json.loads(message)
                     
                     message_type = data.get("type")
@@ -1138,187 +1132,36 @@ Guidelines:
                     if message_type == "audio_chunk":
                         audio_data = data.get("audio_data")  # base64 encoded
                         if audio_data:
-                            # Record first audio time for timeout tracking
-                            if first_audio_time is None:
-                                first_audio_time = datetime.utcnow().timestamp()
-                                logger.info(f"⏰ First audio chunk received, timeout set to {audio_timeout}s")
+                            logger.info(f"📥 [ServerVAD] Streaming audio chunk to OpenAI: {len(audio_data)} base64 chars")
                             
-                            # Accumulate audio chunks instead of processing each individually
-                            accumulated_audio_chunks.append(audio_data)
-                            is_accumulating = True
-                            
-                            logger.info(f"📥 [Audio] Received audio chunk, total chunks: {len(accumulated_audio_chunks)}")
-                            logger.info(f"📥 [Audio] Chunk size: {len(audio_data)} base64 chars")
+                            # Directly stream audio to OpenAI Realtime API
+                            # Server VAD will automatically detect speech and trigger responses
+                            await conn.conversation.item.create(
+                                item={
+                                    "type": "message",
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "input_audio",
+                                            "input_audio": {"data": audio_data, "format": "wav"}
+                                        }
+                                    ]
+                                }
+                            )
                             
                             # Send acknowledgment
                             await websocket.send_text(json.dumps({
                                 "type": "audio_received",
-                                "chunks_accumulated": len(accumulated_audio_chunks)
+                                "message": "Audio streamed to server VAD"
                             }))
                     
                     elif message_type == "utterance_end":
-                        logger.info(f"📥 [Utterance] Received utterance_end, current chunks: {len(accumulated_audio_chunks)}")
-                        logger.info(f"📥 [Utterance] is_accumulating: {is_accumulating}")
-                        logger.info(f"📥 [Utterance] Received at: {datetime.utcnow().isoformat()}")
-                        
-                        if accumulated_audio_chunks and is_accumulating:
-                            logger.info(f"🎯 [Processing] Starting utterance processing with {len(accumulated_audio_chunks)} chunks...")
-                            
-                            # Combine all accumulated audio chunks
-                            # For now, we'll process them as separate items, but could be combined
-                            for i, audio_chunk in enumerate(accumulated_audio_chunks):
-                                await conn.conversation.item.create(
-                                    item={
-                                        "type": "message",
-                                        "role": "user",
-                                        "content": [
-                                            {
-                                                "type": "input_audio",
-                                                "input_audio": {"data": audio_chunk, "format": "wav"}
-                                            }
-                                        ]
-                                    }
-                                )
-                            
-                            # NOW request AI response (only after complete utterance)
-                            logger.info("🤖 [Critical] About to call conn.response.create() - this should trigger AI response")
-                            logger.info(f"🤖 [Critical] Audio items added to conversation: {len(accumulated_audio_chunks)}")
-                            
-                            await conn.response.create()
-                            logger.info("🤖 [Critical] conn.response.create() called successfully, waiting for events...")
-                            
-                            # Process streaming response from same connection
-                            text_chunks = []
-                            audio_chunks = []
-                            event_count = 0
-                            
-                            logger.info("🔗 Starting to listen for GPT-4o Realtime events...")
-                            async for event in conn:
-                                event_count += 1
-                                logger.info(f"📨 Event #{event_count}: {event.type}")
-                                
-                                if event.type == "response.text.delta":
-                                    text_chunks.append(event.delta)
-                                    logger.info(f"📝 Text delta: '{event.delta}' (total chunks: {len(text_chunks)})")
-                                    # Send partial text for real-time display
-                                    await websocket.send_text(json.dumps({
-                                        "type": "stt_chunk",
-                                        "text": event.delta,
-                                        "confidence": 0.95,
-                                        "timestamp": datetime.utcnow().isoformat()
-                                    }))
-                                elif event.type == "response.audio.delta":
-                                    audio_chunks.append(event.delta)
-                                    logger.info(f"🎵 Audio delta received: {len(event.delta)} bytes (total chunks: {len(audio_chunks)})")
-                                    
-                                    # Convert PCM16 to WAV and send real-time audio chunks to client
-                                    wav_audio = openai_service._pcm16_to_wav(event.delta)
-                                    await websocket.send_text(json.dumps({
-                                        "type": "audio_chunk",
-                                        "audio": base64.b64encode(wav_audio).decode("utf-8"),
-                                        "format": "wav"
-                                    }))
-                                elif event.type == "response.done":
-                                    logger.info("✅ Response done event received")
-                                    break
-                                elif event.type == "error":
-                                    logger.error(f"❌ GPT-4o Realtime error: {event}")
-                                    break
-                                else:
-                                    logger.info(f"📋 Other event: {event.type}")
-                            
-                            logger.info(f"🏁 Event loop finished. Total events: {event_count}, text chunks: {len(text_chunks)}, audio chunks: {len(audio_chunks)}")
-                            
-                            # Send complete responses
-                            full_text = "".join(text_chunks)
-                            full_audio = b"".join(audio_chunks) if audio_chunks else None
-                            
-                            logger.info(f"📊 Final aggregation - text length: {len(full_text)}, audio bytes: {len(full_audio) if full_audio else 0}")
-                            
-                            if full_text:
-                                await websocket.send_text(json.dumps({
-                                    "type": "ai_response",
-                                    "text": full_text,
-                                    "timestamp": datetime.utcnow().isoformat()
-                                }))
-                                logger.info(f"✅ AI response sent: {len(full_text)} chars")
-                            else:
-                                logger.warning("⚠️ No text response generated by GPT-4o Realtime")
-                            
-                            if full_audio:
-                                # Convert PCM16 to WAV format for iOS compatibility
-                                wav_audio = openai_service._pcm16_to_wav(full_audio)
-                                await websocket.send_text(json.dumps({
-                                    "type": "audio_response",
-                                    "audio": base64.b64encode(wav_audio).decode("utf-8"),
-                                    "format": "wav"
-                                }))
-                                logger.info(f"✅ AI audio sent: {len(full_audio)} bytes")
-                            else:
-                                logger.warning("⚠️ No audio response generated by GPT-4o Realtime")
-                            
-                            # If no response was generated, try fallback to ChatCompletion
-                            if not full_text:
-                                logger.info("🔄 Attempting ChatCompletion fallback...")
-                                try:
-                                    # Generate text response using ChatCompletion as fallback
-                                    topics = session_context.get("topics", [])
-                                    hashtags = session_context.get("hashtags", [])
-                                    
-                                    fallback_prompt = f"""You are a friendly AI conversation partner. The user is interested in: {', '.join(topics) if topics else 'general conversation'}.
-                                    
-Hashtags: {', '.join(hashtags) if hashtags else 'none'}
-
-Respond naturally and conversationally to continue the discussion. Keep it brief and engaging (1-2 sentences)."""
-
-                                    response = await openai_service.async_client.chat.completions.create(
-                                        model="gpt-4o",
-                                        messages=[
-                                            {"role": "system", "content": fallback_prompt},
-                                            {"role": "user", "content": "Hi! Let's talk about these topics."}
-                                        ],
-                                        max_tokens=150
-                                    )
-                                    
-                                    fallback_text = response.choices[0].message.content
-                                    logger.info(f"✅ Fallback response generated: {len(fallback_text)} chars")
-                                    
-                                    await websocket.send_text(json.dumps({
-                                        "type": "ai_response",
-                                        "text": fallback_text,
-                                        "timestamp": datetime.utcnow().isoformat(),
-                                        "source": "fallback"
-                                    }))
-                                    
-                                except Exception as fallback_error:
-                                    logger.error(f"❌ Fallback also failed: {fallback_error}")
-                                    await websocket.send_text(json.dumps({
-                                        "type": "ai_response", 
-                                        "text": f"Hi! I'm excited to chat with you about {', '.join(topics) if topics else 'whatever interests you'}! What would you like to discuss?",
-                                        "timestamp": datetime.utcnow().isoformat(),
-                                        "source": "hardcoded_fallback"
-                                    }))
-                            
-                            # Reset accumulation state for next utterance
-                            accumulated_audio_chunks = []
-                            is_accumulating = False
-                            first_audio_time = None
-                            logger.info("🔄 Accumulation state reset - ready for next utterance")
-                        
-                        else:
-                            # Acknowledge utterance end even if no audio
-                            await websocket.send_text(json.dumps({
-                                "type": "utterance_processed",
-                                "message": "No audio to process"
-                            }))
-                        
-                    elif message_type == "silence_detected":
-                        # Auto-trigger utterance_end on silence
-                        logger.info("🔇 Silence detected, auto-processing utterance...")
-                        if accumulated_audio_chunks and is_accumulating:
-                            # Trigger the same logic as utterance_end
-                            data["type"] = "utterance_end"
-                            continue  # Re-process this message as utterance_end
+                        # With server VAD, utterance_end is not needed - log for debugging
+                        logger.info("📥 [ServerVAD] Received utterance_end (not needed with server VAD)")
+                        await websocket.send_text(json.dumps({
+                            "type": "utterance_processed", 
+                            "message": "Server VAD handles turn detection automatically"
+                        }))
                         
                     elif message_type == "ping":
                         await websocket.send_text(json.dumps({
@@ -1341,73 +1184,12 @@ Respond naturally and conversationally to continue the discussion. Keep it brief
                         "message": f"Streaming error: {str(e)}"
                     }))
             
-            # Handle timeout - process accumulated audio if any
-            if accumulated_audio_chunks and is_accumulating:
-                logger.info(f"🚨 Processing accumulated audio due to timeout ({len(accumulated_audio_chunks)} chunks)")
-                
-                try:
-                    # Process accumulated audio chunks like utterance_end
-                    for audio_chunk in accumulated_audio_chunks:
-                        await conn.conversation.item.create(
-                            item={
-                                "type": "message",
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "input_audio",
-                                        "input_audio": {"data": audio_chunk, "format": "wav"}
-                                    }
-                                ]
-                            }
-                        )
-                    
-                    # Request AI response
-                    logger.info("🤖 Requesting AI response for timeout-triggered utterance...")
-                    await conn.response.create()
-                    
-                    # Process response (simplified version)
-                    text_chunks = []
-                    audio_chunks = []
-                    
-                    async for event in conn:
-                        if event.type == "response.text.delta":
-                            text_chunks.append(event.delta)
-                        elif event.type == "response.audio.delta":
-                            audio_chunks.append(event.delta)
-                        elif event.type == "response.done":
-                            break
-                        elif event.type == "error":
-                            logger.error(f"❌ GPT-4o Realtime error during timeout processing: {event}")
-                            break
-                    
-                    # Send responses
-                    full_text = "".join(text_chunks)
-                    full_audio = b"".join(audio_chunks) if audio_chunks else None
-                    
-                    if full_text:
-                        await websocket.send_text(json.dumps({
-                            "type": "ai_response",
-                            "text": full_text,
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "source": "timeout_recovery"
-                        }))
-                    
-                    if full_audio:
-                        wav_audio = openai_service._pcm16_to_wav(full_audio)
-                        await websocket.send_text(json.dumps({
-                            "type": "audio_response",
-                            "audio": base64.b64encode(wav_audio).decode("utf-8"),
-                            "format": "wav"
-                        }))
-                        
-                except Exception as timeout_error:
-                    logger.error(f"❌ Error processing timeout audio: {timeout_error}")
-                    await websocket.send_text(json.dumps({
-                        "type": "ai_response",
-                        "text": "I received your audio but had trouble processing it. Could you try again?",
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "source": "timeout_fallback"
-                    }))
+            # Cancel the event listener task when the main loop ends
+            event_listener_task.cancel()
+            try:
+                await event_listener_task
+            except asyncio.CancelledError:
+                logger.info("🧹 Event listener task cancelled")
                     
         except Exception as e:
             logger.error(f"❌ Realtime connection error: {e}")
@@ -1417,6 +1199,106 @@ Respond naturally and conversationally to continue the discussion. Keep it brief
             }))
         finally:
             logger.info("🧹 GPT-4o Realtime connection will be closed by context manager")
+
+
+async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
+    """
+    Handle OpenAI Realtime API events and forward them to the WebSocket client
+    This runs in the background while audio is being streamed
+    """
+    logger.info("🎧 Starting OpenAI Realtime event listener...")
+    
+    try:
+        async for event in conn:
+            event_type = event.type
+            logger.info(f"📨 [RealtimeEvent] {event_type}")
+            
+            # Handle different types of events
+            if event_type == "conversation.item.input_audio_transcription.completed":
+                # User's speech has been transcribed
+                transcription = event.transcript
+                logger.info(f"📝 [Transcription] User said: '{transcription}'")
+                
+                await websocket.send_text(json.dumps({
+                    "type": "stt_result",
+                    "text": transcription,
+                    "confidence": 0.95,
+                    "timestamp": datetime.utcnow().isoformat()
+                }))
+                
+            elif event_type == "response.text.delta":
+                # Streaming text response from AI
+                text_delta = event.delta
+                logger.info(f"📝 [AI Text] Delta: '{text_delta}'")
+                
+                await websocket.send_text(json.dumps({
+                    "type": "stt_chunk",
+                    "text": text_delta,
+                    "confidence": 0.95,
+                    "timestamp": datetime.utcnow().isoformat()
+                }))
+                
+            elif event_type == "response.audio.delta":
+                # Streaming audio response from AI
+                audio_delta = event.delta
+                logger.info(f"🎵 [AI Audio] Delta: {len(audio_delta)} bytes")
+                
+                # Convert PCM16 to WAV and send to client
+                wav_audio = openai_service._pcm16_to_wav(audio_delta)
+                await websocket.send_text(json.dumps({
+                    "type": "audio_chunk",
+                    "audio": base64.b64encode(wav_audio).decode("utf-8"),
+                    "format": "wav"
+                }))
+                
+            elif event_type == "response.done":
+                # AI response completed
+                logger.info("✅ [AI] Response completed")
+                await websocket.send_text(json.dumps({
+                    "type": "ai_response_complete",
+                    "timestamp": datetime.utcnow().isoformat()
+                }))
+                
+            elif event_type == "conversation.item.created":
+                # New conversation item (audio) added
+                logger.info("📥 [Conversation] New audio item added to conversation")
+                
+            elif event_type == "input_audio_buffer.speech_started":
+                # Server VAD detected speech start
+                logger.info("🎤 [ServerVAD] Speech started")
+                await websocket.send_text(json.dumps({
+                    "type": "speech_started",
+                    "timestamp": datetime.utcnow().isoformat()
+                }))
+                
+            elif event_type == "input_audio_buffer.speech_stopped":
+                # Server VAD detected speech end
+                logger.info("🔇 [ServerVAD] Speech stopped")
+                await websocket.send_text(json.dumps({
+                    "type": "speech_stopped",
+                    "timestamp": datetime.utcnow().isoformat()
+                }))
+                
+            elif event_type == "error":
+                # Handle errors
+                logger.error(f"❌ [RealtimeAPI] Error: {event}")
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": f"Realtime API error: {str(event)}",
+                    "timestamp": datetime.utcnow().isoformat()
+                }))
+                
+            else:
+                # Log other event types for debugging
+                logger.info(f"📋 [RealtimeEvent] Other: {event_type}")
+                
+    except Exception as e:
+        logger.error(f"❌ Error in event listener: {e}")
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": f"Event listener error: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }))
 
 
 async def process_ai_response(websocket: WebSocket, user_text: str, session_id: str):

@@ -1,0 +1,701 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B64E6CCE2E2D3F870098077D /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = B64E6CCD2E2D3F870098077D /* FirebaseAuth */; };
+		B64E6CD02E2D3F870098077D /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = B64E6CCF2E2D3F870098077D /* FirebaseCore */; };
+		B64E6CD22E2D3F870098077D /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = B64E6CD12E2D3F870098077D /* FirebaseCrashlytics */; };
+		B64E6CD42E2D3F870098077D /* FirebaseDatabase in Frameworks */ = {isa = PBXBuildFile; productRef = B64E6CD32E2D3F870098077D /* FirebaseDatabase */; };
+		B64E6CD62E2D3F870098077D /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = B64E6CD52E2D3F870098077D /* FirebaseFirestore */; };
+		B64E6CD82E2D3F870098077D /* FirebaseInAppMessaging-Beta in Frameworks */ = {isa = PBXBuildFile; productRef = B64E6CD72E2D3F870098077D /* FirebaseInAppMessaging-Beta */; };
+		B64E6CDA2E2D3F870098077D /* FirebaseInstallations in Frameworks */ = {isa = PBXBuildFile; productRef = B64E6CD92E2D3F870098077D /* FirebaseInstallations */; };
+		B64E6CDC2E2D3F870098077D /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = B64E6CDB2E2D3F870098077D /* FirebaseMessaging */; };
+		B64E6CDE2E2D3F870098077D /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = B64E6CDD2E2D3F870098077D /* FirebaseStorage */; };
+		B64E6CE02E2D40090098077D /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = B64E6CDF2E2D40090098077D /* GoogleSignIn */; };
+		B64E6CE22E2D40090098077D /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = B64E6CE12E2D40090098077D /* GoogleSignInSwift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		DC6A40FC2E2A1FC700DF801C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DC6A40E62E2A1FC600DF801C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DC6A40ED2E2A1FC600DF801C;
+			remoteInfo = VoiceApp;
+		};
+		DC6A41062E2A1FC700DF801C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DC6A40E62E2A1FC600DF801C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DC6A40ED2E2A1FC600DF801C;
+			remoteInfo = VoiceApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		DC6A40EE2E2A1FC600DF801C /* VoiceApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoiceApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DC6A40FB2E2A1FC700DF801C /* VoiceAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoiceAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DC6A41052E2A1FC700DF801C /* VoiceAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoiceAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		B64E6CCC2E2D3BAA0098077D /* Exceptions for "VoiceApp" folder in "VoiceApp" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DC6A40ED2E2A1FC600DF801C /* VoiceApp */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		DC6A40F02E2A1FC600DF801C /* VoiceApp */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B64E6CCC2E2D3BAA0098077D /* Exceptions for "VoiceApp" folder in "VoiceApp" target */,
+			);
+			path = VoiceApp;
+			sourceTree = "<group>";
+		};
+		DC6A40FE2E2A1FC700DF801C /* VoiceAppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = VoiceAppTests;
+			sourceTree = "<group>";
+		};
+		DC6A41082E2A1FC700DF801C /* VoiceAppUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = VoiceAppUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		DC6A40EB2E2A1FC600DF801C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B64E6CDC2E2D3F870098077D /* FirebaseMessaging in Frameworks */,
+				B64E6CD22E2D3F870098077D /* FirebaseCrashlytics in Frameworks */,
+				B64E6CDE2E2D3F870098077D /* FirebaseStorage in Frameworks */,
+				B64E6CDA2E2D3F870098077D /* FirebaseInstallations in Frameworks */,
+				B64E6CD02E2D3F870098077D /* FirebaseCore in Frameworks */,
+				B64E6CE02E2D40090098077D /* GoogleSignIn in Frameworks */,
+				B64E6CD42E2D3F870098077D /* FirebaseDatabase in Frameworks */,
+				B64E6CD62E2D3F870098077D /* FirebaseFirestore in Frameworks */,
+				B64E6CCE2E2D3F870098077D /* FirebaseAuth in Frameworks */,
+				B64E6CD82E2D3F870098077D /* FirebaseInAppMessaging-Beta in Frameworks */,
+				B64E6CE22E2D40090098077D /* GoogleSignInSwift in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DC6A40F82E2A1FC700DF801C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DC6A41022E2A1FC700DF801C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		DC6A40E52E2A1FC600DF801C = {
+			isa = PBXGroup;
+			children = (
+				DC6A40F02E2A1FC600DF801C /* VoiceApp */,
+				DC6A40FE2E2A1FC700DF801C /* VoiceAppTests */,
+				DC6A41082E2A1FC700DF801C /* VoiceAppUITests */,
+				DC6A40EF2E2A1FC600DF801C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		DC6A40EF2E2A1FC600DF801C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				DC6A40EE2E2A1FC600DF801C /* VoiceApp.app */,
+				DC6A40FB2E2A1FC700DF801C /* VoiceAppTests.xctest */,
+				DC6A41052E2A1FC700DF801C /* VoiceAppUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		DC6A40ED2E2A1FC600DF801C /* VoiceApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DC6A410F2E2A1FC700DF801C /* Build configuration list for PBXNativeTarget "VoiceApp" */;
+			buildPhases = (
+				DC6A40EA2E2A1FC600DF801C /* Sources */,
+				DC6A40EB2E2A1FC600DF801C /* Frameworks */,
+				DC6A40EC2E2A1FC600DF801C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				DC6A40F02E2A1FC600DF801C /* VoiceApp */,
+			);
+			name = VoiceApp;
+			packageProductDependencies = (
+				B64E6CCD2E2D3F870098077D /* FirebaseAuth */,
+				B64E6CCF2E2D3F870098077D /* FirebaseCore */,
+				B64E6CD12E2D3F870098077D /* FirebaseCrashlytics */,
+				B64E6CD32E2D3F870098077D /* FirebaseDatabase */,
+				B64E6CD52E2D3F870098077D /* FirebaseFirestore */,
+				B64E6CD72E2D3F870098077D /* FirebaseInAppMessaging-Beta */,
+				B64E6CD92E2D3F870098077D /* FirebaseInstallations */,
+				B64E6CDB2E2D3F870098077D /* FirebaseMessaging */,
+				B64E6CDD2E2D3F870098077D /* FirebaseStorage */,
+				B64E6CDF2E2D40090098077D /* GoogleSignIn */,
+				B64E6CE12E2D40090098077D /* GoogleSignInSwift */,
+			);
+			productName = VoiceApp;
+			productReference = DC6A40EE2E2A1FC600DF801C /* VoiceApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		DC6A40FA2E2A1FC700DF801C /* VoiceAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DC6A41122E2A1FC700DF801C /* Build configuration list for PBXNativeTarget "VoiceAppTests" */;
+			buildPhases = (
+				DC6A40F72E2A1FC700DF801C /* Sources */,
+				DC6A40F82E2A1FC700DF801C /* Frameworks */,
+				DC6A40F92E2A1FC700DF801C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DC6A40FD2E2A1FC700DF801C /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				DC6A40FE2E2A1FC700DF801C /* VoiceAppTests */,
+			);
+			name = VoiceAppTests;
+			packageProductDependencies = (
+			);
+			productName = VoiceAppTests;
+			productReference = DC6A40FB2E2A1FC700DF801C /* VoiceAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		DC6A41042E2A1FC700DF801C /* VoiceAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DC6A41152E2A1FC700DF801C /* Build configuration list for PBXNativeTarget "VoiceAppUITests" */;
+			buildPhases = (
+				DC6A41012E2A1FC700DF801C /* Sources */,
+				DC6A41022E2A1FC700DF801C /* Frameworks */,
+				DC6A41032E2A1FC700DF801C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DC6A41072E2A1FC700DF801C /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				DC6A41082E2A1FC700DF801C /* VoiceAppUITests */,
+			);
+			name = VoiceAppUITests;
+			packageProductDependencies = (
+			);
+			productName = VoiceAppUITests;
+			productReference = DC6A41052E2A1FC700DF801C /* VoiceAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DC6A40E62E2A1FC600DF801C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1640;
+				LastUpgradeCheck = 1640;
+				TargetAttributes = {
+					DC6A40ED2E2A1FC600DF801C = {
+						CreatedOnToolsVersion = 16.4;
+					};
+					DC6A40FA2E2A1FC700DF801C = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = DC6A40ED2E2A1FC600DF801C;
+					};
+					DC6A41042E2A1FC700DF801C = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = DC6A40ED2E2A1FC600DF801C;
+					};
+				};
+			};
+			buildConfigurationList = DC6A40E92E2A1FC600DF801C /* Build configuration list for PBXProject "VoiceApp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = DC6A40E52E2A1FC600DF801C;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B64E6CAE2E2D37350098077D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				B64E6CC52E2D3AD60098077D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = DC6A40EF2E2A1FC600DF801C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				DC6A40ED2E2A1FC600DF801C /* VoiceApp */,
+				DC6A40FA2E2A1FC700DF801C /* VoiceAppTests */,
+				DC6A41042E2A1FC700DF801C /* VoiceAppUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		DC6A40EC2E2A1FC600DF801C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DC6A40F92E2A1FC700DF801C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DC6A41032E2A1FC700DF801C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		DC6A40EA2E2A1FC600DF801C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DC6A40F72E2A1FC700DF801C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DC6A41012E2A1FC700DF801C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		DC6A40FD2E2A1FC700DF801C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DC6A40ED2E2A1FC600DF801C /* VoiceApp */;
+			targetProxy = DC6A40FC2E2A1FC700DF801C /* PBXContainerItemProxy */;
+		};
+		DC6A41072E2A1FC700DF801C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DC6A40ED2E2A1FC600DF801C /* VoiceApp */;
+			targetProxy = DC6A41062E2A1FC700DF801C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		DC6A410D2E2A1FC700DF801C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		DC6A410E2E2A1FC700DF801C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		DC6A41102E2A1FC700DF801C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4QPD747LC8;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = VoiceApp/Info.plist;
+				INFOPLIST_KEY_UIAppFonts = "Rajdhani-Bold.ttf Rajdhani-Light.ttf Rajdhani-Medium.ttf Rajdhani-Regular.ttf Rajdhani-SemiBold.ttf";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.voodoo.voiceapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DC6A41112E2A1FC700DF801C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4QPD747LC8;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = VoiceApp/Info.plist;
+				INFOPLIST_KEY_UIAppFonts = "Rajdhani-Bold.ttf Rajdhani-Light.ttf Rajdhani-Medium.ttf Rajdhani-Regular.ttf Rajdhani-SemiBold.ttf";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.voodoo.voiceapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		DC6A41132E2A1FC700DF801C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Voodoo.VoiceAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VoiceApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VoiceApp";
+			};
+			name = Debug;
+		};
+		DC6A41142E2A1FC700DF801C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Voodoo.VoiceAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VoiceApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VoiceApp";
+			};
+			name = Release;
+		};
+		DC6A41162E2A1FC700DF801C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Voodoo.VoiceAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = VoiceApp;
+			};
+			name = Debug;
+		};
+		DC6A41172E2A1FC700DF801C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Voodoo.VoiceAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = VoiceApp;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		DC6A40E92E2A1FC600DF801C /* Build configuration list for PBXProject "VoiceApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DC6A410D2E2A1FC700DF801C /* Debug */,
+				DC6A410E2E2A1FC700DF801C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DC6A410F2E2A1FC700DF801C /* Build configuration list for PBXNativeTarget "VoiceApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DC6A41102E2A1FC700DF801C /* Debug */,
+				DC6A41112E2A1FC700DF801C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DC6A41122E2A1FC700DF801C /* Build configuration list for PBXNativeTarget "VoiceAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DC6A41132E2A1FC700DF801C /* Debug */,
+				DC6A41142E2A1FC700DF801C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DC6A41152E2A1FC700DF801C /* Build configuration list for PBXNativeTarget "VoiceAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DC6A41162E2A1FC700DF801C /* Debug */,
+				DC6A41172E2A1FC700DF801C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B64E6CAE2E2D37350098077D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.0.0;
+			};
+		};
+		B64E6CC52E2D3AD60098077D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B64E6CCD2E2D3F870098077D /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B64E6CAE2E2D37350098077D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		B64E6CCF2E2D3F870098077D /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B64E6CAE2E2D37350098077D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		B64E6CD12E2D3F870098077D /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B64E6CAE2E2D37350098077D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
+		};
+		B64E6CD32E2D3F870098077D /* FirebaseDatabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B64E6CAE2E2D37350098077D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseDatabase;
+		};
+		B64E6CD52E2D3F870098077D /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B64E6CAE2E2D37350098077D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		B64E6CD72E2D3F870098077D /* FirebaseInAppMessaging-Beta */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B64E6CAE2E2D37350098077D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = "FirebaseInAppMessaging-Beta";
+		};
+		B64E6CD92E2D3F870098077D /* FirebaseInstallations */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B64E6CAE2E2D37350098077D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseInstallations;
+		};
+		B64E6CDB2E2D3F870098077D /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B64E6CAE2E2D37350098077D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
+		B64E6CDD2E2D3F870098077D /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B64E6CAE2E2D37350098077D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
+		};
+		B64E6CDF2E2D40090098077D /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B64E6CC52E2D3AD60098077D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		B64E6CE12E2D40090098077D /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B64E6CC52E2D3AD60098077D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = DC6A40E62E2A1FC600DF801C /* Project object */;
+}
