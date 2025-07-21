@@ -1146,7 +1146,7 @@ Guidelines:
                                 
                                 # Use appendInputAudio for proper streaming audio
                                 # Server VAD will automatically detect speech and trigger responses
-                                await conn.input_audio_buffer.append(audio_bytes)
+                                await conn.append_input_audio(audio_bytes)
                                 
                             except Exception as e:
                                 logger.error(f"❌ [ServerVAD] Audio processing failed: {e}")
