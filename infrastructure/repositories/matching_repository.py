@@ -249,41 +249,69 @@ class MatchingRepository:
         """
         try:
             logger.info(f"🔍 Finding users by hashtags: {hashtags}")
+            logger.info(f"🔍 Excluding user: {exclude_user_id}")
             
             # Get users from matching queue
             queue_users = self.redis.get_queue_status()
+            logger.info(f"🔍 Found {len(queue_users)} users in queue")
+            
             matching_users = []
             
             for user_data in queue_users:
                 user_id = user_data.get('user_id')
                 if user_id == exclude_user_id:
+                    logger.info(f"🔍 Skipping excluded user: {user_id}")
+                    continue
+                
+                # Check if this is an AI-driven match entry
+                if user_data.get('match_type') != 'ai_driven':
+                    logger.info(f"🔍 Skipping non-AI user: {user_id}")
                     continue
                     
                 user_preferences = user_data.get('preferences', {})
-                user_topics = user_preferences.get('preferred_topics', [])
                 
-                # Simple hashtag matching - check if any hashtags overlap
-                # Convert topics to hashtags for comparison
-                user_hashtags = [f"#{topic.lower().replace(' ', '_')}" for topic in user_topics]
+                # For AI matching, use generated_hashtags directly (not preferred_topics)
+                user_hashtags = user_preferences.get('generated_hashtags', [])
+                
+                # Fallback: if no generated_hashtags, try to get from the top-level hashtags
+                if not user_hashtags:
+                    user_hashtags = user_data.get('hashtags', [])
+                
+                logger.info(f"🔍 User {user_id} hashtags: {user_hashtags}")
                 
                 # Calculate match score based on hashtag overlap
-                overlap = set(hashtags) & set(user_hashtags)
-                if overlap:
-                    similarity = len(overlap) / max(len(hashtags), len(user_hashtags))
-                    if similarity >= min_similarity:
-                        matching_users.append({
-                            'user_id': user_id,
-                            'hashtags': user_hashtags,
-                            'similarity': similarity,
-                            'match_score': similarity,  # For backward compatibility
-                            'overlapping_hashtags': list(overlap)
-                        })
+                if user_hashtags:
+                    overlap = set(hashtags) & set(user_hashtags)
+                    logger.info(f"🔍 Hashtag overlap: {list(overlap)}")
+                    
+                    if overlap:
+                        similarity = len(overlap) / max(len(hashtags), len(user_hashtags))
+                        logger.info(f"🔍 Similarity score: {similarity:.2f} (min required: {min_similarity})")
+                        
+                        if similarity >= min_similarity:
+                            matching_users.append({
+                                'user_id': user_id,
+                                'hashtags': user_hashtags,
+                                'similarity': similarity,
+                                'match_score': similarity,  # For backward compatibility
+                                'overlapping_hashtags': list(overlap)
+                            })
+                            logger.info(f"✅ Added matching user: {user_id} (similarity: {similarity:.2f})")
+                        else:
+                            logger.info(f"❌ User {user_id} similarity too low: {similarity:.2f}")
+                    else:
+                        logger.info(f"❌ No hashtag overlap with user {user_id}")
+                else:
+                    logger.info(f"❌ User {user_id} has no hashtags")
             
             # Sort by similarity and return top matches
             matching_users.sort(key=lambda x: x['similarity'], reverse=True)
             result = matching_users[:max_results]
             
             logger.info(f"✅ Found {len(result)} users matching hashtags")
+            for user in result:
+                logger.info(f"   👤 {user['user_id']}: {user['similarity']:.2f} similarity")
+            
             return result
             
         except Exception as e:
@@ -304,16 +332,23 @@ class MatchingRepository:
         try:
             logger.info(f"🧠 Adding user {user_id} to AI matching queue")
             
+            # Get the actual hashtags and topics
+            final_hashtags = hashtags or (ai_analysis.get('generated_hashtags', []) if ai_analysis else [])
+            final_topics = ai_analysis.get('extracted_topics', []) if ai_analysis else []
+            
+            logger.info(f"🧠 User hashtags: {final_hashtags}")
+            logger.info(f"🧠 User topics: {final_topics}")
+            
             # Store AI analysis data with the queue entry
             queue_data = {
                 'user_id': user_id,
                 'match_type': 'ai_driven',  # 🔑 This triggers AI hashtag matching
-                'hashtags': hashtags or (ai_analysis.get('generated_hashtags', []) if ai_analysis else []),
+                'hashtags': final_hashtags,  # Store hashtags at top level for easy access
                 'voice_input': voice_input or (ai_analysis.get('understood_text', '') if ai_analysis else ''),
                 'ai_session_id': ai_session_id,
                 'preferences': {
-                    'preferred_topics': hashtags or (ai_analysis.get('extracted_topics', []) if ai_analysis else []),
-                    'generated_hashtags': hashtags or (ai_analysis.get('generated_hashtags', []) if ai_analysis else []),
+                    'preferred_topics': final_topics,  # Store actual topics here
+                    'generated_hashtags': final_hashtags,  # Store hashtags here too
                     'match_intent': voice_input or (ai_analysis.get('match_intent', '') if ai_analysis else ''),
                     'language_preference': 'en-US'
                 },
@@ -329,7 +364,7 @@ class MatchingRepository:
             # Add to matching queue with AI-specific data
             self.redis.add_to_matching_queue(user_uuid, queue_data)
             
-            logger.info(f"✅ User {user_id} added to AI matching queue with hashtags: {hashtags}")
+            logger.info(f"✅ User {user_id} added to AI matching queue with hashtags: {final_hashtags}")
             
         except Exception as e:
             logger.error(f"❌ Failed to add user to AI queue: {e}")
