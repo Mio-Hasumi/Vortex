@@ -760,47 +760,23 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             }
             
         case "stt_chunk":
-            print("📝 [AIVoice] Received STT chunk")
+            // 简化：不显示部分转写，避免UI闪烁
             if let text = message["text"] as? String {
-                print("🎤📝 [AIVoice] Partial transcription: '\(text)'")
-                print("🎤📝 [AIVoice] Confidence: \(message["confidence"] ?? "unknown")")
-                // Could update UI with partial transcription
-                DispatchQueue.main.async {
-                    self.currentResponse = "🎤 Hearing: \(text)"
-                }
+                print("🎤📝 [AIVoice] Partial: '\(text)'")
             }
             
         case "stt_done":
             print("✅ [AIVoice] Complete transcription received")
             if let text = message["text"] as? String {
-                print("📝✅ [AIVoice] COMPLETE UTTERANCE: '\(text)'")
-                print("📝✅ [AIVoice] Full message data: \(message)")
-                // UI could show the complete transcription
+                print("📝✅ [AIVoice] You said: '\(text)'")
+                // 清空显示，准备接收AI回复
                 DispatchQueue.main.async {
-                    self.currentResponse = "✅ You said: \(text)"
+                    self.currentResponse = ""
                 }
             }
             
-        case "ai_response":
-            print("🤖 [AIVoice] Received AI response")
-            if let responseText = message["text"] as? String {
-                print("💬🤖 [AIVoice] AI FULL RESPONSE: '\(responseText)'")
-                print("💬🤖 [AIVoice] Response length: \(responseText.count) characters")
-                print("💬🤖 [AIVoice] Full AI message data: \(message)")
-                
-                DispatchQueue.main.async {
-                    self.currentResponse = responseText
-                    self.isListening = false
-                }
-            }
-            
-        case "audio_response":
-            print("🔊 [AIVoice] Received AI audio response")
-            if let audioData = message["audio"] as? String {
-                print("🔊🎵 [AIVoice] Audio data length: \(audioData.count) base64 chars")
-                print("🔊🎵 [AIVoice] Audio format: \(message["format"] ?? "unknown")")
-                playAudioResponse(audioData)
-            }
+        // 简化：删掉旧的ai_response处理，现在用response.text.delta
+        // 简化：删掉旧的audio_response处理，现在用audio_chunk
             
         case "audio_chunk":
             print("🔊 [AIVoice] Received real-time audio chunk")
@@ -830,16 +806,13 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             if let textDelta = message["delta"] as? String {
                 print("📝🤖 [AIVoice] GPT-4o text: '\(textDelta)'")
                 DispatchQueue.main.async {
-                    self.currentResponse += textDelta
+                    self.currentResponse += textDelta  // 简单累加文字显示
                 }
             }
             
         case "response.done":
             print("✅ [AIVoice] GPT-4o response completed")
-            DispatchQueue.main.async {
-                self.isListening = false
-                self.isAISpeaking = false
-            }
+            // 简化：不需要复杂的状态管理，让AI持续监听
             
         case "audio_received":
             print("📥 [AIVoice] Backend acknowledgment - audio received")
