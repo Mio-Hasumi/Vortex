@@ -8,6 +8,23 @@ import SwiftUI
 import Combine
 import AVFoundation
 
+// Data model for live match information
+struct LiveMatchData {
+    let matchId: String
+    let sessionId: String
+    let roomId: String
+    let livekitToken: String
+    let participants: [MatchParticipant]
+    let topics: [String]
+    let hashtags: [String]
+}
+
+struct MatchParticipant {
+    let userId: String
+    let displayName: String
+    let isCurrentUser: Bool
+}
+
 // 简化后的视图，只保留核心功能
 struct UserVoiceTopicMatchingView: View {
     let matchResult: MatchResult
@@ -15,6 +32,10 @@ struct UserVoiceTopicMatchingView: View {
     
     // AI服务，处理所有WebSocket和音频逻辑
     @StateObject private var aiVoiceService = AIVoiceService()
+    
+    // Navigation state for when match is found
+    @State private var navigateToLiveChat = false
+    @State private var matchData: LiveMatchData?
 
     var body: some View {
         ZStack {
@@ -79,6 +100,25 @@ struct UserVoiceTopicMatchingView: View {
             }
         }
         .navigationBarHidden(true)
+        // Navigation to live chat when match is found
+        .background(
+            NavigationLink(
+                destination: matchData.map { data in
+                    HashtagScreen(matchData: data)
+                },
+                isActive: $navigateToLiveChat
+            ) {
+                EmptyView()
+            }
+            .hidden()
+        )
+        // Listen for match found events
+        .onReceive(aiVoiceService.$matchFound) { matchData in
+            if let matchData = matchData {
+                self.matchData = matchData
+                self.navigateToLiveChat = true
+            }
+        }
     }
 }
 
@@ -89,6 +129,7 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     @Published var isMuted = false
     @Published var currentResponse = ""
     @Published var isAISpeaking = false
+    @Published var matchFound: LiveMatchData?
     
     private var matchContext: MatchResult?
     private var conversationContext: String = ""
@@ -531,6 +572,52 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         return "ai_waiting_\(UUID().uuidString)_\(Date().timeIntervalSince1970)"
     }
     
+    private func handleMatchFound(_ message: [String: Any]) {
+        print("🎯 [AIVoice] Processing match found message")
+        
+        guard let matchId = message["match_id"] as? String,
+              let sessionId = message["session_id"] as? String,
+              let roomId = message["room_id"] as? String,
+              let livekitToken = message["livekit_token"] as? String else {
+            print("❌ [AIVoice] Invalid match data received")
+            return
+        }
+        
+        // Parse participants
+        let participantsData = message["participants"] as? [[String: Any]] ?? []
+        let participants = participantsData.compactMap { data -> MatchParticipant? in
+            guard let userId = data["user_id"] as? String,
+                  let displayName = data["display_name"] as? String,
+                  let isCurrentUser = data["is_current_user"] as? Bool else {
+                return nil
+            }
+            return MatchParticipant(userId: userId, displayName: displayName, isCurrentUser: isCurrentUser)
+        }
+        
+        let topics = message["topics"] as? [String] ?? []
+        let hashtags = message["hashtags"] as? [String] ?? []
+        
+        let liveMatchData = LiveMatchData(
+            matchId: matchId,
+            sessionId: sessionId,
+            roomId: roomId,
+            livekitToken: livekitToken,
+            participants: participants,
+            topics: topics,
+            hashtags: hashtags
+        )
+        
+        print("✅ [AIVoice] Match data processed successfully")
+        print("   🏷️ Topics: \(topics)")
+        print("   #️⃣ Hashtags: \(hashtags)")
+        print("   👥 Participants: \(participants.count)")
+        
+        // Update on main thread
+        DispatchQueue.main.async {
+            self.matchFound = liveMatchData
+        }
+    }
+    
     // MARK: - WebSocketDelegate
     
     func webSocketDidConnect(_ service: WebSocketService) {
@@ -622,6 +709,10 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             print("✅ [AIVoice] AI response completed")
             finalizeAndPlayAudio() // 完成累积并播放
             
+        case "match_found":
+            print("🎯 [AIVoice] Match found!")
+            handleMatchFound(message)
+            
         case "error":
             print("❌ [AIVoice] WebSocket error: \(message["message"] as? String ?? "unknown")")
             
@@ -670,15 +761,17 @@ struct VoicePinchedCircle: View {
 // 保持向后兼容的预览
 struct UserVoiceInput: View {
     var body: some View {
-        UserVoiceTopicMatchingView(matchResult: MatchResult(
-            transcription: "I want to talk about AI",
-            topics: ["Artificial Intelligence", "Technology"],
-            hashtags: ["#AI", "#Tech"],
-            matchId: "preview_match",
-            sessionId: "preview_session",
-            confidence: 0.8,
-            waitTime: 30
-        ))
+        NavigationView {
+            UserVoiceTopicMatchingView(matchResult: MatchResult(
+                transcription: "I want to talk about AI",
+                topics: ["Artificial Intelligence", "Technology"],
+                hashtags: ["#AI", "#Tech"],
+                matchId: "preview_match",
+                sessionId: "preview_session",
+                confidence: 0.8,
+                waitTime: 30
+            ))
+        }
     }
 }
 

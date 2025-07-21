@@ -416,18 +416,25 @@ async def ai_driven_match(
             status=status_msg
         )
         
-        # Step 5: Broadcast match event (if real-time matching)
+        # Step 5: Create actual match and broadcast event (if real-time matching) 
         if match_candidates:
-            await event_broadcaster.broadcast_ai_match_found(
-                user1_id=current_user_id,
+            # Create the actual match with room and tokens
+            match_data = await matching_repo.create_ai_match(
+                user1_id=str(current_user_id),
                 user2_id=matched_user_id,
-                match_data={
-                    "match_id": match_id,
-                    "session_id": ai_session_id,
-                    "hashtags": generated_hashtags,
-                    "confidence": match_confidence,
-                    "ai_audio_response": voice_processing_result.get("audio_response")
-                }
+                hashtags=generated_hashtags,
+                confidence=match_confidence,
+                ai_session_id=ai_session_id
+            )
+            
+            # Broadcast match found event
+            from infrastructure.container import container
+            event_broadcaster = container.get_event_broadcaster()
+            
+            await event_broadcaster.broadcast_ai_match_found(
+                user1_id=str(current_user_id),
+                user2_id=matched_user_id,
+                match_data=match_data
             )
         
         logger.info(f"🎉 AI-driven match process completed successfully!")

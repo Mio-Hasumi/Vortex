@@ -307,6 +307,10 @@ class MatchingRepository:
             # Store AI analysis data with the queue entry
             queue_data = {
                 'user_id': user_id,
+                'match_type': 'ai_driven',  # 🔑 This triggers AI hashtag matching
+                'hashtags': hashtags or (ai_analysis.get('generated_hashtags', []) if ai_analysis else []),
+                'voice_input': voice_input or (ai_analysis.get('understood_text', '') if ai_analysis else ''),
+                'ai_session_id': ai_session_id,
                 'preferences': {
                     'preferred_topics': hashtags or (ai_analysis.get('extracted_topics', []) if ai_analysis else []),
                     'generated_hashtags': hashtags or (ai_analysis.get('generated_hashtags', []) if ai_analysis else []),
@@ -314,16 +318,18 @@ class MatchingRepository:
                     'language_preference': 'en-US'
                 },
                 'ai_analysis': ai_analysis or {},
-                'ai_session_id': ai_session_id,
-                'queue_type': 'ai_matching'
+                'queue_type': 'ai_matching',
+                'timestamp': datetime.utcnow().isoformat()
             }
             
-            # Use the existing Redis queue infrastructure  
+            # Use Redis to store the complete AI queue entry
             # Convert string user_id to UUID if needed
             user_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
-            self.redis.add_to_matching_queue(user_uuid, queue_data['preferences'])
             
-            logger.info(f"✅ User {user_id} added to AI matching queue")
+            # Add to matching queue with AI-specific data
+            self.redis.add_to_matching_queue(user_uuid, queue_data)
+            
+            logger.info(f"✅ User {user_id} added to AI matching queue with hashtags: {hashtags}")
             
         except Exception as e:
             logger.error(f"❌ Failed to add user to AI queue: {e}")
@@ -345,6 +351,138 @@ class MatchingRepository:
         except Exception as e:
             logger.error(f"❌ Failed to get timeout users count: {e}")
             return 0
+    
+    async def create_ai_match(self, user1_id: str, user2_id: str, hashtags: List[str], confidence: float, ai_session_id: str) -> Dict[str, Any]:
+        """
+        Create an AI-hosted match between two users
+        
+        Args:
+            user1_id: First user ID (string)
+            user2_id: Second user ID (string)
+            hashtags: Matching hashtags
+            confidence: Match confidence score
+            ai_session_id: AI session ID
+            
+        Returns:
+            Match information dictionary
+        """
+        try:
+            logger.info(f"🤖 Creating AI match: {user1_id} + {user2_id} (confidence: {confidence:.2f})")
+            
+            # Import here to avoid circular imports
+            from infrastructure.container import container
+            
+            # Get repositories
+            room_repo = container.get_room_repository()
+            user_repo = container.get_user_repository()
+            
+            # Convert string IDs to UUIDs
+            user1_uuid = UUID(user1_id)
+            user2_uuid = UUID(user2_id)
+            
+            # Create LiveKit room for the match
+            room_name = f"ai_match_{user1_id[:8]}_{user2_id[:8]}_{int(datetime.utcnow().timestamp())}"
+            
+            # Create room entity
+            from api.routers.rooms import create_room_entity
+            room = create_room_entity(
+                name=f"AI Chat: {', '.join(hashtags[:2])}",
+                topic=', '.join(hashtags),
+                created_by=user1_uuid,
+                max_participants=3,  # 2 users + 1 AI host
+                is_private=False
+            )
+            
+            # Save room to repository
+            saved_room = await room_repo.save(room)
+            
+            # Add both users as participants
+            room_repo.add_participant(saved_room.id, user1_uuid)
+            room_repo.add_participant(saved_room.id, user2_uuid)
+            
+            # Create match record
+            match = Match(
+                id=uuid4(),
+                user_id=user1_uuid,
+                preferred_topics=[],  # AI matches don't use traditional topics
+                max_participants=2,
+                status=MatchStatus.MATCHED,
+                matched_users=[user2_uuid],
+                matched_at=datetime.utcnow(),
+                room_id=saved_room.id
+            )
+            
+            # Save match
+            saved_match = self.save_match(match)
+            
+            # Generate LiveKit tokens for both users
+            user1_token = room_repo.generate_livekit_token(saved_room.id, user1_uuid)
+            user2_token = room_repo.generate_livekit_token(saved_room.id, user2_uuid)
+            
+            # Get user information for participant data
+            user1_info = user_repo.find_by_id(user1_uuid)
+            user2_info = user_repo.find_by_id(user2_uuid)
+            
+            # Remove users from matching queue
+            self.remove_from_queue(user1_uuid)
+            self.remove_from_queue(user2_uuid)
+            
+            # Prepare match data
+            match_data = {
+                "match_id": str(saved_match.id),
+                "session_id": ai_session_id,
+                "room_id": str(saved_room.id),
+                "livekit_room_name": saved_room.livekit_room_name,
+                "hashtags": hashtags,
+                "confidence": confidence,
+                "created_at": datetime.utcnow().isoformat(),
+                "users": {
+                    user1_id: {
+                        "livekit_token": user1_token,
+                        "display_name": user1_info.display_name if user1_info else "User 1",
+                        "participants": [
+                            {
+                                "user_id": user1_id,
+                                "display_name": user1_info.display_name if user1_info else "User 1", 
+                                "is_current_user": True
+                            },
+                            {
+                                "user_id": user2_id,
+                                "display_name": user2_info.display_name if user2_info else "User 2",
+                                "is_current_user": False
+                            }
+                        ]
+                    },
+                    user2_id: {
+                        "livekit_token": user2_token,
+                        "display_name": user2_info.display_name if user2_info else "User 2",
+                        "participants": [
+                            {
+                                "user_id": user1_id,
+                                "display_name": user1_info.display_name if user1_info else "User 1",
+                                "is_current_user": False
+                            },
+                            {
+                                "user_id": user2_id, 
+                                "display_name": user2_info.display_name if user2_info else "User 2",
+                                "is_current_user": True
+                            }
+                        ]
+                    }
+                }
+            }
+            
+            logger.info(f"✅ AI match created successfully:")
+            logger.info(f"   🆔 Match ID: {saved_match.id}")
+            logger.info(f"   🏠 Room ID: {saved_room.id}")
+            logger.info(f"   🏷️ Hashtags: {hashtags}")
+            
+            return match_data
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to create AI match: {e}")
+            logger.exception("Full exception details:")
+            raise
     
     def _entity_to_dict(self, match: Match) -> dict:
         """Convert Match entity to dictionary"""
