@@ -14,6 +14,14 @@ from infrastructure.config import Settings
 
 logger = logging.getLogger(__name__)
 
+def json_serializer(obj):
+    """Custom JSON serializer for UUID and datetime objects"""
+    if isinstance(obj, UUID):
+        return str(obj)
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
 class RedisService:
     """Redis service for queue management and caching"""
     
@@ -107,7 +115,7 @@ class RedisService:
             
             # Use sorted set for priority queue
             score = priority * 1000000 + int(datetime.utcnow().timestamp())
-            return self.redis_client.zadd(queue_name, {json.dumps(item): score})
+            return self.redis_client.zadd(queue_name, {json.dumps(item, default=json_serializer): score})
         except Exception as e:
             logger.error(f"Failed to enqueue item: {e}")
             return False
@@ -145,7 +153,7 @@ class RedisService:
     def remove_from_queue(self, queue_name: str, item: Dict[str, Any]) -> bool:
         """Remove specific item from queue"""
         try:
-            return self.redis_client.zrem(queue_name, json.dumps(item))
+            return self.redis_client.zrem(queue_name, json.dumps(item, default=json_serializer))
         except Exception as e:
             logger.error(f"Failed to remove from queue: {e}")
             return False
@@ -231,7 +239,7 @@ class RedisService:
     def add_to_matching_queue(self, user_id: UUID, preferences: Dict[str, Any]) -> bool:
         """Add user to matching queue"""
         queue_item = {
-            'user_id': str(user_id),
+            'user_id': str(user_id),  # Convert UUID to string
             'preferences': preferences,
             'timestamp': datetime.utcnow().isoformat()
         }
@@ -271,6 +279,28 @@ class RedisService:
     def peek_matching_queue(self, count: int = 10) -> List[Dict[str, Any]]:
         """Peek at matching queue"""
         return self.peek_queue('matching_queue', count)
+    
+    def get_queue_status(self) -> List[Dict[str, Any]]:
+        """Get all users currently in the matching queue"""
+        try:
+            logger.info("🔍 Getting queue status from Redis")
+            queue_items = self.redis_client.zrange('matching_queue', 0, -1, withscores=True)
+            queue_data = []
+            
+            for item_json, score in queue_items:
+                try:
+                    item = json.loads(item_json)
+                    queue_data.append(item)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Invalid queue item format: {e}")
+                    continue
+            
+            logger.info(f"✅ Retrieved {len(queue_data)} users from queue")
+            return queue_data
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get queue status: {e}")
+            return []
     
     def get_users_waiting_too_long(self, timeout_minutes: int = 1) -> List[Dict[str, Any]]:
         """Get users who have been waiting in queue for more than timeout_minutes"""
