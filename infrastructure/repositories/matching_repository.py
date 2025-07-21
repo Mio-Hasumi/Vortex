@@ -262,11 +262,6 @@ class MatchingRepository:
                 if user_id == exclude_user_id:
                     logger.info(f"🔍 Skipping excluded user: {user_id}")
                     continue
-                
-                # Check if this is an AI-driven match entry
-                if user_data.get('match_type') != 'ai_driven':
-                    logger.info(f"🔍 Skipping non-AI user: {user_id}")
-                    continue
                     
                 user_preferences = user_data.get('preferences', {})
                 
@@ -362,10 +357,14 @@ class MatchingRepository:
             user_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
             
             # Add to matching queue with AI-specific data
-            self.redis.add_to_matching_queue(user_uuid, queue_data)
+            # Pass the entire queue_data structure directly to Redis
+            success = self.redis.enqueue('matching_queue', queue_data, priority=0)
             
-            logger.info(f"✅ User {user_id} added to AI matching queue with hashtags: {final_hashtags}")
-            
+            if success:
+                logger.info(f"✅ User {user_id} added to AI matching queue with hashtags: {final_hashtags}")
+            else:
+                logger.error(f"❌ Failed to add user {user_id} to Redis queue")
+                
         except Exception as e:
             logger.error(f"❌ Failed to add user to AI queue: {e}")
             raise
