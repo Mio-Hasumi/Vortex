@@ -145,7 +145,7 @@ Respond in this exact JSON format:
 
 Language preference: {language}
 Focus on creating hashtags that help match users effectively."""
-                                }
+                        }
                             ]
                         }
                     )
@@ -369,13 +369,13 @@ The response should be natural, friendly, and helpful."""
                 
                 # Only create conversation item if we have text content
                 if user_content:
-                    await connection.conversation.item.create(
-                        item={
-                            "type": "message",
-                            "role": "user",
+                await connection.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "user",
                             "content": user_content
-                        }
-                    )
+                    }
+                )
                 
                 # Request response generation (works with audio from appendInputAudio)
                 await connection.response.create()

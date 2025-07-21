@@ -27,7 +27,7 @@ struct UserVoiceTopicMatchingView: View {
                 HStack {
                     Button(action: {
                         // 停止AI服务并返回
-                        aiVoiceService.stopAudioEngine()
+                        aiVoiceService.cleanup()
                         dismiss()
                     }) {
                         Image(systemName: "arrow.left")
@@ -90,11 +90,6 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     @Published var currentResponse = ""
     @Published var isAISpeaking = false
     
-    // 音频引擎，用于流式播放
-    private let audioEngine = AVAudioEngine()
-    private let playerNode = AVAudioPlayerNode()
-    private var playerFormat: AVAudioFormat!
-    
     private var matchContext: MatchResult?
     private var conversationContext: String = ""
     private var webSocketService: WebSocketService?
@@ -103,53 +98,25 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     private var sessionStarted = false
     
     // 音频相关
+    private var audioEngine: AVAudioEngine?
     private var inputNode: AVAudioInputNode?
-    private var audioPlayer: AVAudioPlayer?
     private var isRecording = false
-    private var silenceTimer: Timer?
-    private var lastAudioTime: Date = Date()
-    private var hasDetectedSpeech = false
-    private var speechStartTime: Date?
-    private var maxUtteranceDuration: TimeInterval = 8.0  // 最大8秒utterance
-    private var maxUtteranceTimer: Timer?
-    private var forceUtteranceTimer: Timer?  // 强制超时，防止永远不发utterance_end
     private var audioStartTime: Date?
-    private var audioChunkIndex: Int = 0  // 追踪发送的音频块序号
-    private var consecutiveSpeechFrames: Int = 0  // 连续检测到语音的帧数
+    private var audioChunkIndex: Int = 0
     
-    // AI音频播放缓冲区
-    // private var audioBuffer = Data()  // 累积AI音频块 - 不再需要
-    private var aiAudioPlayer: AVAudioPlayer?  // 专门播放AI音频 - 不再需要
-    private var consecutiveSilenceFrames: Int = 0  // 连续检测到静音的帧数
-    private let minSpeechFrames: Int = 3  // 至少3帧连续检测到语音才算说话
-    private let minSilenceFrames: Int = 5  // 至少5帧连续静音才算停止说话
+    // 🔧 修复后的统一音频播放系统
+    private var audioPlaybackQueue = DispatchQueue(label: "audio.playback", qos: .userInitiated)
+    private var currentAudioPlayer: AVAudioPlayer?
+    private var audioQueue: [Data] = [] // 排队等待播放的音频数据
+    private var isPlayingAudio = false
+    private var audioAccumulator = Data() // 累积单个完整响应的所有音频块
     
     override init() {
         // 获取认证令牌
         authToken = AuthService.shared.firebaseToken
         super.init()
-        
-        // 初始化流式播放器
-        setupStreamingPlayer()
-        
         setupAudioSession()
         setupAudioEngine()
-    }
-    
-    private func setupStreamingPlayer() {
-        // 假设 AI 发来的都是 24kHz PCM Int16 mono
-        playerFormat = AVAudioFormat(commonFormat: .pcmFormatInt16,
-                                     sampleRate: 24000,
-                                     channels: 1,
-                                     interleaved: false)!
-        audioEngine.attach(playerNode)
-        audioEngine.connect(playerNode, to: audioEngine.mainMixerNode, format: playerFormat)
-        do {
-            try audioEngine.start()
-            playerNode.play()
-        } catch {
-            print("❌ [AIVoice] Failed to start audio engine for streaming player: \(error)")
-        }
     }
     
     private func setupAudioSession() {
@@ -157,25 +124,27 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             let audioSession = AVAudioSession.sharedInstance()
             try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
             
-            // 设置首选采样率为16kHz
-            try audioSession.setPreferredSampleRate(16000)
+            // 设置首选采样率为24kHz匹配GPT-4o
+            try audioSession.setPreferredSampleRate(24000)
             try audioSession.setActive(true)
             
-            print("✅ [AIVoice] Audio session configured for 16kHz voice chat")
+            print("✅ [AIVoice] Audio session configured for 24kHz voice chat (GPT-4o compatible)")
         } catch {
             print("❌ [AIVoice] Audio session setup failed: \(error)")
         }
     }
     
     private func setupAudioEngine() {
-        inputNode = audioEngine.inputNode
+        audioEngine = AVAudioEngine()
+        inputNode = audioEngine?.inputNode
         
-        guard let inputNode = inputNode else {
+        guard let audioEngine = audioEngine,
+              let inputNode = inputNode else {
             print("❌ [AIVoice] Failed to setup audio engine")
             return
         }
         
-        // 使用硬件的实际输入格式，避免格式不匹配
+        // 使用硬件的实际输入格式
         let inputFormat = inputNode.inputFormat(forBus: 0)
         print("🎙️ [AIVoice] Hardware input format: \(inputFormat)")
         
@@ -203,7 +172,7 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         
         self.matchContext = matchResult
         
-        // 设置对话上下文 - AI应该是聊天伙伴，不是匹配算法
+        // 设置对话上下文
         conversationContext = """
         You are a friendly AI conversation partner in a voice chat app. The user wants to discuss these topics: \(matchResult.topics.joined(separator: ", ")).
         
@@ -212,7 +181,7 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         Key guidelines:
         - You are NOT a matching algorithm or service
         - You are a conversation partner who enjoys discussing these topics
-        - Keep responses conversational and engaging
+        - Keep responses conversational and engaging (1-3 sentences)
         - Ask follow-up questions to keep the conversation flowing
         - Use natural, spoken language (this is voice chat)
         - Don't mention "finding matches" or "waiting for others"
@@ -221,18 +190,12 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         Hashtags for context: \(matchResult.hashtags.joined(separator: ", "))
         """
         
-        print("🧠 [AIVoice] AI conversation context set:")
-        print("   📝 Transcription: \(matchResult.transcription)")
-        print("   🏷️ Topics: \(matchResult.topics)")
-        print("   #️⃣ Hashtags: \(matchResult.hashtags)")
+        print("🧠 [AIVoice] AI conversation context set for topics: \(matchResult.topics)")
         
         // 连接到 WebSocket
-        print("🔌 [AIVoice] Connecting to GPT-4o Realtime API...")
-        print("🎯 [AIVoice] Will send conversation context about: \(matchResult.topics)")
-        
         await connectToRealtimeAPI()
         
-        print("✅ [AIVoice] AI conversation initialized with topic context")
+        print("✅ [AIVoice] AI conversation initialized")
     }
     
     private func connectToRealtimeAPI() async {
@@ -242,34 +205,21 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         }
         
         print("🔌 [AIVoice] Connecting to GPT-4o Audio Stream API...")
-        print("🎯 [AIVoice] Will send conversation context about: \(matchContext?.topics ?? [])")
         
         await MainActor.run {
             // 创建 WebSocket 服务
             webSocketService = WebSocketService()
             webSocketService?.delegate = self
             
-            // 连接到新的音频流端点
+            // 连接到音频流端点
             webSocketService?.connect(to: APIConfig.WebSocket.aiAudioStream, with: token)
         }
     }
     
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, originalFormat: AVAudioFormat, targetFormat: AVAudioFormat) {
         guard sessionStarted && !isMuted && isRecording else { 
-            // print("🔇 [AIVoice] Skipping audio - sessionStarted: \(sessionStarted), muted: \(isMuted), recording: \(isRecording)")
             return 
         }
-        
-        // 🔑 SERVER-SIDE VAD: No client-side speech detection needed!
-        // OpenAI's server will handle voice activity detection automatically
-        let audioLevel = calculateAudioLevel(buffer)
-        
-        // 只记录音频电平用于调试，不做语音检测
-        if audioLevel > 0.001 {
-            print("🎤 [AIVoice] Audio level: \(audioLevel) - SERVER VAD ENABLED")
-        }
-        
-        print("🎤 [AIVoice] Processing audio buffer - frames: \(buffer.frameLength), level: \(audioLevel) - using server-side VAD")
         
         // 创建音频转换器
         guard let converter = AVAudioConverter(from: originalFormat, to: targetFormat) else {
@@ -302,16 +252,8 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             return
         }
         
-        print("🎵 [AIVoice] Audio converted successfully: \(audioData.count) bytes (from \(buffer.frameLength) frames)")
-        
         // 编码为base64并发送
         let base64Audio = audioData.base64EncodedString()
-        
-        // 记录首次音频时间（仅用于调试）
-        if audioStartTime == nil {
-            audioStartTime = Date()
-            print("⏱️ [AIVoice] First audio chunk - server VAD will handle turn detection")
-        }
         
         let audioMessage: [String: Any] = [
             "type": "audio_chunk",
@@ -322,93 +264,7 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         
         audioChunkIndex += 1
         webSocketService?.send(audioMessage)
-        print("📤 [AIVoice] Sent audio chunk #\(audioChunkIndex): \(audioData.count) bytes (\(base64Audio.count) base64 chars)")
-    }
-    
-    private func calculateAudioLevel(_ buffer: AVAudioPCMBuffer) -> Float {
-        guard let channelData = buffer.floatChannelData?[0] else { return 0.0 }
-        
-        var maxLevel: Float = 0.0
-        var rmsSum: Float = 0.0
-        let frameCount = Int(buffer.frameLength)
-        
-        // 计算RMS（均方根）和峰值电平
-        for i in 0..<frameCount {
-            let sample = abs(channelData[i])
-            maxLevel = max(maxLevel, sample)
-            rmsSum += sample * sample
-        }
-        
-        let rmsLevel = sqrt(rmsSum / Float(frameCount))
-        
-        // 结合RMS和峰值，给予RMS更大权重
-        return (rmsLevel * 0.7 + maxLevel * 0.3)
-    }
-    
-    private func triggerUtteranceEnd() {
-        print("🔚 [AIVoice] triggerUtteranceEnd called - hasDetectedSpeech: \(hasDetectedSpeech)")
-        guard hasDetectedSpeech else { 
-            print("🔚 [AIVoice] No speech detected, skipping utterance end")
-            return 
-        }
-        
-        print("🔚 [AIVoice] ✅ Triggering utterance end...")
-        
-        let utteranceEndMessage: [String: Any] = [
-            "type": "utterance_end",
-            "timestamp": Date().timeIntervalSince1970
-        ]
-        
-        if webSocketService != nil {
-            webSocketService?.send(utteranceEndMessage)
-            print("🔚 [AIVoice] ✅ Utterance end message sent to backend")
-            print("🔚 [AIVoice] Utterance end sent:", utteranceEndMessage)
-            print("🔚 [AIVoice] Current state - isRecording: \(isRecording), sessionStarted: \(sessionStarted)")
-        } else {
-            print("🔚 [AIVoice] ❌ WebSocket service is nil!")
-        }
-        
-        // 重置状态和计时器
-        resetAudioState()
-    }
-    
-    private func forceUtteranceEnd() {
-        print("🚨 [AIVoice] Force utterance end triggered - safety mechanism")
-        
-        let utteranceEndMessage: [String: Any] = [
-            "type": "utterance_end",
-            "timestamp": Date().timeIntervalSince1970,
-            "reason": "force_timeout"
-        ]
-        
-        if webSocketService != nil {
-            webSocketService?.send(utteranceEndMessage)
-            print("🚨 [AIVoice] ✅ Force utterance end message sent to backend")
-            print("🚨 [AIVoice] Force utterance end sent:", utteranceEndMessage)
-            print("🚨 [AIVoice] Current state - isRecording: \(isRecording), sessionStarted: \(sessionStarted)")
-        }
-        
-        // 重置所有状态和计时器
-        resetAudioState()
-    }
-    
-    private func resetAudioState() {
-        hasDetectedSpeech = false
-        speechStartTime = nil
-        audioStartTime = nil
-        audioChunkIndex = 0
-        consecutiveSpeechFrames = 0
-        consecutiveSilenceFrames = 0
-        
-        // 清理所有计时器
-        silenceTimer?.invalidate()
-        silenceTimer = nil
-        maxUtteranceTimer?.invalidate()
-        maxUtteranceTimer = nil
-        forceUtteranceTimer?.invalidate()
-        forceUtteranceTimer = nil
-        
-        print("🔄 [AIVoice] All audio state and timers reset (chunk index reset to 0)")
+        print("📤 [AIVoice] Sent audio chunk #\(audioChunkIndex): \(audioData.count) bytes")
     }
     
     private func sendStartSession() {
@@ -430,12 +286,10 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     func startListening() async {
         guard sessionStarted && !isMuted else {
             print("⚠️ [AIVoice] Cannot start listening - session not started or muted")
-            print("⚠️ [AIVoice] sessionStarted: \(sessionStarted), isMuted: \(isMuted)")
             return
         }
         
-        print("🎤 [AIVoice] Starting continuous voice listening with audio engine")
-        print("🎤 [AIVoice] Current state - sessionStarted: \(sessionStarted), isMuted: \(isMuted)")
+        print("🎤 [AIVoice] Starting voice listening")
         
         await MainActor.run {
             isListening = true
@@ -447,7 +301,6 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     func toggleMute() {
         isMuted.toggle()
         print("🔇 [AIVoice] Audio input \(isMuted ? "muted" : "unmuted")")
-        print("🔇 [AIVoice] New state - isMuted: \(isMuted), isRecording: \(isRecording)")
         
         if isMuted {
             stopAudioEngine()
@@ -456,22 +309,44 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         }
     }
     
+    func cleanup() {
+        print("🧹 [AIVoice] Starting cleanup process")
+        
+        // Stop audio engine
+        stopAudioEngine()
+        
+        // Stop any playing audio
+        stopAllAudio()
+        
+        // Disconnect WebSocket
+        webSocketService?.disconnect()
+        webSocketService = nil
+        
+        // Reset all state
+        isConnected = false
+        isListening = false
+        sessionStarted = false
+        isAuthenticated = false
+        
+        // Clear audio data
+        audioQueue.removeAll()
+        audioAccumulator = Data()
+        
+        print("✅ [AIVoice] Cleanup completed")
+    }
+    
     private func startAudioEngine() {
         guard !isMuted, let audioEngine = audioEngine else { 
-            print("⚠️ [AIVoice] Cannot start audio engine - muted: \(isMuted), engine exists: \(audioEngine != nil)")
             return 
         }
         
         do {
-            // 确保引擎已准备好
             if !audioEngine.isRunning {
-                print("🎵 [AIVoice] Preparing and starting audio engine...")
+                print("🎵 [AIVoice] Starting audio engine...")
                 audioEngine.prepare()
                 try audioEngine.start()
                 isRecording = true
-                print("🎙️ [AIVoice] ✅ Audio engine started for streaming - isRecording: \(isRecording)")
-            } else {
-                print("🎙️ [AIVoice] Audio engine already running")
+                print("🎙️ [AIVoice] ✅ Audio engine started - isRecording: \(isRecording)")
             }
         } catch {
             print("❌ [AIVoice] Failed to start audio engine: \(error)")
@@ -484,42 +359,170 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         if audioEngine.isRunning {
             audioEngine.stop()
             isRecording = false
-            
-            // 清理语音检测状态
-            resetAudioState()
+            audioChunkIndex = 0
             
             Task { @MainActor in
                 isListening = false
             }
             
-            print("⏹️ [AIVoice] Audio engine stopped, state cleared")
+            print("⏹️ [AIVoice] Audio engine stopped")
         }
     }
     
     deinit {
-        // 清理音频引擎
-        stopAudioEngine()
+        cleanup()
         inputNode?.removeTap(onBus: 0)
-        silenceTimer?.invalidate()
-        print("🧹 [AIVoice] Audio service cleaned up")
+        print("🧹 [AIVoice] Audio service deallocated")
     }
     
-    // 生成基于话题的 AI 响应（当前是模拟，真实实现会来自 GPT-4o）
-    func generateTopicBasedResponse() -> String {
-        guard let context = matchContext else {
-            return "Let's continue our conversation!"
+    // MARK: - 🔧 修复后的统一音频播放系统
+    
+    private func stopAllAudio() {
+        audioPlaybackQueue.async {
+            // 停止当前播放
+            self.currentAudioPlayer?.stop()
+            self.currentAudioPlayer = nil
+            
+            // 清空队列
+            self.audioQueue.removeAll()
+            self.audioAccumulator = Data()
+            
+            DispatchQueue.main.async {
+                self.isAISpeaking = false
+            }
+            
+            self.isPlayingAudio = false
+            print("🔇 [AIVoice] All audio playback stopped and cleared")
+        }
+    }
+    
+    private func addAudioChunk(_ base64AudioData: String) {
+        guard let audioData = Data(base64Encoded: base64AudioData) else {
+            print("❌ [AIVoice] Failed to decode audio chunk")
+            return
         }
         
-        let topic = context.topics.first ?? "this topic"
-        let responses = [
-            "That's fascinating! What specifically interests you about \(topic)?",
-            "I'd love to hear more about your experience with \(topic).",
-            "What got you started with \(topic)? Any interesting stories?",
-            "Have you seen any recent developments in \(topic) that caught your attention?",
-            "What aspects of \(topic) do you think others should know about?"
-        ]
+        audioPlaybackQueue.async {
+            // 累积音频数据（GPT-4o发送的是PCM16片段）
+            let previousSize = self.audioAccumulator.count
+            self.audioAccumulator.append(audioData)
+            print("🎵 [AIVoice] Audio chunk accumulated: +\(audioData.count) bytes, total: \(previousSize) → \(self.audioAccumulator.count) bytes")
+        }
+    }
+    
+    private func finalizeAndPlayAudio() {
+        audioPlaybackQueue.async {
+            guard !self.audioAccumulator.isEmpty else {
+                print("🔇 [AIVoice] No accumulated audio to play")
+                return
+            }
+            
+            print("🔊 [AIVoice] Finalizing and playing complete audio response: \(self.audioAccumulator.count) bytes")
+            
+            // 转换PCM16数据为WAV格式用于播放
+            let wavData = self.convertPCM16ToWAV(self.audioAccumulator)
+            
+            // 添加到播放队列
+            self.audioQueue.append(wavData)
+            
+            // 开始播放队列（如果当前没有在播放）
+            if !self.isPlayingAudio {
+                self.playNextAudioInQueue()
+            }
+            
+            // 清空累积器，准备下一个响应
+            self.audioAccumulator = Data()
+        }
+    }
+    
+    private func playNextAudioInQueue() {
+        audioPlaybackQueue.async {
+            guard !self.isPlayingAudio, !self.audioQueue.isEmpty else {
+                return
+            }
+            
+            let audioData = self.audioQueue.removeFirst()
+            self.isPlayingAudio = true
+            
+            DispatchQueue.main.async {
+                self.isAISpeaking = true
+            }
+            
+            do {
+                // 停止之前的播放器
+                self.currentAudioPlayer?.stop()
+                
+                // 创建新的播放器
+                self.currentAudioPlayer = try AVAudioPlayer(data: audioData)
+                self.currentAudioPlayer?.delegate = self
+                
+                // 开始播放
+                let success = self.currentAudioPlayer?.play() ?? false
+                print("🔊 [AIVoice] \(success ? "✅ Started" : "❌ Failed to start") playing audio: \(audioData.count) bytes")
+                
+                if !success {
+                    self.audioPlaybackFinished()
+                }
+                
+            } catch {
+                print("❌ [AIVoice] Failed to create audio player: \(error)")
+                self.audioPlaybackFinished()
+            }
+        }
+    }
+    
+    private func audioPlaybackFinished() {
+        audioPlaybackQueue.async {
+            self.isPlayingAudio = false
+            
+            DispatchQueue.main.async {
+                if self.audioQueue.isEmpty {
+                    self.isAISpeaking = false
+                }
+            }
+            
+            // 继续播放队列中的下一个音频
+            if !self.audioQueue.isEmpty {
+                self.playNextAudioInQueue()
+            }
+            
+            print("🔊 [AIVoice] Audio playback finished, queue remaining: \(self.audioQueue.count)")
+        }
+    }
+    
+    private func convertPCM16ToWAV(_ pcmData: Data) -> Data {
+        // WAV文件头信息 (24kHz, 16-bit, mono)
+        let sampleRate: UInt32 = 24000
+        let channels: UInt16 = 1
+        let bitsPerSample: UInt16 = 16
+        let byteRate = sampleRate * UInt32(channels) * UInt32(bitsPerSample) / 8
+        let blockAlign = channels * bitsPerSample / 8
+        let dataSize = UInt32(pcmData.count)
+        let fileSize = 36 + dataSize
         
-        return responses.randomElement() ?? "Tell me more about \(topic)!"
+        var wavData = Data()
+        
+        // RIFF头
+        wavData.append("RIFF".data(using: .ascii)!)
+        wavData.append(withUnsafeBytes(of: fileSize.littleEndian) { Data($0) })
+        wavData.append("WAVE".data(using: .ascii)!)
+        
+        // fmt块
+        wavData.append("fmt ".data(using: .ascii)!)
+        wavData.append(withUnsafeBytes(of: UInt32(16).littleEndian) { Data($0) }) // fmt块大小
+        wavData.append(withUnsafeBytes(of: UInt16(1).littleEndian) { Data($0) })  // PCM格式
+        wavData.append(withUnsafeBytes(of: channels.littleEndian) { Data($0) })
+        wavData.append(withUnsafeBytes(of: sampleRate.littleEndian) { Data($0) })
+        wavData.append(withUnsafeBytes(of: byteRate.littleEndian) { Data($0) })
+        wavData.append(withUnsafeBytes(of: blockAlign.littleEndian) { Data($0) })
+        wavData.append(withUnsafeBytes(of: bitsPerSample.littleEndian) { Data($0) })
+        
+        // data块
+        wavData.append("data".data(using: .ascii)!)
+        wavData.append(withUnsafeBytes(of: dataSize.littleEndian) { Data($0) })
+        wavData.append(pcmData)
+        
+        return wavData
     }
     
     // MARK: - Helper 方法
@@ -554,6 +557,8 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             self.isConnected = false
             self.isListening = false
         }
+        
+        stopAllAudio()
     }
     
     func webSocket(_ service: WebSocketService, didReceiveMessage message: [String: Any]) {
@@ -564,7 +569,6 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         switch type {
         case "authenticated":
             print("✅ [AIVoice] Authenticated with backend")
-            // 只在第一次认证时开始会话
             if !isAuthenticated {
                 sendStartSession()
                 isAuthenticated = true
@@ -572,30 +576,21 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             
         case "session_started":
             print("✅ [AIVoice] Session started")
-            print("🎯 [AIVoice] Session message data: \(message)")
             sessionStarted = true
-            print("✅ [AIVoice] sessionStarted flag set →", sessionStarted)
-            
-            // 会话开始后自动开始监听
-            print("🚀 [AIVoice] About to start listening...")
-            print("🚀 [AIVoice] Current state before startListening - sessionStarted: \(sessionStarted), isMuted: \(isMuted)")
             Task {
                 await startListening()
             }
             
         case "stt_chunk":
-            // 简化：不显示部分转写，避免UI闪烁
-            if let text = message["text"] as? String {
-                print("🎤📝 [AIVoice] Partial: '\(text)'")
-            }
+            // 不显示部分转写，避免UI闪烁
+            break
             
         case "stt_done":
             print("✅ [AIVoice] Complete transcription received")
             if let text = message["text"] as? String {
                 print("📝✅ [AIVoice] You said: '\(text)'")
-                // 清空显示，准备接收AI回复
                 DispatchQueue.main.async {
-                    self.currentResponse = ""
+                    self.currentResponse = "" // 清空，准备接收AI回复
                 }
             }
             
@@ -607,91 +602,32 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             
         case "ai_response_started":
             print("🤖 [AIVoice] AI response started")
-            // 清空音频缓冲区，准备接收新的AI回复
-            // audioBuffer = Data() // 移除
-            DispatchQueue.main.async {
-                self.isAISpeaking = true
-            }
-            
-        case "audio_chunk":
-            print("🔊 [AIVoice] Received real-time audio chunk")
-            if let audioData = message["audio"] as? String {
-                print("🔊🎵 [AIVoice] Real-time audio chunk: \(audioData.count) base64 chars")
-                // 累积音频块，避免播放被打断
-                // accumulateAudioChunk(audioData) // 移除
-            }
-            
-        case "utterance_end":
-            print("✅ [AIVoice] Utterance ended")
-            // 当语音活动结束时，重置语音检测状态
-            resetAudioState()
-            lastAudioTime = Date()
-            print("🔊 [AIVoice] Audio state reset, lastAudioTime updated")
-            
-        // GPT-4o Realtime API 标准事件
-        case "response.audio.delta":
-            print("🔊 [AIVoice] Received GPT-4o audio delta")
-            if let audioData = message["delta"] as? String,
-               let data = Data(base64Encoded: audioData) {
-                scheduleBuffer(data)
-            }
+            stopAllAudio() // 停止之前的音频，开始新响应
             
         case "response.text.delta":
-            print("📝 [AIVoice] Received GPT-4o text delta")
+            print("📝 [AIVoice] Text delta received")
             if let textDelta = message["delta"] as? String {
-                print("📝🤖 [AIVoice] GPT-4o text: '\(textDelta)'")
                 DispatchQueue.main.async {
-                    self.currentResponse += textDelta  // 简单累加文字显示
+                    self.currentResponse += textDelta
                 }
             }
             
-        case "response.done":
-            print("✅ [AIVoice] GPT-4o response completed")
-            // AI回复完成，不再需要手动播放累积的音频
-            // playAccumulatedAudio() // 移除
-            DispatchQueue.main.async {
-                self.isAISpeaking = false
+        case "response.audio.delta":
+            print("🔊 [AIVoice] Audio delta received (using this, ignoring audio_chunk to prevent duplicates)")
+            if let audioData = message["delta"] as? String {
+                addAudioChunk(audioData)
             }
             
-        case "audio_received":
-            print("📥 [AIVoice] Backend acknowledgment - audio received")
-            if let chunksAccumulated = message["chunks_accumulated"] as? Int {
-                print("🎵 [AIVoice] Audio chunks accumulated: \(chunksAccumulated)")
-            }
+        case "response.done":
+            print("✅ [AIVoice] AI response completed")
+            finalizeAndPlayAudio() // 完成累积并播放
             
         case "error":
             print("❌ [AIVoice] WebSocket error: \(message["message"] as? String ?? "unknown")")
-            print("❌ [AIVoice] Full error message: \(message)")
             
         default:
             print("❓ [AIVoice] Unknown message type: \(type)")
-            print("❓ [AIVoice] Full unknown message: \(message)")
         }
-    }
-    
-    // MARK: - Audio Accumulation and Playback
-
-    // private func accumulateAudioChunk(_ audioData: String) { ... } // 移除
-    // private func playAccumulatedAudio() { ... } // 移除
-
-    private func scheduleBuffer(_ pcmData: Data) {
-        // 16‑bit PCM → AVAudioPCMBuffer
-        let bytesPerFrame = Int(playerFormat.streamDescription.pointee.mBytesPerFrame)
-        let frameCount = UInt32(pcmData.count) / UInt32(bytesPerFrame)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: playerFormat,
-                                            frameCapacity: frameCount) else { return }
-        buffer.frameLength = frameCount
-        // 注意：如果是 Int16，需要拷贝到 int16ChannelData
-        pcmData.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
-            let dest = buffer.int16ChannelData![0]
-            ptr.copyBytes(to: dest, count: pcmData.count)
-        }
-        playerNode.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
-    }
-
-    private func playAudioResponse(_ audioData: String) {
-        // 解码并播放AI的音频回应
-        // 旧的逻辑，现在由AVAudioEngine处理，可以保留为空或删除
     }
     
     func webSocket(_ service: WebSocketService, didEncounterError error: Error) {
@@ -707,10 +643,13 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
 // MARK: - AVAudioPlayerDelegate
 extension AIVoiceService {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        DispatchQueue.main.async {
-            self.isAISpeaking = false
-        }
-        print("🔊 [AIVoice] AI finished speaking")
+        print("🔊 [AIVoice] Audio finished playing successfully: \(flag)")
+        audioPlaybackFinished()
+    }
+    
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        print("❌ [AIVoice] Audio decode error: \(error?.localizedDescription ?? "unknown")")
+        audioPlaybackFinished()
     }
 }
 
