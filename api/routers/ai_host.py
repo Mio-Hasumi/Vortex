@@ -133,12 +133,8 @@ async def start_ai_session(
             user_id=current_user.id, user_context=user_context
         )
 
-        # Get the AI greeting from conversation history
-        ai_greeting = (
-            "Hi! Welcome to VoiceApp! What topic would you like to discuss today?"
-        )
-        if session.conversation_history:
-            ai_greeting = session.conversation_history[-1]["message"]
+        # Use simple static greeting
+        ai_greeting = "Hi! I'm Vortex. What would you like to talk about?"
 
         return StartSessionResponse(
             session_id=session.session_id,
@@ -757,7 +753,7 @@ async def websocket_voice_chat(websocket: WebSocket):
                                     {
                                         "type": "session_started",
                                         "session_id": session_id,
-                                        "ai_greeting": "Hi! Welcome to VoiceApp! What topic would you like to discuss today?",
+                                        "ai_greeting": "Hi! I'm Vortex. What would you like to talk about?",
                                         "timestamp": datetime.utcnow().isoformat(),
                                     }
                                 )
