@@ -12,6 +12,8 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleDisplayName</key>
+	<string>VortexChat</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
@@ -31,6 +33,8 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>GIDClientID</key>
 	<string>206597561708-rb85l1123g2n76lg5qqqmefkrbf7kvqb.apps.googleusercontent.com</string>
 	<key>LSRequiresIPhoneOS</key>
