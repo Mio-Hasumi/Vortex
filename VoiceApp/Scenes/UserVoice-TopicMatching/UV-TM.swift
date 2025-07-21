@@ -114,9 +114,21 @@ struct UserVoiceTopicMatchingView: View {
         )
         // Listen for match found events
         .onReceive(aiVoiceService.$matchFound) { matchData in
+            print("🔔 [NAVIGATION] onReceive triggered - matchData received!")
+            
             if let matchData = matchData {
+                print("✅ [NAVIGATION] Match data is valid:")
+                print("   🆔 Match ID: \(matchData.matchId)")
+                print("   🏠 Room ID: \(matchData.roomId)")
+                print("   👥 Participants: \(matchData.participants.count)")
+                print("🚀 [NAVIGATION] Setting navigation state...")
+                
                 self.matchData = matchData
                 self.navigateToLiveChat = true
+                
+                print("✅ [NAVIGATION] Navigation state set - should navigate now!")
+            } else {
+                print("❌ [NAVIGATION] Match data is nil - no navigation will occur")
             }
         }
     }
@@ -134,6 +146,7 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     private var matchContext: MatchResult?
     private var conversationContext: String = ""
     private var webSocketService: WebSocketService?
+    private var matchingWebSocketService: WebSocketService?  // NEW: Separate WebSocket for matching notifications
     private var authToken: String?
     private var isAuthenticated = false
     private var sessionStarted = false
@@ -214,12 +227,19 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         self.matchContext = matchResult
         
         // 设置对话上下文
-        conversationContext = """
-        You are a friendly AI conversation partner in a voice chat app. The user wants to discuss these topics: \(matchResult.topics.joined(separator: ", ")).
+        let systemPrompt = """
+You are Vortex, a friendly AI conversation partner in a voice chat app called Vortex. The user wants to discuss these topics: \(matchResult.topics.joined(separator: ", ")).
+
+Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a natural conversation about these topics, asking thoughtful questions and sharing relevant insights. Keep your responses concise and engaging.
+"""
+        
+                  conversationContext = """
+          You are Vortex, a friendly AI conversation partner in a voice chat app. The user wants to discuss these topics: \(matchResult.topics.joined(separator: ", "))
         
         Their original message was: "\(matchResult.transcription)"
         
         Key guidelines:
+        - Start with a warm greeting: "Hi, I'm Vortex! Nice to meet you!"
         - You are NOT a matching algorithm or service
         - You are a conversation partner who enjoys discussing these topics
         - Keep responses conversational and engaging (1-3 sentences)
@@ -245,15 +265,31 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             return
         }
         
-        print("🔌 [AIVoice] Connecting to GPT-4o Audio Stream API...")
+        print("🔌 [AIVoice] Connecting to both AI Audio Stream and Matching WebSockets...")
+        print("🔍 [MATCHING] Starting WebSocket connection setup for matching notifications")
         
         await MainActor.run {
-            // 创建 WebSocket 服务
+            // 创建 AI 音频流 WebSocket 服务
             webSocketService = WebSocketService()
             webSocketService?.delegate = self
             
+            // 创建匹配通知 WebSocket 服务
+            matchingWebSocketService = MatchingWebSocketService()
+            matchingWebSocketService?.delegate = self
+            
             // 连接到音频流端点
             webSocketService?.connect(to: APIConfig.WebSocket.aiAudioStream, with: token)
+            print("🎵 [AI_AUDIO] Connecting to AI audio stream WebSocket")
+            
+            // 连接到匹配通知端点 (需要用户ID)
+            if let userId = AuthService.shared.userId {
+                let matchingEndpoint = "\(APIConfig.WebSocket.matching)?user_id=\(userId)"
+                matchingWebSocketService?.connect(to: matchingEndpoint, with: token)
+                print("🎯 [MATCHING] Connecting to matching WebSocket with user ID: \(userId)")
+                print("🎯 [MATCHING] Full endpoint: \(matchingEndpoint)")
+            } else {
+                print("❌ [MATCHING] No user ID available for matching WebSocket - CRITICAL ERROR!")
+            }
         }
     }
     
@@ -305,7 +341,7 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         
         audioChunkIndex += 1
         webSocketService?.send(audioMessage)
-        print("📤 [AIVoice] Sent audio chunk #\(audioChunkIndex): \(audioData.count) bytes")
+        // print("📤 [AIVoice] Sent audio chunk #\(audioChunkIndex): \(audioData.count) bytes") // COMMENTED OUT - too verbose
     }
     
     private func sendStartSession() {
@@ -359,9 +395,12 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         // Stop any playing audio
         stopAllAudio()
         
-        // Disconnect WebSocket
+        // Disconnect both WebSocket connections
         webSocketService?.disconnect()
         webSocketService = nil
+        
+        matchingWebSocketService?.disconnect()
+        matchingWebSocketService = nil
         
         // Reset all state
         isConnected = false
@@ -573,29 +612,47 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     }
     
     private func handleMatchFound(_ message: [String: Any]) {
-        print("🎯 [AIVoice] Processing match found message")
+        print("🎯🎯🎯 [MATCHING] ===== PROCESSING MATCH FOUND MESSAGE =====")
+        print("🔍 [MATCHING] Full message received: \(message)")
         
         guard let matchId = message["match_id"] as? String,
               let sessionId = message["session_id"] as? String,
               let roomId = message["room_id"] as? String,
               let livekitToken = message["livekit_token"] as? String else {
-            print("❌ [AIVoice] Invalid match data received")
+            print("❌ [MATCHING] Invalid match data received - missing required fields!")
+            print("❌ [MATCHING] match_id: \(message["match_id"] as? String ?? "MISSING")")
+            print("❌ [MATCHING] session_id: \(message["session_id"] as? String ?? "MISSING")")
+            print("❌ [MATCHING] room_id: \(message["room_id"] as? String ?? "MISSING")")
+            print("❌ [MATCHING] livekit_token: \(message["livekit_token"] as? String ?? "MISSING")")
             return
         }
         
+        print("✅ [MATCHING] All required fields present:")
+        print("   🆔 Match ID: \(matchId)")
+        print("   📱 Session ID: \(sessionId)")
+        print("   🏠 Room ID: \(roomId)")
+        print("   🎫 LiveKit Token: \(livekitToken.prefix(20))...")
+        
         // Parse participants
         let participantsData = message["participants"] as? [[String: Any]] ?? []
+        print("👥 [MATCHING] Parsing \(participantsData.count) participants...")
+        
         let participants = participantsData.compactMap { data -> MatchParticipant? in
             guard let userId = data["user_id"] as? String,
                   let displayName = data["display_name"] as? String,
                   let isCurrentUser = data["is_current_user"] as? Bool else {
+                print("❌ [MATCHING] Invalid participant data: \(data)")
                 return nil
             }
+            print("👤 [MATCHING] Participant: \(displayName) (\(userId)) - Current user: \(isCurrentUser)")
             return MatchParticipant(userId: userId, displayName: displayName, isCurrentUser: isCurrentUser)
         }
         
         let topics = message["topics"] as? [String] ?? []
         let hashtags = message["hashtags"] as? [String] ?? []
+        
+        print("🏷️ [MATCHING] Topics: \(topics)")
+        print("#️⃣ [MATCHING] Hashtags: \(hashtags)")
         
         let liveMatchData = LiveMatchData(
             matchId: matchId,
@@ -607,92 +664,173 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             hashtags: hashtags
         )
         
-        print("✅ [AIVoice] Match data processed successfully")
-        print("   🏷️ Topics: \(topics)")
-        print("   #️⃣ Hashtags: \(hashtags)")
-        print("   👥 Participants: \(participants.count)")
+        print("✅ [MATCHING] Match data processed successfully!")
+        print("   👥 Participants count: \(participants.count)")
+        print("   🏷️ Topics count: \(topics.count)")
+        print("   #️⃣ Hashtags count: \(hashtags.count)")
+        
+        print("🚀 [MATCHING] Setting matchFound to trigger navigation...")
         
         // Update on main thread
         DispatchQueue.main.async {
             self.matchFound = liveMatchData
+            print("✅ [MATCHING] matchFound set on main thread - should trigger navigation now!")
         }
+        
+        print("🎯🎯🎯 [MATCHING] ===== MATCH PROCESSING COMPLETED =====")
     }
     
     // MARK: - WebSocketDelegate
     
     func webSocketDidConnect(_ service: WebSocketService) {
-        print("✅ [AIVoice] WebSocket connected to GPT-4o Realtime")
+        let isMatchingWebSocket = service is MatchingWebSocketService
         
-        DispatchQueue.main.async {
-            self.isConnected = true
+        if isMatchingWebSocket {
+            print("✅ [MATCHING] Matching WebSocket connected successfully!")
+            print("🎯 [MATCHING] Ready to receive match notifications")
+        } else {
+            print("✅ [AI_AUDIO] AI Audio WebSocket connected to GPT-4o Realtime")
+            
+            DispatchQueue.main.async {
+                self.isConnected = true
+            }
+            
+            // 发送认证消息
+            let authMessage: [String: Any] = [
+                "type": "auth",
+                "token": authToken ?? ""
+            ]
+            
+            service.send(authMessage)
+            print("📤 [AI_AUDIO] Sent authentication to AI audio stream")
         }
-        
-        // 发送认证消息
-        let authMessage: [String: Any] = [
-            "type": "auth",
-            "token": authToken ?? ""
-        ]
-        
-        service.send(authMessage)
-        print("📤 [AIVoice] Sent authentication")
     }
     
     func webSocketDidDisconnect(_ service: WebSocketService) {
-        print("❌ [AIVoice] WebSocket disconnected")
+        let isMatchingWebSocket = service is MatchingWebSocketService
         
-        DispatchQueue.main.async {
-            self.isConnected = false
-            self.isListening = false
+        if isMatchingWebSocket {
+            print("❌ [MATCHING] Matching WebSocket disconnected - NO MORE MATCH NOTIFICATIONS!")
+        } else {
+            print("❌ [AI_AUDIO] AI Audio WebSocket disconnected")
+            
+            DispatchQueue.main.async {
+                self.isConnected = false
+                self.isListening = false
+            }
+            
+            stopAllAudio()
         }
-        
-        stopAllAudio()
     }
     
     func webSocket(_ service: WebSocketService, didReceiveMessage message: [String: Any]) {
-        print("📥 [AIVoice] Received message: \(message["type"] as? String ?? "unknown")")
+        let messageType = message["type"] as? String ?? "unknown"
+        let isMatchingWebSocket = service is MatchingWebSocketService
+        
+        // Only log important messages, not frequent audio messages
+        if !["response.audio.delta", "audio_received", "stt_chunk"].contains(messageType) {
+            print("📥 [AIVoice] Received message: \(messageType) from \(isMatchingWebSocket ? "MATCHING" : "AI_AUDIO") WebSocket")
+        }
         
         guard let type = message["type"] as? String else { return }
         
+        // Handle messages from Matching WebSocket
+        if isMatchingWebSocket {
+            print("🎯 [MATCHING] Processing matching WebSocket message: \(type)")
+            
+            switch type {
+            case "welcome":
+                print("✅ [MATCHING] Connected to matching WebSocket successfully!")
+                print("🎯 [MATCHING] Connection ID: \(message["connection_id"] as? String ?? "unknown")")
+                print("🎯 [MATCHING] User ID: \(message["user_id"] as? String ?? "unknown")")
+                
+            case "match_found":
+                print("🎉🎉🎉 [MATCHING] MATCH FOUND NOTIFICATION RECEIVED!")
+                print("🎯 [MATCHING] Match ID: \(message["match_id"] as? String ?? "unknown")")
+                print("🎯 [MATCHING] Room ID: \(message["room_id"] as? String ?? "unknown")")
+                print("🎯 [MATCHING] Session ID: \(message["session_id"] as? String ?? "unknown")")
+                print("🎯 [MATCHING] Processing match data...")
+                handleMatchFound(message)
+                
+            case "queue_update", "queue_position_update":
+                let position = message["position"] as? Int ?? 0
+                let waitTime = message["estimated_wait_time"] as? Int ?? 0
+                print("📊 [MATCHING] Queue update - Position: \(position), Wait time: \(waitTime)s")
+                
+            case "ai_match_found":
+                print("🤖🎉 [MATCHING] AI MATCH FOUND NOTIFICATION!")
+                handleMatchFound(message)
+                
+            case "timeout_match_found":
+                print("⏰🎉 [MATCHING] TIMEOUT MATCH FOUND!")
+                handleMatchFound(message)
+                
+            case "ping":
+                // Heartbeat message - just acknowledge
+                print("💓 [MATCHING] Heartbeat received")
+                
+            case "error":
+                let errorMsg = message["message"] as? String ?? "unknown"
+                print("❌ [MATCHING] WebSocket Error: \(errorMsg)")
+                
+            default:
+                print("❓ [MATCHING] Unknown matching message type: \(type)")
+                print("🔍 [MATCHING] Full message: \(message)")
+            }
+            return
+        }
+        
+        // Handle messages from AI Audio WebSocket (existing logic with less verbose logging)
         switch type {
         case "authenticated":
-            print("✅ [AIVoice] Authenticated with backend")
+            print("✅ [AI_AUDIO] Authenticated with backend")
             if !isAuthenticated {
                 sendStartSession()
                 isAuthenticated = true
             }
             
         case "session_started":
-            print("✅ [AIVoice] Session started")
+            print("✅ [AI_AUDIO] Session started")
             sessionStarted = true
+            
+            // Send initial greeting
+            let greetingMessage: [String: Any] = [
+                "type": "user_message",
+                "message": "start_conversation",
+                "timestamp": Date().timeIntervalSince1970
+            ]
+            service.send(greetingMessage)
+            print("👋 [AI_AUDIO] Sent initial greeting request")
+            
             Task {
                 await startListening()
             }
             
         case "stt_chunk":
-            // 不显示部分转写，避免UI闪烁
+            // 不显示部分转写，避免UI闪烁 - COMMENTED OUT
             break
             
         case "stt_done":
-            print("✅ [AIVoice] Complete transcription received")
+            print("✅ [AI_AUDIO] Complete transcription received")
             if let text = message["text"] as? String {
-                print("📝✅ [AIVoice] You said: '\(text)'")
+                print("📝✅ [AI_AUDIO] You said: '\(text)'")
                 DispatchQueue.main.async {
                     self.currentResponse = "" // 清空，准备接收AI回复
                 }
             }
             
         case "speech_started":
-            print("🎤 [AIVoice] User speech started")
+            print("🎤 [AI_AUDIO] User speech started")
             
         case "speech_stopped":
-            print("🔇 [AIVoice] User speech stopped")
+            print("🔇 [AI_AUDIO] User speech stopped")
             
         case "ai_response_started":
-            print("🤖 [AIVoice] AI response started")
+            print("🤖 [AI_AUDIO] AI response started")
             stopAllAudio() // 停止之前的音频，开始新响应
             
         case "response.text.delta":
-            print("📝 [AIVoice] Text delta received")
+            // print("📝 [AI_AUDIO] Text delta received") // COMMENTED OUT - too verbose
             if let textDelta = message["delta"] as? String {
                 DispatchQueue.main.async {
                     self.currentResponse += textDelta
@@ -700,24 +838,24 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             }
             
         case "response.audio.delta":
-            print("🔊 [AIVoice] Audio delta received (using this, ignoring audio_chunk to prevent duplicates)")
+            // print("🔊 [AI_AUDIO] Audio delta received") // COMMENTED OUT - too verbose
             if let audioData = message["delta"] as? String {
                 addAudioChunk(audioData)
             }
             
         case "response.done":
-            print("✅ [AIVoice] AI response completed")
+            print("✅ [AI_AUDIO] AI response completed")
             finalizeAndPlayAudio() // 完成累积并播放
             
-        case "match_found":
-            print("🎯 [AIVoice] Match found!")
-            handleMatchFound(message)
+        case "audio_received":
+            // COMMENTED OUT - too verbose: print("📥 [AI_AUDIO] Audio received confirmation")
+            break
             
         case "error":
-            print("❌ [AIVoice] WebSocket error: \(message["message"] as? String ?? "unknown")")
+            print("❌ [AI_AUDIO] WebSocket error: \(message["message"] as? String ?? "unknown")")
             
         default:
-            print("❓ [AIVoice] Unknown message type: \(type)")
+            print("❓ [AI_AUDIO] Unknown AI audio message type: \(type)")
         }
     }
     
@@ -785,5 +923,20 @@ extension AVAudioPCMBuffer {
         let audioBuffer = audioBufferList.pointee.mBuffers
         let data = Data(bytes: audioBuffer.mData!, count: Int(audioBuffer.mDataByteSize))
         return data
+    }
+}
+
+// MARK: - Matching WebSocket Service
+class MatchingWebSocketService: WebSocketService {
+    override func connect(to endpoint: String, with token: String) {
+        print("🎯 [MatchingWS] Connecting to matching WebSocket: \(endpoint)")
+        print("🎯 [MatchingWS] Full URL will be: \(APIConfig.wsBaseURL)\(endpoint)")
+        print("🎯 [MatchingWS] Token prefix: \(token.prefix(20))...")
+        super.connect(to: endpoint, with: token)
+    }
+    
+    override func send(_ message: [String : Any]) {
+        print("📤 [MatchingWS] Sending message: \(message["type"] as? String ?? "unknown")")
+        super.send(message)
     }
 }
