@@ -7,6 +7,9 @@
 
 import SwiftUI
 import AVFoundation
+// LiveKit imports
+import LiveKit
+import LiveKitComponents
 
 struct HashtagScreen: View {
     let matchData: LiveMatchData
@@ -50,7 +53,7 @@ struct HashtagScreen: View {
                 .padding(.trailing, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
 
-            Text("Let's talk about \(matchData.hashtags.first ?? "#general")")
+            
                 .font(.custom("Rajdhani", size: 40))
                 .foregroundColor(.white)
                 .padding(.bottom, 150)
@@ -61,7 +64,7 @@ struct HashtagScreen: View {
                 ForEach(Array(matchData.participants.enumerated()), id: \.offset) { index, participant in
                     let offsets = getParticipantOffset(for: index, total: matchData.participants.count)
                     
-                    ParticipantView(participant: participant)
+                    ParticipantView(participant: participant, isConnected: liveKitService.isConnected)
                         .offset(x: offsets.x, y: offsets.y)
                         .shadow(color: participant.isCurrentUser ? .blue.opacity(0.5) : .white.opacity(0.3), 
                                radius: 15, x: 0, y: 0)
@@ -110,6 +113,26 @@ struct HashtagScreen: View {
                 }
                 .padding(.bottom, 80)
             }
+            
+            // Connection status indicator
+            VStack {
+                HStack {
+                    Spacer()
+                    HStack {
+                        Circle()
+                            .fill(liveKitService.isConnected ? .green : .red)
+                            .frame(width: 8, height: 8)
+                        Text(liveKitService.isConnected ? "Connected" : "Connecting...")
+                            .font(.caption)
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.black.opacity(0.6)))
+                }
+                .padding()
+                Spacer()
+            }
         }
         .onAppear {
             // Connect to LiveKit when view appears
@@ -153,6 +176,7 @@ struct HashtagScreen: View {
 // Participant view component
 private struct ParticipantView: View {
     let participant: MatchParticipant
+    let isConnected: Bool
     
     var body: some View {
         VStack {
@@ -160,6 +184,13 @@ private struct ParticipantView: View {
             let profileImage = participant.isCurrentUser ? "profile1" : "profile\(min(Int.random(in: 1...3), 3))"
             
             CirclePic(asset: profileImage)
+                .overlay(
+                    // Audio indicator
+                    Circle()
+                        .stroke(isConnected ? .green : .gray, lineWidth: 3)
+                        .scaleEffect(isConnected ? 1.1 : 1.0)
+                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: isConnected)
+                )
             
             Text(participant.displayName)
                 .font(.custom("Rajdhani", size: 14))
@@ -181,13 +212,21 @@ private struct CirclePic: View {
     }
 }
 
-// LiveKit service for managing the audio call
-class LiveKitCallService: ObservableObject {
+// Real LiveKit service implementation
+@MainActor
+class LiveKitCallService: ObservableObject, @unchecked Sendable {
     @Published var isConnected = false
     @Published var isMuted = false
     @Published var participants: [MatchParticipant] = []
+    @Published var connectionState: String = "Disconnected"
     
+    // MARK: - LiveKit Integration
+    private var room: Room?
+    private var localParticipant: LocalParticipant?
+    
+    // Audio session for LiveKit
     private var audioSession: AVAudioSession?
+    private var isSimulatingConnection = false
     
     init() {
         setupAudioSession()
@@ -196,7 +235,8 @@ class LiveKitCallService: ObservableObject {
     private func setupAudioSession() {
         do {
             audioSession = AVAudioSession.sharedInstance()
-            try audioSession?.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
+            // Configure for voice chat with speaker output
+            try audioSession?.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
             try audioSession?.setActive(true)
             print("✅ [LiveKit] Audio session configured for voice chat")
         } catch {
@@ -204,31 +244,90 @@ class LiveKitCallService: ObservableObject {
         }
     }
     
+
+    
     func connect(roomId: String, token: String, participants: [MatchParticipant]) async {
         print("🔗 [LiveKit] Connecting to room: \(roomId)")
         
         await MainActor.run {
             self.participants = participants
-            self.isConnected = true
+            self.connectionState = "Connecting..."
         }
         
-        // TODO: Implement actual LiveKit connection
-        // This would integrate with the LiveKit iOS SDK
-        // For now, we simulate a successful connection
+        // REAL LIVEKIT IMPLEMENTATION:
+        do {
+            room = Room()
+            
+            // Configure connect options for voice-only
+            let connectOptions = ConnectOptions(
+                autoSubscribe: true
+            )
+            
+            try await room?.connect(
+                url: "wss://voodooo-5oh49lvx.livekit.cloud", // Your LiveKit server URL
+                token: token,
+                connectOptions: connectOptions
+            )
+            
+            // Enable microphone after connecting
+            try await room?.localParticipant.setMicrophone(enabled: true)
+            
+            // Set up event handlers
+            setupRoomEventHandlers()
+            
+            self.isConnected = true
+            self.connectionState = "Connected"
+            self.localParticipant = self.room?.localParticipant
+            
+            print("✅ [LiveKit] Successfully connected to room!")
+            
+        } catch {
+            print("❌ [LiveKit] Failed to connect: \(error)")
+            self.connectionState = "Connection failed"
+            self.isConnected = false
+        }
         
         print("✅ [LiveKit] Connected to live audio call")
         print("   🏷️ Room: \(roomId)")
         print("   👥 Participants: \(participants.count)")
     }
     
+    // REAL LIVEKIT EVENT HANDLERS:
+    private func setupRoomEventHandlers() {
+        guard let room = room else { return }
+        
+        // Handle participant connections
+        room.add(delegate: self)
+        
+        print("✅ [LiveKit] Room event handlers configured")
+    }
+    
+    // Handle new participants joining
+    nonisolated func room(_ room: Room, participantDidConnect participant: RemoteParticipant) {
+        print("🎉 [LiveKit] Participant joined: \(participant.identity)")
+        // LiveKit will automatically handle audio track subscriptions
+    }
+    
+    // Handle participants leaving
+    nonisolated func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
+        print("👋 [LiveKit] Participant left: \(participant.identity)")
+    }
+    
     func disconnect() {
         print("🔌 [LiveKit] Disconnecting from live call")
         
-        isConnected = false
-        isMuted = false
-        participants = []
+        // REAL LIVEKIT DISCONNECT:
+        Task { @MainActor in
+            await room?.disconnect()
+            self.room = nil
+            self.localParticipant = nil
+            self.isConnected = false
+            self.connectionState = "Disconnected"
+            self.isMuted = false
+            self.participants = []
+            self.isSimulatingConnection = false
+        }
         
-        // TODO: Implement actual LiveKit disconnection
         print("✅ [LiveKit] Disconnected successfully")
     }
     
@@ -236,7 +335,37 @@ class LiveKitCallService: ObservableObject {
         isMuted.toggle()
         print("🔇 [LiveKit] Audio \(isMuted ? "muted" : "unmuted")")
         
-        // TODO: Implement actual mute/unmute with LiveKit SDK
+        // REAL LIVEKIT MUTE:
+        Task { @MainActor in
+            try? await localParticipant?.setMicrophone(enabled: !isMuted)
+        }
+    }
+    
+
+}
+
+// MARK: - LiveKit Room Delegate
+extension LiveKitCallService: RoomDelegate {
+    // Implement required delegate methods for handling room events
+    nonisolated func room(_ room: Room, didUpdateConnectionState connectionState: ConnectionState, from oldValue: ConnectionState) {
+        Task { @MainActor in
+            switch connectionState {
+            case .connected:
+                self.connectionState = "Connected"
+                self.isConnected = true
+            case .connecting:
+                self.connectionState = "Connecting..."
+                self.isConnected = false
+            case .disconnected:
+                self.connectionState = "Disconnected"
+                self.isConnected = false
+            case .reconnecting:
+                self.connectionState = "Reconnecting..."
+                self.isConnected = false
+            default:
+                self.connectionState = "Unknown"
+            }
+        }
     }
 }
 

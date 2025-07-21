@@ -122,12 +122,19 @@ struct UserVoiceTopicMatchingView: View {
                 print("   👥 Participants: \(matchData.participants.count)")
                 print("🚀 [NAVIGATION] Setting navigation state...")
                 
+                // 🛑 CRITICAL: Stop AI conversation first
+                Task {
+                    await aiVoiceService.stopAIConversation()
+                    print("✅ [NAVIGATION] AI conversation stopped")
+                }
+                
                 self.matchData = matchData
                 self.navigateToLiveChat = true
                 
                 print("✅ [NAVIGATION] Navigation state set - should navigate now!")
             } else {
                 print("❌ [NAVIGATION] Match data is nil - no navigation will occur")
+                print("🔍 [NAVIGATION] Debug - aiVoiceService.matchFound value: \(String(describing: aiVoiceService.matchFound))")
             }
         }
     }
@@ -140,7 +147,26 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     @Published var isMuted = false
     @Published var currentResponse = ""
     @Published var isAISpeaking = false
-    @Published var matchFound: LiveMatchData?
+    @Published var matchFound: LiveMatchData? {
+        didSet {
+            if let matchData = matchFound {
+                print("🎯 [AIVoice] matchFound SET with Match ID: \(matchData.matchId)")
+                // Store a backup copy to prevent accidental resets
+                lastMatchData = matchData
+                hasActiveMatch = true
+            } else {
+                print("⚠️ [AIVoice] matchFound set to NIL")
+                if hasActiveMatch && lastMatchData != nil {
+                    print("🔄 [AIVoice] Restoring matchFound from backup...")
+                    matchFound = lastMatchData
+                }
+            }
+        }
+    }
+    
+    // Backup storage for match data
+    private var lastMatchData: LiveMatchData?
+    private var hasActiveMatch: Bool = false
     
     private var matchContext: MatchResult?
     private var conversationContext: String = ""
@@ -448,10 +474,50 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
         }
     }
     
+    // 🛑 停止 AI 对话的方法
+    func stopAIConversation() async {
+        print("🛑 [AIVoice] Stopping AI conversation...")
+        
+        await MainActor.run {
+            // 停止所有音频活动
+            isListening = false
+            isAISpeaking = false
+            currentResponse = ""
+        }
+        
+        // 停止音频引擎
+        stopAudioEngine()
+        
+        // 停止所有音频播放
+        stopAllAudio()
+        
+        // 断开 AI Audio WebSocket (保持 Matching WebSocket 连接)
+        webSocketService?.disconnect()
+        webSocketService = nil
+        
+        // 重置认证状态
+        isAuthenticated = false
+        sessionStarted = false
+        
+        print("✅ [AIVoice] AI conversation stopped and cleaned up")
+    }
+    
+    // 清理匹配数据的方法
+    func clearMatchData() {
+        print("🧹 [AIVoice] Clearing match data...")
+        hasActiveMatch = false
+        lastMatchData = nil
+        matchFound = nil
+        print("✅ [AIVoice] Match data cleared")
+    }
+    
     deinit {
-        cleanup()
-        inputNode?.removeTap(onBus: 0)
-        print("🧹 [AIVoice] Audio service deallocated")
+        print("🧹 [AIVoice] AIVoiceService deallocating - cleaning up resources")
+        Task {
+            await stopAIConversation()
+        }
+        // 也断开 Matching WebSocket
+        matchingWebSocketService?.disconnect()
     }
     
     // MARK: - 🔧 修复后的统一音频播放系统
@@ -485,7 +551,7 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
             // 累积音频数据（GPT-4o发送的是PCM16片段）
             let previousSize = self.audioAccumulator.count
             self.audioAccumulator.append(audioData)
-            print("🎵 [AIVoice] Audio chunk accumulated: +\(audioData.count) bytes, total: \(previousSize) → \(self.audioAccumulator.count) bytes")
+            // print("🎵 [AIVoice] Audio chunk accumulated: +\(audioData.count) bytes, total: \(previousSize) → \(self.audioAccumulator.count) bytes")  // COMMENTED OUT - too verbose
         }
     }
     
@@ -496,7 +562,7 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
                 return
             }
             
-            print("🔊 [AIVoice] Finalizing and playing complete audio response: \(self.audioAccumulator.count) bytes")
+            // print("🔊 [AIVoice] Finalizing and playing complete audio response: \(self.audioAccumulator.count) bytes")  // COMMENTED OUT - too verbose
             
             // 转换PCM16数据为WAV格式用于播放
             let wavData = self.convertPCM16ToWAV(self.audioAccumulator)
@@ -565,7 +631,7 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
                 self.playNextAudioInQueue()
             }
             
-            print("🔊 [AIVoice] Audio playback finished, queue remaining: \(self.audioQueue.count)")
+            // print("🔊 [AIVoice] Audio playback finished, queue remaining: \(self.audioQueue.count)")  // COMMENTED OUT - too verbose
         }
     }
     
@@ -672,8 +738,24 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
         
         // Update on main thread
         DispatchQueue.main.async {
+            print("🔄 [MATCHING] About to set matchFound on main thread...")
+            print("🔍 [MATCHING] Current matchFound value before: \(String(describing: self.matchFound))")
+            
             self.matchFound = liveMatchData
+            
             print("✅ [MATCHING] matchFound set on main thread - should trigger navigation now!")
+            print("🔍 [MATCHING] Current matchFound value after: \(String(describing: self.matchFound))")
+            print("🎯 [MATCHING] LiveMatchData details:")
+            print("   🆔 Match ID: \(liveMatchData.matchId)")
+            print("   🏠 Room ID: \(liveMatchData.roomId)")
+            print("   👥 Participants: \(liveMatchData.participants.count)")
+            
+            // Verify the assignment worked
+            if self.matchFound != nil {
+                print("✅ [MATCHING] Verification: matchFound is NOT nil")
+            } else {
+                print("❌ [MATCHING] CRITICAL ERROR: matchFound is nil after assignment!")
+            }
         }
         
         print("🎯🎯🎯 [MATCHING] ===== MATCH PROCESSING COMPLETED =====")
@@ -727,7 +809,7 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
         let isMatchingWebSocket = service is MatchingWebSocketService
         
         // Only log important messages, not frequent audio messages
-        if !["response.audio.delta", "audio_received", "stt_chunk"].contains(messageType) {
+        if !["response.audio.delta", "audio_received", "stt_chunk", "audio_chunk"].contains(messageType) {
             print("📥 [AIVoice] Received message: \(messageType) from \(isMatchingWebSocket ? "MATCHING" : "AI_AUDIO") WebSocket")
         }
         
@@ -808,7 +890,7 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
         case "stt_chunk":
             // 不显示部分转写，避免UI闪烁 - COMMENTED OUT
             break
-            
+        
         case "stt_done":
             print("✅ [AI_AUDIO] Complete transcription received")
             if let text = message["text"] as? String {
@@ -850,11 +932,20 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
             // COMMENTED OUT - too verbose: print("📥 [AI_AUDIO] Audio received confirmation")
             break
             
+        case "audio_chunk":
+            // print("❓ [AI_AUDIO] Unknown AI audio message type: audio_chunk")  // COMMENTED OUT - too verbose
+            if let audioData = message["audio"] as? String {
+                addAudioChunk(audioData)
+            }
+            
         case "error":
             print("❌ [AI_AUDIO] WebSocket error: \(message["message"] as? String ?? "unknown")")
             
         default:
-            print("❓ [AI_AUDIO] Unknown AI audio message type: \(type)")
+            // Only log unknown types that aren't common verbose messages
+            if !["response.audio.delta", "audio_chunk", "stt_chunk"].contains(type) {
+                print("❓ [AI_AUDIO] Unknown AI audio message type: \(type)")
+            }
         }
     }
     
