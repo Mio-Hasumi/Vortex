@@ -14,11 +14,40 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query
 from pydantic import BaseModel
 
-from infrastructure.container import container, get_websocket_manager
+from infrastructure.container import container
 from infrastructure.middleware.firebase_auth_middleware import get_current_user
 from domain.entities import MatchStatus, User
 
 logger = logging.getLogger(__name__)
+
+# Dependency injection functions
+def get_websocket_manager():
+    """Get WebSocket manager instance"""
+    return container.get_websocket_manager()
+
+def get_matching_repository():
+    """Get matching repository instance"""
+    return container.get_matching_repository()
+
+def get_ai_host_service():
+    """Get AI host service instance"""
+    return container.get_ai_host_service()
+
+def get_openai_service():
+    """Get OpenAI service instance"""
+    return container.get_openai_service()
+
+def get_room_repository():
+    """Get room repository instance"""
+    return container.get_room_repository()
+
+def get_topic_repository():
+    """Get topic repository instance"""
+    return container.get_topic_repository()
+
+def get_event_broadcaster():
+    """Get event broadcaster instance"""
+    return container.get_event_broadcaster()
 
 router = APIRouter()
 
@@ -74,29 +103,6 @@ class MatchConfirmationResponse(BaseModel):
     matched_at: Optional[str] = None
     message: Optional[str] = None
     estimated_wait_time: Optional[int] = None
-
-# Dependency injection
-def get_matching_repository():
-    return container.get_matching_repository()
-
-def get_topic_repository():
-    return container.get_topic_repository()
-
-def get_websocket_manager():
-    return container.get_websocket_manager()
-
-def get_event_broadcaster():
-    return container.get_event_broadcaster()
-
-def get_room_repository():
-    return container.get_room_repository()
-
-# NEW: AI service dependencies
-def get_ai_host_service():
-    return container.get_ai_host_service()
-
-def get_openai_service():
-    return container.get_openai_service()
 
 # Helper functions
 def get_topic_name_for_match(match, topic_repo) -> str:
