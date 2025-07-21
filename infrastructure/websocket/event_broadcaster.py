@@ -450,13 +450,13 @@ class EventBroadcaster:
             # Process AI-driven hashtag matching (NEW)
             await self._process_ai_hashtag_matching(ai_driven_users)
             
-            # Process traditional topic matching (EXISTING)
+            # Process traditional topic matching (EXISTING)  
             await self._process_traditional_topic_matching(topic_based_users)
                         
         except Exception as e:
             logger.error(f"❌ Error checking for matches: {e}")
 
-        async def _process_ai_hashtag_matching(self, ai_users: List[Dict]) -> None:
+    async def _process_ai_hashtag_matching(self, ai_users: List[Dict]) -> None:
         """
         Process AI-driven hashtag matching - only match users with active WebSocket connections
         """
