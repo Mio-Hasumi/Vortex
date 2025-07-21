@@ -1,18 +1,20 @@
 """
-Matching API routes
+Matching API endpoints for the VoiceApp backend
+Handles voice-based matching, topic-based matching, and real-time match updates via WebSocket
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+import json
+import os
 from typing import List, Optional
+from datetime import datetime, timedelta
 from uuid import UUID
 import asyncio
-import json
 import logging
-from datetime import datetime
-import os
 
-from infrastructure.container import container
+from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query
+from pydantic import BaseModel
+
+from infrastructure.container import container, get_websocket_manager
 from infrastructure.middleware.firebase_auth_middleware import get_current_user
 from domain.entities import MatchStatus, User
 
@@ -124,7 +126,7 @@ async def request_match(
         current_user_id = current_user.id
         
         # Create a match record
-        from infrastructure.repositories.matching_repository import new_match
+        from domain.entities import new_match
         match = new_match(
             user_id=current_user_id,
             preferred_topics=request.preferred_topics,
@@ -583,7 +585,13 @@ async def websocket_matching(websocket: WebSocket):
         # Get user_id from query parameters if available
         user_id_param = websocket.query_params.get("user_id")
         
+        logger.info(f"🔌🔌🔌 [MATCHING_WS] ===== NEW CONNECTION ATTEMPT =====")
+        logger.info(f"🔌 [MATCHING_WS] Query params: {dict(websocket.query_params)}")
+        logger.info(f"🔌 [MATCHING_WS] User ID param: {user_id_param}")
+        logger.info(f"🔌 [MATCHING_WS] Headers: {dict(websocket.headers)}")
+        
         if not user_id_param:
+            logger.error(f"❌ [MATCHING_WS] Missing user_id parameter!")
             # Accept connection to send error message
             await websocket.accept()
             await websocket.send_text(json.dumps({
@@ -591,47 +599,106 @@ async def websocket_matching(websocket: WebSocket):
                 "message": f"user_id query parameter required (e.g., ws://{os.getenv('RAILWAY_PUBLIC_DOMAIN', 'localhost:8000')}/api/matching/ws?user_id=your-uuid)"
             }))
             await websocket.close(code=1008)
+            logger.error(f"❌ [MATCHING_WS] Connection closed due to missing user_id")
             return
         
         try:
             user_id = UUID(user_id_param)
+            logger.info(f"✅ [MATCHING_WS] Valid user UUID: {user_id}")
         except ValueError:
+            logger.error(f"❌ [MATCHING_WS] Invalid UUID format: {user_id_param}")
             await websocket.accept()
             await websocket.send_text(json.dumps({
                 "type": "error",
                 "message": "Invalid user_id format. Must be a valid UUID"
             }))
             await websocket.close(code=1008)
+            logger.error(f"❌ [MATCHING_WS] Connection closed due to invalid UUID")
             return
+        
+        logger.info(f"🔌 [MATCHING_WS] About to register connection for user: {user_id}")
         
         # Register connection with WebSocket manager (this will accept the connection)
         connection_id = await websocket_manager.connect(websocket, user_id, "matching")
         
-        # Keep connection alive and handle messages
-        async for message in websocket.iter_text():
-            try:
-                msg_data = json.loads(message)
-                
-                if msg_data.get("type") == "ping":
-                    # Respond to ping
-                    await websocket.send_text(json.dumps({
-                        "type": "pong",
-                        "timestamp": datetime.utcnow().isoformat()
-                    }))
-                
-            except json.JSONDecodeError:
-                logger.warning(f"Invalid JSON received from WebSocket: {message}")
-            except Exception as e:
-                logger.error(f"Error processing WebSocket message: {e}")
-                break
-            
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for matching")
+        logger.info(f"✅✅✅ [MATCHING_WS] Connection registered successfully!")
+        logger.info(f"   🆔 Connection ID: {connection_id}")
+        logger.info(f"   👤 User ID: {user_id}")
+        logger.info(f"   🔗 Connection type: matching")
+        
+        # Send welcome message immediately
+        welcome_message = {
+            "type": "welcome",
+            "message": "Connected to matching service",
+            "user_id": str(user_id),
+            "connection_id": connection_id,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        await websocket.send_text(json.dumps(welcome_message))
+        logger.info(f"👋 [MATCHING_WS] Welcome message sent to {user_id}")
+        
+        # Main message handling loop
+        logger.info(f"🔄 [MATCHING_WS] Starting message handling loop...")
+        
+        try:
+            async for message in websocket.iter_text():
+                try:
+                    logger.debug(f"📥 [MATCHING_WS] Received message from {user_id}: {message}")
+                    
+                    data = json.loads(message)
+                    message_type = data.get("type", "unknown")
+                    
+                    logger.debug(f"📋 [MATCHING_WS] Processing message type: {message_type}")
+                    
+                    if message_type == "ping":
+                        # Heartbeat
+                        pong_message = {
+                            "type": "pong",
+                            "timestamp": datetime.utcnow().isoformat()
+                        }
+                        await websocket.send_text(json.dumps(pong_message))
+                        logger.debug(f"💓 [MATCHING_WS] Sent pong to {user_id}")
+                    
+                    elif message_type == "auth":
+                        # Authentication (if needed)
+                        auth_response = {
+                            "type": "authenticated",
+                            "user_id": str(user_id),
+                            "timestamp": datetime.utcnow().isoformat()
+                        }
+                        await websocket.send_text(json.dumps(auth_response))
+                        logger.info(f"🔐 [MATCHING_WS] Authentication confirmed for {user_id}")
+                    
+                    else:
+                        logger.warning(f"❓ [MATCHING_WS] Unknown message type: {message_type}")
+                        
+                except json.JSONDecodeError:
+                    logger.warning(f"⚠️ [MATCHING_WS] Invalid JSON from {user_id}: {message}")
+                except Exception as e:
+                    logger.error(f"❌ [MATCHING_WS] Error processing message from {user_id}: {e}")
+                    
+        except WebSocketDisconnect:
+            logger.info(f"👋👋👋 [MATCHING_WS] WebSocket disconnect (normal): {user_id}")
+        except Exception as e:
+            logger.error(f"❌ [MATCHING_WS] Unexpected error in message loop: {e}")
+            logger.exception("Full exception details:")
+        
     except Exception as e:
-        logger.error(f"❌ Error in WebSocket endpoint: {e}")
+        logger.error(f"❌❌❌ [MATCHING_WS] Fatal error in WebSocket handler: {e}")
+        logger.exception("Full exception details:")
+        
     finally:
-        # Cleanup is handled by the connection manager
-        pass
+        # Cleanup
+        if 'connection_id' in locals():
+            logger.info(f"🧹 [MATCHING_WS] Cleaning up connection: {connection_id}")
+            await websocket_manager.disconnect(connection_id)
+        else:
+            logger.warning(f"⚠️ [MATCHING_WS] No connection_id to cleanup")
+            
+        logger.info(f"🔌🔌🔌 [MATCHING_WS] ===== CONNECTION CLOSED =====")
+        logger.info(f"🔌 [MATCHING_WS] User: {user_id_param if 'user_id_param' in locals() else 'unknown'}")
+        logger.info(f"🔌 [MATCHING_WS] Connection duration: [WebSocket closed]")
 
 # General WebSocket endpoint
 @router.websocket("/ws/general")  

@@ -103,7 +103,11 @@ struct UserVoiceTopicMatchingView: View {
         .background(
             NavigationLink(
                 destination: matchData.map { data in
-                    HashtagScreen(matchData: data)
+                    print("🚀🚀🚀 [NAVIGATION] NavigationLink destination being created!")
+                    print("   🆔 Destination Match ID: \(data.matchId)")
+                    print("   🏠 Destination Room ID: \(data.roomId)")
+                    print("   👥 Destination Participants: \(data.participants.count)")
+                    return HashtagScreen(matchData: data)
                 },
                 isActive: $navigateToLiveChat
             ) {
@@ -113,29 +117,49 @@ struct UserVoiceTopicMatchingView: View {
         )
         // Listen for match found events
         .onReceive(aiVoiceService.$matchFound) { matchData in
-            print("🔔 [NAVIGATION] onReceive triggered - matchData received!")
+            print("🔔🔔🔔 [NAVIGATION] ===== onReceive TRIGGERED =====")
+            print("🔍 [NAVIGATION] matchData parameter: \(String(describing: matchData))")
+            print("🔍 [NAVIGATION] aiVoiceService.matchFound: \(String(describing: aiVoiceService.matchFound))")
+            print("🔍 [NAVIGATION] Current navigateToLiveChat: \(navigateToLiveChat)")
+            print("🔍 [NAVIGATION] Current self.matchData: \(String(describing: self.matchData))")
             
             if let matchData = matchData {
-                print("✅ [NAVIGATION] Match data is valid:")
+                print("✅✅✅ [NAVIGATION] Match data is VALID!")
                 print("   🆔 Match ID: \(matchData.matchId)")
                 print("   🏠 Room ID: \(matchData.roomId)")
                 print("   👥 Participants: \(matchData.participants.count)")
-                print("🚀 [NAVIGATION] Setting navigation state...")
+                for (index, participant) in matchData.participants.enumerated() {
+                    print("     👤 [\(index)] \(participant.displayName) (\(participant.userId)) - Current: \(participant.isCurrentUser)")
+                }
+                print("   🏷️ Topics: \(matchData.topics)")
+                print("   #️⃣ Hashtags: \(matchData.hashtags)")
+                print("🚀 [NAVIGATION] About to stop AI and set navigation state...")
                 
                 // 🛑 CRITICAL: Stop AI conversation first
                 Task {
                     await aiVoiceService.stopAIConversation()
-                    print("✅ [NAVIGATION] AI conversation stopped")
+                    print("✅ [NAVIGATION] AI conversation stopped successfully")
+                    
+                    await MainActor.run {
+                        print("🎯 [NAVIGATION] Setting matchData and navigation flag...")
+                        self.matchData = matchData
+                        self.navigateToLiveChat = true
+                        
+                        print("✅ [NAVIGATION] Navigation state set!")
+                        print("   📍 self.matchData is now: \(String(describing: self.matchData))")
+                        print("   🚀 navigateToLiveChat is now: \(navigateToLiveChat)")
+                    }
                 }
                 
-                self.matchData = matchData
-                self.navigateToLiveChat = true
-                
-                print("✅ [NAVIGATION] Navigation state set - should navigate now!")
             } else {
-                print("❌ [NAVIGATION] Match data is nil - no navigation will occur")
-                print("🔍 [NAVIGATION] Debug - aiVoiceService.matchFound value: \(String(describing: aiVoiceService.matchFound))")
+                print("❌❌❌ [NAVIGATION] Match data is NIL!")
+                print("�� [NAVIGATION] Debugging aiVoiceService state:")
+                print("   🔍 aiVoiceService.matchFound: \(String(describing: aiVoiceService.matchFound))")
+                print("   🔍 aiVoiceService.hasActiveMatch: \(aiVoiceService.hasActiveMatch)")
+                print("   🔍 aiVoiceService.lastMatchData: \(String(describing: aiVoiceService.lastMatchData))")
             }
+            
+            print("🔔🔔🔔 [NAVIGATION] ===== onReceive COMPLETED =====")
         }
     }
 }
@@ -165,8 +189,8 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     }
     
     // Backup storage for match data
-    private var lastMatchData: LiveMatchData?
-    private var hasActiveMatch: Bool = false
+    var lastMatchData: LiveMatchData?  // Made public for debugging
+    var hasActiveMatch: Bool = false   // Made public for debugging
     
     private var matchContext: MatchResult?
     private var conversationContext: String = ""
@@ -679,20 +703,23 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
     private func handleMatchFound(_ message: [String: Any]) {
         print("🎯🎯🎯 [MATCHING] ===== PROCESSING MATCH FOUND MESSAGE =====")
         print("🔍 [MATCHING] Full message received: \(message)")
+        print("🔍 [MATCHING] Current thread: \(Thread.current)")
+        print("🔍 [MATCHING] Is main thread: \(Thread.isMainThread)")
         
         guard let matchId = message["match_id"] as? String,
               let sessionId = message["session_id"] as? String,
               let roomId = message["room_id"] as? String,
               let livekitToken = message["livekit_token"] as? String else {
-            print("❌ [MATCHING] Invalid match data received - missing required fields!")
+            print("❌❌❌ [MATCHING] CRITICAL: Invalid match data received - missing required fields!")
             print("❌ [MATCHING] match_id: \(message["match_id"] as? String ?? "MISSING")")
             print("❌ [MATCHING] session_id: \(message["session_id"] as? String ?? "MISSING")")
             print("❌ [MATCHING] room_id: \(message["room_id"] as? String ?? "MISSING")")
             print("❌ [MATCHING] livekit_token: \(message["livekit_token"] as? String ?? "MISSING")")
+            print("🎯🎯🎯 [MATCHING] ===== MATCH PROCESSING FAILED - EXITING =====")
             return
         }
         
-        print("✅ [MATCHING] All required fields present:")
+        print("✅✅✅ [MATCHING] All required fields present:")
         print("   🆔 Match ID: \(matchId)")
         print("   📱 Session ID: \(sessionId)")
         print("   🏠 Room ID: \(roomId)")
@@ -701,6 +728,7 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
         // Parse participants
         let participantsData = message["participants"] as? [[String: Any]] ?? []
         print("👥 [MATCHING] Parsing \(participantsData.count) participants...")
+        print("👥 [MATCHING] Raw participants data: \(participantsData)")
         
         let participants = participantsData.compactMap { data -> MatchParticipant? in
             guard let userId = data["user_id"] as? String,
@@ -712,6 +740,8 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
             print("👤 [MATCHING] Participant: \(displayName) (\(userId)) - Current user: \(isCurrentUser)")
             return MatchParticipant(userId: userId, displayName: displayName, isCurrentUser: isCurrentUser)
         }
+        
+        print("👥 [MATCHING] Successfully parsed \(participants.count) participants")
         
         let topics = message["topics"] as? [String] ?? []
         let hashtags = message["hashtags"] as? [String] ?? []
@@ -729,33 +759,44 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
             hashtags: hashtags
         )
         
-        print("✅ [MATCHING] Match data processed successfully!")
+        print("✅✅✅ [MATCHING] LiveMatchData object created successfully!")
         print("   👥 Participants count: \(participants.count)")
         print("   🏷️ Topics count: \(topics.count)")
         print("   #️⃣ Hashtags count: \(hashtags.count)")
+        print("   📦 LiveMatchData object: \(liveMatchData)")
         
-        print("🚀 [MATCHING] Setting matchFound to trigger navigation...")
+        print("🚀🚀🚀 [MATCHING] About to dispatch to main queue...")
         
         // Update on main thread
         DispatchQueue.main.async {
-            print("🔄 [MATCHING] About to set matchFound on main thread...")
-            print("🔍 [MATCHING] Current matchFound value before: \(String(describing: self.matchFound))")
+            print("🔄🔄🔄 [MATCHING] ===== MAIN QUEUE EXECUTION STARTED =====")
+            print("🔍 [MATCHING] Current thread in main async: \(Thread.current)")
+            print("🔍 [MATCHING] Is main thread: \(Thread.isMainThread)")
+            
+            print("🔍 [MATCHING] Current matchFound value BEFORE: \(String(describing: self.matchFound))")
+            print("🔍 [MATCHING] About to set matchFound...")
             
             self.matchFound = liveMatchData
             
-            print("✅ [MATCHING] matchFound set on main thread - should trigger navigation now!")
-            print("🔍 [MATCHING] Current matchFound value after: \(String(describing: self.matchFound))")
-            print("🎯 [MATCHING] LiveMatchData details:")
-            print("   🆔 Match ID: \(liveMatchData.matchId)")
-            print("   🏠 Room ID: \(liveMatchData.roomId)")
-            print("   👥 Participants: \(liveMatchData.participants.count)")
+            print("✅✅✅ [MATCHING] matchFound has been set!")
+            print("🔍 [MATCHING] matchFound value AFTER setting: \(String(describing: self.matchFound))")
+            print("🔍 [MATCHING] Backup values:")
+            print("   🔍 lastMatchData: \(String(describing: self.lastMatchData))")
+            print("   🔍 hasActiveMatch: \(self.hasActiveMatch)")
             
-            // Verify the assignment worked
-            if self.matchFound != nil {
-                print("✅ [MATCHING] Verification: matchFound is NOT nil")
+            // Double check the assignment worked
+            if let assignedMatch = self.matchFound {
+                print("✅✅✅ [MATCHING] VERIFICATION: matchFound is NOT nil!")
+                print("   🆔 Verified Match ID: \(assignedMatch.matchId)")
+                print("   🏠 Verified Room ID: \(assignedMatch.roomId)")
+                print("   👥 Verified Participants: \(assignedMatch.participants.count)")
+                print("🎯 [MATCHING] This should trigger the @Published observer!")
             } else {
-                print("❌ [MATCHING] CRITICAL ERROR: matchFound is nil after assignment!")
+                print("❌❌❌ [MATCHING] CRITICAL ERROR: matchFound is STILL nil after assignment!")
+                print("❌ [MATCHING] This is a severe bug - assignment failed!")
             }
+            
+            print("🔄🔄🔄 [MATCHING] ===== MAIN QUEUE EXECUTION COMPLETED =====")
         }
         
         print("🎯🎯🎯 [MATCHING] ===== MATCH PROCESSING COMPLETED =====")
@@ -767,8 +808,11 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
         let isMatchingWebSocket = service is MatchingWebSocketService
         
         if isMatchingWebSocket {
-            print("✅ [MATCHING] Matching WebSocket connected successfully!")
+            print("✅✅✅ [MATCHING] ===== MATCHING WEBSOCKET CONNECTED =====")
             print("🎯 [MATCHING] Ready to receive match notifications")
+            print("🔍 [MATCHING] Current user ID: \(AuthService.shared.userId ?? "unknown")")
+            print("🔍 [MATCHING] Current timestamp: \(Date().timeIntervalSince1970)")
+            print("🔍 [MATCHING] Connection established successfully!")
         } else {
             print("✅ [AI_AUDIO] AI Audio WebSocket connected to GPT-4o Realtime")
             
@@ -791,7 +835,12 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
         let isMatchingWebSocket = service is MatchingWebSocketService
         
         if isMatchingWebSocket {
-            print("❌ [MATCHING] Matching WebSocket disconnected - NO MORE MATCH NOTIFICATIONS!")
+            print("❌❌❌ [MATCHING] ===== MATCHING WEBSOCKET DISCONNECTED =====")
+            print("❌ [MATCHING] NO MORE MATCH NOTIFICATIONS WILL BE RECEIVED!")
+            print("🔍 [MATCHING] Disconnect timestamp: \(Date().timeIntervalSince1970)")
+            print("🔍 [MATCHING] Current user ID: \(AuthService.shared.userId ?? "unknown")")
+            print("🔍 [MATCHING] Current matchFound state: \(String(describing: matchFound))")
+            print("⚠️ [MATCHING] This could be why matches are being missed!")
         } else {
             print("❌ [AI_AUDIO] AI Audio WebSocket disconnected")
             
@@ -817,7 +866,11 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
         
         // Handle messages from Matching WebSocket
         if isMatchingWebSocket {
-            print("🎯 [MATCHING] Processing matching WebSocket message: \(type)")
+            print("🎯🎯🎯 [MATCHING] ===== PROCESSING MATCHING WEBSOCKET MESSAGE =====")
+            print("🔍 [MATCHING] Message type: \(type)")
+            print("🔍 [MATCHING] Full message: \(message)")
+            print("🔍 [MATCHING] Current thread: \(Thread.current)")
+            print("🔍 [MATCHING] Is main thread: \(Thread.isMainThread)")
             
             switch type {
             case "welcome":
@@ -839,11 +892,17 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
                 print("📊 [MATCHING] Queue update - Position: \(position), Wait time: \(waitTime)s")
                 
             case "ai_match_found":
-                print("🤖🎉 [MATCHING] AI MATCH FOUND NOTIFICATION!")
+                print("🤖🎉🎉🎉 [MATCHING] AI MATCH FOUND NOTIFICATION!")
+                print("🤖 [MATCHING] AI Match ID: \(message["match_id"] as? String ?? "unknown")")
+                print("🤖 [MATCHING] AI Room ID: \(message["room_id"] as? String ?? "unknown")")
+                print("🤖 [MATCHING] Processing AI match data...")
                 handleMatchFound(message)
                 
             case "timeout_match_found":
-                print("⏰🎉 [MATCHING] TIMEOUT MATCH FOUND!")
+                print("⏰🎉🎉🎉 [MATCHING] TIMEOUT MATCH FOUND!")
+                print("⏰ [MATCHING] Timeout Match ID: \(message["match_id"] as? String ?? "unknown")")
+                print("⏰ [MATCHING] Timeout Room ID: \(message["room_id"] as? String ?? "unknown")")
+                print("⏰ [MATCHING] Processing timeout match data...")
                 handleMatchFound(message)
                 
             case "ping":
@@ -852,12 +911,15 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
                 
             case "error":
                 let errorMsg = message["message"] as? String ?? "unknown"
-                print("❌ [MATCHING] WebSocket Error: \(errorMsg)")
+                print("❌❌❌ [MATCHING] WebSocket Error: \(errorMsg)")
+                print("❌ [MATCHING] Full error message: \(message)")
                 
             default:
-                print("❓ [MATCHING] Unknown matching message type: \(type)")
-                print("🔍 [MATCHING] Full message: \(message)")
+                print("❓❓❓ [MATCHING] Unknown matching message type: \(type)")
+                print("🔍 [MATCHING] Full unknown message: \(message)")
             }
+            
+            print("🎯🎯🎯 [MATCHING] ===== MATCHING WEBSOCKET MESSAGE PROCESSED =====")
             return
         }
         
