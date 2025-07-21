@@ -1065,6 +1065,12 @@ async def _handle_realtime_streaming(websocket: WebSocket, openai_service, sessi
     ) as conn:
         try:
             # Configure session ONCE with proper audio settings and SERVER-SIDE VAD
+            # Following official OpenAI Realtime API pattern:
+            # 1. Connect once
+            # 2. Configure session once 
+            # 3. Stream audio with input_audio_buffer.append(audio=bytes)
+            # 4. Server VAD automatically handles turn detection
+            # 5. Listen for response.audio.delta and response.text.delta events
             await conn.session.update(
                 session={
                     "modalities": ["audio", "text"],
@@ -1144,9 +1150,10 @@ Guidelines:
                                 audio_bytes = base64.b64decode(audio_data)
                                 logger.info(f"📥 [ServerVAD] Decoded audio: {len(audio_bytes)} bytes")
                                 
-                                # Use appendInputAudio for proper streaming audio
-                                # Server VAD will automatically detect speech and trigger responses
-                                await conn.append_input_audio(audio_bytes)
+                                # Official OpenAI Realtime API pattern: use keyword argument audio=
+                                # This sends audio chunks to server-side VAD which automatically
+                                # detects speech boundaries and triggers AI responses
+                                await conn.input_audio_buffer.append(audio=audio_bytes)
                                 
                             except Exception as e:
                                 logger.error(f"❌ [ServerVAD] Audio processing failed: {e}")
@@ -1280,6 +1287,18 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
                     "type": "speech_stopped",
                     "timestamp": datetime.utcnow().isoformat()
                 }))
+                
+            elif event_type == "input_audio_buffer.committed":
+                # Audio buffer committed (for manual mode)
+                logger.info("📝 [ServerVAD] Audio buffer committed")
+                
+            elif event_type == "response.output_item.added":
+                # New output item added to response
+                logger.info("📤 [Response] Output item added")
+                
+            elif event_type == "response.content_part.added":
+                # New content part added
+                logger.info("📝 [Response] Content part added")
                 
             elif event_type == "error":
                 # Handle errors
