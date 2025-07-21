@@ -167,21 +167,47 @@ class EventBroadcaster:
             match_data: Match information including room details, tokens, etc.
         """
         try:
-            logger.info(f"🎯 Broadcasting AI match found: {user1_id} + {user2_id}")
+            logger.info(f"🎯🎯🎯 [BROADCAST] ===== BROADCASTING AI MATCH =====")
+            logger.info(f"🎯 [BROADCAST] User 1: {user1_id}")
+            logger.info(f"🎯 [BROADCAST] User 2: {user2_id}")
+            logger.info(f"🎯 [BROADCAST] Match data keys: {list(match_data.keys())}")
             
             # Convert string IDs to UUIDs
             user1_uuid = UUID(user1_id)
             user2_uuid = UUID(user2_id)
             
+            logger.info(f"✅ [BROADCAST] UUIDs created successfully")
+            logger.info(f"   🔍 User1 UUID: {user1_uuid}")
+            logger.info(f"   🔍 User2 UUID: {user2_uuid}")
+            
+            # Check if users have active WebSocket connections
+            user1_connected = await self.connection_manager.is_user_connected(user1_uuid)
+            user2_connected = await self.connection_manager.is_user_connected(user2_uuid)
+            
+            logger.info(f"🔌 [BROADCAST] Connection status:")
+            logger.info(f"   👤 User1 connected: {user1_connected}")
+            logger.info(f"   👤 User2 connected: {user2_connected}")
+            
+            if not user1_connected:
+                logger.warning(f"⚠️ [BROADCAST] User1 ({user1_id}) has NO active connections!")
+            if not user2_connected:
+                logger.warning(f"⚠️ [BROADCAST] User2 ({user2_id}) has NO active connections!")
+            
             # Get user-specific data from match_data
             user1_data = match_data["users"][user1_id]
             user2_data = match_data["users"][user2_id]
+            
+            logger.info(f"📊 [BROADCAST] User data extracted:")
+            logger.info(f"   👤 User1 data keys: {list(user1_data.keys())}")
+            logger.info(f"   👤 User2 data keys: {list(user2_data.keys())}")
             
             # Ensure hashtags are strings to prevent UUID object errors
             hashtags_str = []
             for tag in match_data["hashtags"]:
                 # Convert everything to string, including UUID objects
                 hashtags_str.append(str(tag))
+            
+            logger.info(f"🏷️ [BROADCAST] Processed hashtags: {hashtags_str}")
             
             # Process topics by removing # prefix from hashtag strings
             topics_list = []
@@ -192,6 +218,8 @@ class EventBroadcaster:
                     topics_list.append(tag_str[1:])  # Remove # prefix
                 else:
                     topics_list.append(tag_str)
+            
+            logger.info(f"📝 [BROADCAST] Processed topics: {topics_list}")
             
             # Create message for User 1
             message_user1 = {
@@ -223,17 +251,44 @@ class EventBroadcaster:
                 "timestamp": match_data["created_at"]
             }
             
-            # Send to both users
-            await self.connection_manager.send_to_user(user1_uuid, message_user1)
-            await self.connection_manager.send_to_user(user2_uuid, message_user2)
+            logger.info(f"📦 [BROADCAST] Messages created:")
+            logger.info(f"   📦 User1 message keys: {list(message_user1.keys())}")
+            logger.info(f"   📦 User2 message keys: {list(message_user2.keys())}")
+            logger.info(f"   🆔 Match ID: {message_user1['match_id']}")
+            logger.info(f"   🏠 Room ID: {message_user1['room_id']}")
+            logger.info(f"   👥 User1 participants: {len(message_user1['participants'])}")
+            logger.info(f"   👥 User2 participants: {len(message_user2['participants'])}")
             
-            logger.info(f"✅ AI match found notifications sent successfully")
+            # Send to both users
+            logger.info(f"📤📤📤 [BROADCAST] Sending messages to users...")
+            
+            user1_sent = await self.connection_manager.send_to_user(user1_uuid, message_user1)
+            logger.info(f"📤 [BROADCAST] User1 message sent: {user1_sent}")
+            
+            user2_sent = await self.connection_manager.send_to_user(user2_uuid, message_user2)
+            logger.info(f"📤 [BROADCAST] User2 message sent: {user2_sent}")
+            
+            if user1_sent and user2_sent:
+                logger.info(f"✅✅✅ [BROADCAST] AI match found notifications sent to BOTH users successfully!")
+            elif user1_sent or user2_sent:
+                logger.warning(f"⚠️⚠️⚠️ [BROADCAST] Only ONE user received the notification!")
+                logger.warning(f"   User1 received: {user1_sent}")
+                logger.warning(f"   User2 received: {user2_sent}")
+            else:
+                logger.error(f"❌❌❌ [BROADCAST] NO users received the notification!")
+                logger.error(f"   This indicates both users have disconnected WebSockets!")
+            
+            logger.info(f"📊 [BROADCAST] Match details:")
             logger.info(f"   📊 Match confidence: {match_data['confidence']:.2f}")
             logger.info(f"   🏷️ Hashtags: {match_data['hashtags']}")
+            logger.info(f"🎯🎯🎯 [BROADCAST] ===== BROADCAST COMPLETED =====")
             
         except Exception as e:
-            logger.error(f"❌ Failed to broadcast AI match found: {e}")
+            logger.error(f"❌❌❌ [BROADCAST] Failed to broadcast AI match found: {e}")
             logger.exception("Full exception details:")
+            logger.error(f"❌ [BROADCAST] user1_id: {user1_id}")
+            logger.error(f"❌ [BROADCAST] user2_id: {user2_id}")
+            logger.error(f"❌ [BROADCAST] match_data keys: {list(match_data.keys()) if match_data else 'None'}")
     
     async def _monitor_matching_queue(self) -> None:
         """Monitor matching queue for changes"""
