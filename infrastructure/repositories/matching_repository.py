@@ -170,7 +170,7 @@ class MatchingRepository:
             logger.error(f"❌ Failed to remove user {user_id} from queue: {e}")
             return False
     
-    def process_timeout_matches(self, timeout_minutes: int = 1) -> List[dict]:
+    async def process_timeout_matches(self, timeout_minutes: int = 1) -> List[dict]:
         """
         Process users who have been waiting too long and randomly match them
         
@@ -199,34 +199,53 @@ class MatchingRepository:
                 user1_id = user1['user_id']
                 user2_id = user2['user_id']
                 
-                # Create the timeout match
-                if self.redis.create_timeout_match(user1_id, user2_id):
-                    # Create a Match entity and save it
-                    match = Match(
-                        id=uuid4(),
-                        user_id=UUID(user1_id),
-                        preferred_topics=[],  # No specific topics for timeout match
-                        max_participants=2,
-                        status=MatchStatus.MATCHED,
-                        matched_users=[UUID(user2_id)],
-                        matched_at=datetime.utcnow()
+                # For timeout matches, create a full AI match instead of simple match
+                try:
+                    # Get hashtags from users if available
+                    user1_preferences = user1.get('preferences', {})
+                    user2_preferences = user2.get('preferences', {})
+                    
+                    user1_hashtags = user1_preferences.get('generated_hashtags', []) or user1.get('hashtags', [])
+                    user2_hashtags = user2_preferences.get('generated_hashtags', []) or user2.get('hashtags', [])
+                    
+                    # Use combined hashtags for the timeout match
+                    combined_hashtags = list(set(user1_hashtags + user2_hashtags))
+                    if not combined_hashtags:
+                        combined_hashtags = ['#GeneralChat', '#TimeoutMatch']
+                    
+                    # Create AI session ID for timeout match
+                    ai_session_id = f"timeout_ai_session_{user1_id}_{user2_id}_{datetime.utcnow().timestamp()}"
+                    
+                    # Create full AI match with room and tokens
+                    match_data = await self.create_ai_match(
+                        user1_id=user1_id,
+                        user2_id=user2_id,
+                        hashtags=combined_hashtags,
+                        confidence=0.5,  # Moderate confidence for timeout matches
+                        ai_session_id=ai_session_id
                     )
                     
-                    # Save to database
-                    saved_match = self.save_match(match)
-                    
                     match_info = {
-                        'match_id': str(saved_match.id),
+                        'match_id': match_data['match_id'],
+                        'session_id': match_data['session_id'],
+                        'room_id': match_data['room_id'],
                         'user1_id': user1_id,
                         'user2_id': user2_id,
                         'match_type': 'timeout_fallback',
                         'wait_time_user1': user1['wait_time_seconds'],
-                        'wait_time_user2': user2['wait_time_seconds']
+                        'wait_time_user2': user2['wait_time_seconds'],
+                        'hashtags': combined_hashtags,
+                        'confidence': 0.5,
+                        'match_data': match_data  # Include full match data for WebSocket notifications
                     }
                     
                     matches_created.append(match_info)
                     
                     logger.info(f"✅ Timeout match created: {user1_id} + {user2_id} (waited {user1['wait_time_seconds']:.0f}s and {user2['wait_time_seconds']:.0f}s)")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Failed to create timeout AI match for {user1_id} + {user2_id}: {e}")
+                    continue
             
             return matches_created
             
@@ -337,13 +356,12 @@ class MatchingRepository:
             # Store AI analysis data with the queue entry
             queue_data = {
                 'user_id': user_id,
-                'match_type': 'ai_driven',  # 🔑 This triggers AI hashtag matching
                 'hashtags': final_hashtags,  # Store hashtags at top level for easy access
                 'voice_input': voice_input or (ai_analysis.get('understood_text', '') if ai_analysis else ''),
                 'ai_session_id': ai_session_id,
                 'preferences': {
                     'preferred_topics': final_topics,  # Store actual topics here
-                    'generated_hashtags': final_hashtags,  # Store hashtags here too
+                    'generated_hashtags': final_hashtags,  # Store hashtags here too for backup
                     'match_intent': voice_input or (ai_analysis.get('match_intent', '') if ai_analysis else ''),
                     'language_preference': 'en-US'
                 },
@@ -352,12 +370,8 @@ class MatchingRepository:
                 'timestamp': datetime.utcnow().isoformat()
             }
             
-            # Use Redis to store the complete AI queue entry
-            # Convert string user_id to UUID if needed
-            user_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
-            
-            # Add to matching queue with AI-specific data
-            # Pass the entire queue_data structure directly to Redis
+            # Use Redis to store the complete AI queue entry directly
+            # This ensures the data structure is exactly what we expect
             success = self.redis.enqueue('matching_queue', queue_data, priority=0)
             
             if success:

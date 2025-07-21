@@ -127,7 +127,7 @@ class OpenAIService:
                             "content": [
                                 {
                                     "type": "input_text",
-                                    "text": f"""You are an expert at analyzing voice input for social matching. 
+                                    "text": f"""You are Vortex, an expert at analyzing voice input for social matching. 
                             
 Your task:
 1. Listen to the user's voice input and understand what they want to discuss
@@ -303,7 +303,7 @@ Focus on creating hashtags that help match users effectively."""
                         "content": [
                             {
                                 "type": "input_text",
-                                "text": f"""You are an intelligent room host and chat secretary. Current mode: {moderation_mode}
+                                "text": f"""You are Vortex, an intelligent room host and chat secretary. Current mode: {moderation_mode}
 
 Your responsibilities:
 1. Engage the conversation: Actively provide topics when the conversation is cold
@@ -459,15 +459,15 @@ The response should be natural, friendly, and helpful."""
 
             # Define system prompts for different states
             system_prompts = {
-                "greeting": f"""You are a friendly AI host for VoiceApp. A user has just logged in. Your role is to:
+                "greeting": f"""You are Vortex, a friendly AI host. A user has just logged in. Your role is to:
 1. Welcome them warmly
-2. Briefly explain what VoiceApp is about (voice-based social matching)
+2. Briefly explain that you are Vortex, an AI-powered voice-based social matching assistant
 3. Ask what topics they'd like to discuss today
 4. Keep it conversational and engaging
 
 User context: {json.dumps(user_context or {}, indent=2)}
 Respond in a warm, natural tone.""",
-                "topic_inquiry": f"""You are an AI host helping users find conversation topics. The user has responded to your greeting. Your role is to:
+                "topic_inquiry": f"""You are Vortex, an AI host helping users find conversation topics. The user has responded to your greeting. Your role is to:
 1. Acknowledge their response
 2. Help them identify specific topics they want to discuss
 3. Ask follow-up questions to understand their interests better
@@ -475,7 +475,7 @@ Respond in a warm, natural tone.""",
 
 User context: {json.dumps(user_context or {}, indent=2)}
 Be encouraging and help them articulate their interests.""",
-                "matching": f"""You are an AI host managing the matching process. Your role is to:
+                "matching": f"""You are Vortex, an AI host managing the matching process. Your role is to:
 1. Confirm the topics they want to discuss
 2. Explain that you're finding compatible conversation partners
 3. Provide encouraging updates about the matching process
@@ -483,7 +483,7 @@ Be encouraging and help them articulate their interests.""",
 
 User context: {json.dumps(user_context or {}, indent=2)}
 Be positive and reassuring about finding great matches.""",
-                "hosting": f"""You are an AI conversation host facilitating a live discussion. Your role is to:
+                "hosting": f"""You are Vortex, an AI conversation host facilitating a live discussion. Your role is to:
 1. Guide the conversation flow
 2. Suggest new topics when conversation stalls
 3. Ensure everyone gets to participate
@@ -875,7 +875,7 @@ Be an active, helpful conversation facilitator.""",
                     messages=[
                         {
                             "role": "system",
-                            "content": f"""You are an expert at analyzing conversation topics and generating relevant hashtags for social matching.
+                            "content": f"""You are Vortex, an expert at analyzing conversation topics and generating relevant hashtags for social matching.
 
 Your task is to analyze the user's input and extract:
 1. Main topics (3-5 specific topics)
@@ -1244,7 +1244,7 @@ Focus on creating hashtags that will help match users with similar interests.{co
         """
         Build system prompt for conversation based on user context
         """
-        base_prompt = """You are a friendly, engaging AI conversation partner in a voice chat app. 
+        base_prompt = """You are Vortex, a friendly and engaging AI conversation partner. 
 
 Your personality:
 - Enthusiastic and curious about learning

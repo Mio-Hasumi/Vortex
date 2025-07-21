@@ -539,7 +539,7 @@ class EventBroadcaster:
                         logger.info(f"🕐 Found {timeout_users_count} users waiting over 1 minute, processing matches...")
                         
                         # Process timeout matches
-                        matches_created = matching_repo.process_timeout_matches(timeout_minutes=1)
+                        matches_created = await matching_repo.process_timeout_matches(timeout_minutes=1)
                         
                         if matches_created:
                             logger.info(f"✅ Created {len(matches_created)} timeout matches")
@@ -568,27 +568,43 @@ class EventBroadcaster:
             user1_id = UUID(match_info['user1_id'])
             user2_id = UUID(match_info['user2_id'])
             
-            message = {
-                "type": "timeout_match_found",
-                "match_id": match_info['match_id'],
-                "match_type": "timeout_fallback",
-                "partner_id": str(user2_id),
-                "message": "We found you a conversation partner! You've been matched with someone who was also waiting.",
-                "wait_time": f"{match_info['wait_time_user1']:.0f} seconds",
-                "timestamp": datetime.utcnow().isoformat()
-            }
+            # Get full match data
+            match_data = match_info.get('match_data', {})
             
-            # Send to user1
-            await self.connection_manager.send_to_user(user1_id, message)
-            
-            # Send to user2 (with swapped partner_id)
-            message_user2 = message.copy()
-            message_user2['partner_id'] = str(user1_id)
-            message_user2['wait_time'] = f"{match_info['wait_time_user2']:.0f} seconds"
-            
-            await self.connection_manager.send_to_user(user2_id, message_user2)
-            
-            logger.info(f"📢 Timeout match notifications sent to {user1_id} and {user2_id}")
+            if match_data and 'users' in match_data:
+                # Use the full AI match notification format
+                await self.broadcast_ai_match_found(
+                    user1_id=match_info['user1_id'],
+                    user2_id=match_info['user2_id'],
+                    match_data=match_data
+                )
+                logger.info(f"📢 Timeout match notifications sent to {user1_id} and {user2_id} using AI match format")
+            else:
+                # Fallback to simple timeout notification (should not happen with new code)
+                message = {
+                    "type": "timeout_match_found",
+                    "match_id": match_info['match_id'],
+                    "session_id": match_info.get('session_id', ''),
+                    "room_id": match_info.get('room_id', ''),
+                    "livekit_token": "",  # Would need to be generated
+                    "match_type": "timeout_fallback",
+                    "partner_id": str(user2_id),
+                    "message": "We found you a conversation partner! You've been matched with someone who was also waiting.",
+                    "wait_time": f"{match_info['wait_time_user1']:.0f} seconds",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                
+                # Send to user1
+                await self.connection_manager.send_to_user(user1_id, message)
+                
+                # Send to user2 (with swapped partner_id)
+                message_user2 = message.copy()
+                message_user2['partner_id'] = str(user1_id)
+                message_user2['wait_time'] = f"{match_info['wait_time_user2']:.0f} seconds"
+                
+                await self.connection_manager.send_to_user(user2_id, message_user2)
+                
+                logger.info(f"📢 Timeout match notifications sent to {user1_id} and {user2_id} using fallback format")
             
         except Exception as e:
             logger.error(f"❌ Error notifying timeout match: {e}")
