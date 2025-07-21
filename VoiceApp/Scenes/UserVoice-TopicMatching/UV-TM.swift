@@ -100,7 +100,6 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     // 音频相关
     private var audioEngine: AVAudioEngine?
     private var inputNode: AVAudioInputNode?
-    private var audioPlayer: AVAudioPlayer?
     private var isRecording = false
     private var silenceTimer: Timer?
     private var lastAudioTime: Date = Date()
@@ -434,26 +433,6 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         }
     }
     
-    private func startAudioEngine() {
-        guard !isMuted, let audioEngine = audioEngine else { 
-            print("⚠️ [AIVoice] Cannot start audio engine - muted: \(isMuted), engine exists: \(audioEngine != nil)")
-            return 
-        }
-        
-        if audioEngine.isRunning {
-            print("⚠️ [AIVoice] Audio engine is already running.")
-            return
-        }
-        
-        do {
-            try audioEngine.start()
-            isRecording = true
-            print("✅ [AIVoice] Audio engine started successfully.")
-        } catch {
-            print("❌ [AIVoice] Failed to start audio engine: \(error)")
-        }
-    }
-    
     func stopAudioEngine() {
         guard let audioEngine = audioEngine else { return }
         
@@ -609,7 +588,7 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             print("🔊 [AIVoice] Received GPT-4o audio delta")
             if let audioData = message["delta"] as? String {
                 print("🔊🎵 [AIVoice] GPT-4o audio delta: \(audioData.count) base64 chars")
-                playAudioResponse(audioData)
+                accumulateAudioChunk(audioData)
             }
             
         case "response.text.delta":
@@ -678,28 +657,6 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             
         } catch {
             print("❌ [AIVoice] Failed to play accumulated audio: \(error)")
-        }
-    }
-    
-    private func playAudioResponse(_ audioData: String) {
-        // 解码并播放AI的音频回应
-        guard let data = Data(base64Encoded: audioData) else {
-            print("❌ [AIVoice] Failed to decode audio data")
-            return
-        }
-        
-        do {
-            audioPlayer = try AVAudioPlayer(data: data)
-            audioPlayer?.delegate = self
-            audioPlayer?.play()
-            
-            DispatchQueue.main.async {
-                self.isAISpeaking = true
-            }
-            
-            print("🔊 [AIVoice] Playing AI audio response")
-        } catch {
-            print("❌ [AIVoice] Failed to play audio: \(error)")
         }
     }
     
