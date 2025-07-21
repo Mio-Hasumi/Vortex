@@ -8,279 +8,77 @@ import SwiftUI
 import Combine
 import AVFoundation
 
-private enum CaptureState { case idle, listening, result }
-
-// 等候室视图 - 与 AI 进行语音对话，同时在后台匹配用户
+// 简化后的视图，只保留核心功能
 struct UserVoiceTopicMatchingView: View {
     let matchResult: MatchResult
     @Environment(\.dismiss) private var dismiss
     
-    @State private var captureState: CaptureState = .idle
-    @State private var levels: [CGFloat] = Array(repeating: 0.1, count: 3)
-    @State private var currentText: String = ""
-    @State private var isConnectedToAI = false
+    // AI服务，处理所有WebSocket和音频逻辑
     @StateObject private var aiVoiceService = AIVoiceService()
-
-    // demo timer – swap with AVAudioEngine later
-    private let timer = Timer.publish(every: 0.12, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
+            // 背景
             Color.black.ignoresSafeArea()
 
-            sidebar
-            topRightCluster
-            bubblesIfListening
-            pullHandle
-            micIdleButton
-            bottomResultButtons
-        }
-        .onReceive(timer) { _ in
-            if captureState == .listening {
-                levels = levels.map { _ in .random(in: 0.05...1) }
+            // 顶部UI元素
+            VStack {
+                // 返回按钮
+                HStack {
+                    Button(action: {
+                        // 停止AI服务并返回
+                        aiVoiceService.stopAudioEngine()
+                        dismiss()
+                    }) {
+                        Image(systemName: "arrow.left")
+                            .font(.title2)
+                            .foregroundColor(.white)
+                    }
+                    Spacer()
+                }
+                .padding()
+                
+                Spacer()
+                
+                // AI回复的文字显示区域
+                ScrollView {
+                    Text(aiVoiceService.currentResponse)
+                        .font(.custom("Rajdhani", size: 28))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                }
+                
+                Spacer()
+            }
+            
+            // 底部麦克风按钮
+            VStack {
+                Spacer()
+                
+                Button(action: {
+                    // 切换静音状态
+                    aiVoiceService.toggleMute()
+                }) {
+                    Image(systemName: aiVoiceService.isMuted ? "mic.slash.fill" : "mic.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(aiVoiceService.isMuted ? .red : .white)
+                        .padding(20)
+                        .background(Circle().fill(Color.white.opacity(0.2)))
+                }
+                
+                Text(aiVoiceService.isMuted ? "Muted" : "Listening...")
+                    .foregroundColor(.white)
+                    .padding(.bottom, 30)
             }
         }
         .onAppear {
-            setupWaitingRoom()
-        }
-        .onReceive(aiVoiceService.$currentResponse) { response in
-            if !response.isEmpty {
-                print("🎨 [WaitingRoom] Received AI response, updating UI: \(String(response.prefix(50)))...")
-                captureState = .result
-                currentText = response
-                
-                // 较长时间显示响应后回到 idle 状态
-                DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-                    captureState = .idle
-                    currentText = "What else would you like to discuss about \(matchResult.topics.first ?? "this topic")? Keep talking while I find others to join!"
-                }
-            }
-        }
-        .onReceive(aiVoiceService.$isListening) { isListening in
-            if isListening && captureState == .idle {
-                captureState = .listening
-                currentText = "🎤 Now listening continuously..."
-            }
-        }
-        .onReceive(aiVoiceService.$isAISpeaking) { isSpeaking in
-            if isSpeaking {
-                captureState = .result
-                currentText = "🔊 AI is speaking..."
-            }
-        }
-        .onReceive(aiVoiceService.$isMuted) { isMuted in
-            if captureState == .listening {
-                currentText = isMuted ? "🔇 Muted - Tap mic to unmute" : "🎤 Listening continuously..."
-            }
-        }
-        .onReceive(aiVoiceService.$isConnected) { connected in
-            if connected {
-                print("🔗 [WaitingRoom] Connected to AI service")
+            // 视图出现时初始化AI对话
+            Task {
+                await aiVoiceService.initializeAIConversation(with: matchResult)
             }
         }
         .navigationBarHidden(true)
-    }
-
-    
-    private var sidebar: some View {
-        VStack {
-            // 返回按钮
-            Button(action: {
-                print("🔙 [WaitingRoom] User tapped back button")
-                VoiceMatchingService.shared.resetNavigation()
-                dismiss()
-            }) {
-                Image(systemName: "arrow.left")
-                    .font(.title2)
-                    .foregroundColor(.white)
-                    .frame(width: 40, height: 40)
-                    .background(Color.black.opacity(0.3))
-                    .clipShape(Circle())
-            }
-            .padding(.bottom, 20)
-            
-            // 原来的 sidebar 图标
-        Image("sidebar")
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 50, height: 204)
-            .shadow(color: .white, radius: 12)
-        }
-            .padding(.top, -120)
-            .padding(.leading, 4)
-            .frame(maxWidth: .infinity,
-                   maxHeight: .infinity,
-                   alignment: .topLeading)
-    }
-
-    
-    private var topRightCluster: some View {
-        VStack(alignment: .trailing, spacing: 24) {
-            Image("orb")
-                .resizable().aspectRatio(contentMode: .fit)
-                .frame(width: 170, height: 170)
-                .overlay(
-                    LinearGradient(
-                        gradient: Gradient(stops: [
-                            .init(color: .clear,                   location: 0),
-                            .init(color: Color.black.opacity(0.4), location: 0.3),
-                            .init(color: Color.black.opacity(0.7), location: 1)
-                        ]),
-                        startPoint: .top, endPoint: .bottom)
-                )
-                .overlay(
-                    RadialGradient(
-                        gradient: Gradient(colors: [.clear, Color.black.opacity(0.5)]),
-                        center: .center, startRadius: 0, endRadius: 85)
-                )
-
-            if captureState == .idle {
-                Text(currentText)
-                    .font(.custom("Rajdhani", size: 28))  // 稍微减小字体
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(nil)  // 允许无限行
-                    .frame(maxWidth: 320, alignment: .leading)  // 增加最大宽度
-                    .padding(.horizontal, 20)  // 添加水平边距
-                    .offset(x: -40)
-            } else if captureState == .listening {
-                Text(aiVoiceService.isMuted ? "🔇 Muted - Tap mic to unmute" : "🎤 Listening continuously...")
-                    .font(.custom("Rajdhani", size: 32))
-                    .foregroundColor(aiVoiceService.isMuted ? .red : .green)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: 300, alignment: .leading)
-                    .offset(x: -40)
-            } else if captureState == .result {
-                if aiVoiceService.isAISpeaking {
-                    Text("🔊 AI is speaking...")
-                        .font(.custom("Rajdhani", size: 32))
-                        .foregroundColor(.blue)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: 300, alignment: .leading)
-                        .offset(x: -40)
-                } else {
-                    ScrollView {
-                        Text(currentText)
-                            .font(.custom("Rajdhani", size: 26))  // 稍微减小字体以适应更多内容
-                .foregroundColor(.white)
-                .multilineTextAlignment(.leading)
-                            .lineLimit(nil)
-                .frame(maxWidth: 320, alignment: .leading)
-                            .padding(.horizontal, 20)
-                    }
-                    .frame(maxHeight: 200)  // 限制滚动区域高度
-                .offset(x: -40)
-                }
-            }
-        }
-        .padding(.top, 8)
-        .padding(.trailing, 8)
-        .frame(maxWidth: .infinity,
-               maxHeight: .infinity,
-               alignment: .topTrailing)
-    }
-
-    
-    private var bubblesIfListening: some View {
-        VStack {
-            Spacer()
-            if captureState == .listening {
-                HStack(spacing: 24) {
-                    ForEach(levels.indices, id: \.self) { idx in
-                        VoicePinchedCircle(level: levels[idx])
-                            .animation(.easeInOut(duration: 0.1), value: levels[idx])
-                    }
-                }
-                .frame(height: 100)
-                .padding(.bottom, 135)
-            }
-        }
-    }
-
-    
-    private var pullHandle: some View {
-        Image("pullhandle")
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 120, height: 50)
-            .shadow(color: Color.white.opacity(0.25), radius: 2)
-            .offset(y: 38)
-            .frame(maxWidth: .infinity,
-                   maxHeight: .infinity,
-                   alignment: .bottom)
-    }
-
-   
-    private var micIdleButton: some View {
-        Group {
-            if captureState == .idle || captureState == .listening {
-                Button(action: {
-                    if aiVoiceService.isConnected {
-                        aiVoiceService.toggleMute()
-                    }
-                }) {
-                    Image(systemName: aiVoiceService.isMuted ? "mic.slash" : "mic")
-                    .resizable()
-                    .frame(width: 64, height: 64)
-                        .foregroundColor(aiVoiceService.isMuted ? .red : .white)
-                    .shadow(radius: 4)
-                }
-                    .frame(maxWidth: .infinity,
-                           maxHeight: .infinity,
-                           alignment: .bottom)
-                    .padding(.bottom, 120)
-            }
-        }
-    }
-
-    
-    private var bottomResultButtons: some View {
-        Group {
-            if captureState == .result && !aiVoiceService.isAISpeaking {
-                HStack(spacing: 24) {
-                    Button(action: {
-                        aiVoiceService.toggleMute()
-                    }) {
-                        Image(systemName: aiVoiceService.isMuted ? "mic.slash" : "mic")
-                        .resizable()
-                        .frame(width: 36, height: 36)
-                            .foregroundColor(aiVoiceService.isMuted ? .red : .white)
-                        .shadow(radius: 2)
-                    }
-                       
-                    Button("Back to Chat") {
-                        captureState = .listening
-                        currentText = aiVoiceService.isMuted ? "🔇 Muted - Tap mic to unmute" : "🎤 Listening continuously..."
-                    }
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding(.vertical, 14)
-                    .padding(.horizontal, 28)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    .shadow(radius: 4)
-                }
-                .padding(.bottom, 85)
-                .frame(maxWidth: .infinity,
-                       maxHeight: .infinity,
-                       alignment: .bottom)
-            }
-        }
-    }
-
-    // MARK: - AI 语音对话逻辑
-    
-    private func setupWaitingRoom() {
-        print("🏠 [WaitingRoom] Setting up waiting room for topics: \(matchResult.topics)")
-        
-        // 初始化 AI 对话
-        Task {
-            await aiVoiceService.initializeAIConversation(with: matchResult)
-        }
-        
-        // 设置初始文本
-        let topicList = matchResult.topics.joined(separator: "\n• ")
-        currentText = "🎯 Great! I found these topics:\n\n• \(topicList)\n\n🤖 I'm your AI conversation partner!\n\n🎙️ I'm listening - just start talking!"
     }
 }
 
@@ -314,6 +112,10 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     private var audioStartTime: Date?
     private var audioChunkIndex: Int = 0  // 追踪发送的音频块序号
     private var consecutiveSpeechFrames: Int = 0  // 连续检测到语音的帧数
+    
+    // AI音频播放缓冲区
+    private var audioBuffer = Data()  // 累积AI音频块
+    private var aiAudioPlayer: AVAudioPlayer?  // 专门播放AI音频
     private var consecutiveSilenceFrames: Int = 0  // 连续检测到静音的帧数
     private let minSpeechFrames: Int = 3  // 至少3帧连续检测到语音才算说话
     private let minSilenceFrames: Int = 5  // 至少5帧连续静音才算停止说话
@@ -775,15 +577,26 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
                 }
             }
             
-        // 简化：删掉旧的ai_response处理，现在用response.text.delta
-        // 简化：删掉旧的audio_response处理，现在用audio_chunk
+        case "speech_started":
+            print("🎤 [AIVoice] User speech started")
+            
+        case "speech_stopped":
+            print("🔇 [AIVoice] User speech stopped")
+            
+        case "ai_response_started":
+            print("🤖 [AIVoice] AI response started")
+            // 清空音频缓冲区，准备接收新的AI回复
+            audioBuffer = Data()
+            DispatchQueue.main.async {
+                self.isAISpeaking = true
+            }
             
         case "audio_chunk":
             print("🔊 [AIVoice] Received real-time audio chunk")
             if let audioData = message["audio"] as? String {
                 print("🔊🎵 [AIVoice] Real-time audio chunk: \(audioData.count) base64 chars")
-                // For real-time chunks, you might want to accumulate them or play immediately
-                playAudioResponse(audioData)
+                // 累积音频块，避免播放被打断
+                accumulateAudioChunk(audioData)
             }
             
         case "utterance_end":
@@ -812,7 +625,11 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             
         case "response.done":
             print("✅ [AIVoice] GPT-4o response completed")
-            // 简化：不需要复杂的状态管理，让AI持续监听
+            // AI回复完成，播放累积的音频
+            playAccumulatedAudio()
+            DispatchQueue.main.async {
+                self.isAISpeaking = false
+            }
             
         case "audio_received":
             print("📥 [AIVoice] Backend acknowledgment - audio received")
@@ -827,6 +644,42 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         default:
             print("❓ [AIVoice] Unknown message type: \(type)")
             print("❓ [AIVoice] Full unknown message: \(message)")
+        }
+    }
+    
+    // MARK: - Audio Accumulation and Playback
+    
+    private func accumulateAudioChunk(_ audioData: String) {
+        guard let audioBytes = Data(base64Encoded: audioData) else {
+            print("❌ [AIVoice] Failed to decode audio chunk")
+            return
+        }
+        
+        audioBuffer.append(audioBytes)
+        print("🎵 [AIVoice] Audio chunk accumulated: \(audioBytes.count) bytes, total: \(audioBuffer.count) bytes")
+    }
+    
+    private func playAccumulatedAudio() {
+        guard !audioBuffer.isEmpty else {
+            print("🔇 [AIVoice] No audio to play")
+            return
+        }
+        
+        print("🔊 [AIVoice] Playing accumulated audio: \(audioBuffer.count) bytes")
+        
+        do {
+            // 停止之前的AI音频播放
+            aiAudioPlayer?.stop()
+            
+            // 播放累积的完整音频
+            aiAudioPlayer = try AVAudioPlayer(data: audioBuffer)
+            aiAudioPlayer?.delegate = self
+            aiAudioPlayer?.play()
+            
+            print("✅ [AIVoice] Started playing complete AI response")
+            
+        } catch {
+            print("❌ [AIVoice] Failed to play accumulated audio: \(error)")
         }
     }
     
