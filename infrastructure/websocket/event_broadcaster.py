@@ -180,10 +180,18 @@ class EventBroadcaster:
             # Ensure hashtags are strings to prevent UUID object errors
             hashtags_str = []
             for tag in match_data["hashtags"]:
-                if hasattr(tag, '__str__'):
-                    hashtags_str.append(str(tag))
+                # Convert everything to string, including UUID objects
+                hashtags_str.append(str(tag))
+            
+            # Process topics by removing # prefix from hashtag strings
+            topics_list = []
+            for tag in hashtags_str:
+                # Ensure we're working with a string and remove # prefix
+                tag_str = str(tag)
+                if tag_str.startswith('#'):
+                    topics_list.append(tag_str[1:])  # Remove # prefix
                 else:
-                    hashtags_str.append(tag)
+                    topics_list.append(tag_str)
             
             # Create message for User 1
             message_user1 = {
@@ -193,7 +201,7 @@ class EventBroadcaster:
                 "room_id": match_data["room_id"],
                 "livekit_token": user1_data["livekit_token"],
                 "participants": user1_data["participants"],
-                "topics": [tag.replace('#', '') if isinstance(tag, str) else str(tag).replace('#', '') for tag in hashtags_str],
+                "topics": topics_list,
                 "hashtags": hashtags_str,
                 "confidence": match_data["confidence"],
                 "ai_hosted": True,
@@ -208,7 +216,7 @@ class EventBroadcaster:
                 "room_id": match_data["room_id"],
                 "livekit_token": user2_data["livekit_token"],
                 "participants": user2_data["participants"],
-                "topics": [tag.replace('#', '') if isinstance(tag, str) else str(tag).replace('#', '') for tag in hashtags_str],
+                "topics": topics_list,
                 "hashtags": hashtags_str,
                 "confidence": match_data["confidence"],
                 "ai_hosted": True,
