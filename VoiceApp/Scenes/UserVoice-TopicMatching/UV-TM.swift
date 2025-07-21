@@ -202,6 +202,8 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     private var sessionStarted = false
     private var greetingSent = false  // NEW: Track if greeting has been sent
     private var isInitializing = false  // NEW: Prevent multiple simultaneous initializations
+    private var conversationActive = false  // NEW: Track if conversation is currently active
+    private var lastSessionId: String?  // NEW: Track session continuity
     
     // 音频相关
     private var audioEngine: AVAudioEngine?
@@ -955,35 +957,9 @@ Start the conversation now with your greeting and a question about their interes
             print("✅ [AI_AUDIO] Session started")
             sessionStarted = true
             
-            // Only send greeting once to prevent AI repetition
-            if !greetingSent {
-                greetingSent = true
-                
-                // Send conversation context instead of a user message
-                let contextMessage: [String: Any] = [
-                    "type": "conversation.item.create",
-                    "item": [
-                        "type": "message", 
-                        "role": "system",
-                        "content": [
-                            [
-                                "type": "text",
-                                "text": conversationContext
-                            ]
-                        ]
-                    ]
-                ]
-                service.send(contextMessage)
-                print("🧠 [AI_AUDIO] Sent conversation context (not user message)")
-                
-                // Start a natural conversation without explicit user input
-                let responseMessage: [String: Any] = [
-                    "type": "response.create"
-                ]
-                service.send(responseMessage)
-                print("👋 [AI_AUDIO] Triggered natural AI greeting")
-            } else {
-                print("⚠️ [AI_AUDIO] Greeting already sent, skipping to prevent repetition")
+            // Set a simple static greeting and start listening
+            DispatchQueue.main.async {
+                self.currentResponse = "Hi! I'm Vortex. What would you like to talk about?"
             }
             
             Task {

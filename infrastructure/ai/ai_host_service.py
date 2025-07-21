@@ -124,18 +124,14 @@ class AIHostService:
             session.user_context = user_context or {}
             session.state = "greeting"
             
-            # Generate AI greeting
-            greeting_response = await self.openai.generate_ai_host_response(
-                user_input="User just logged in",
-                conversation_state="greeting", 
-                user_context=user_context
-            )
+            # Use simple static greeting instead of generating one
+            static_greeting = "Hi! I'm Vortex. What would you like to talk about?"
             
-            # Add greeting to conversation history
+            # Add static greeting to conversation history
             session.conversation_history.append({
                 "timestamp": datetime.utcnow().isoformat(),
-                "speaker": "ai_host",
-                "message": greeting_response["response_text"],
+                "speaker": "ai_host", 
+                "message": static_greeting,
                 "state": "greeting"
             })
             
