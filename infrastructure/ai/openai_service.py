@@ -18,6 +18,23 @@ import os
 logger = logging.getLogger(__name__)
 
 
+def _ensure_audio_bytes(audio_data) -> bytes:
+    """
+    Ensure audio data is converted to bytes for processing.
+    Handles both string (base64) and bytes input from OpenAI Realtime API.
+    """
+    if isinstance(audio_data, str):
+        try:
+            # Try to decode as base64 first
+            return base64.b64decode(audio_data)
+        except Exception:
+            # If not valid base64, encode as UTF-8
+            return audio_data.encode("utf-8")
+    else:
+        # Already bytes
+        return audio_data
+
+
 class OpenAIService:
     def __init__(self, api_key: str, base_url: Optional[str] = None):
         """
@@ -149,7 +166,15 @@ Focus on creating hashtags that help match users effectively."""
                         if event.type == "response.text.delta":
                             text_chunks.append(event.delta)
                         elif event.type == "response.audio.delta":
-                            audio_chunks.append(event.delta)
+                            # Ensure audio delta is converted to bytes
+                            if isinstance(event.delta, str):
+                                try:
+                                    audio_bytes = base64.b64decode(event.delta)
+                                except Exception:
+                                    audio_bytes = event.delta.encode("utf-8")
+                            else:
+                                audio_bytes = event.delta
+                            audio_chunks.append(audio_bytes)
                         elif event.type == "response.done":
                             break
                     
@@ -363,7 +388,15 @@ The response should be natural, friendly, and helpful."""
                     if event.type == "response.text.delta":
                         text_chunks.append(event.delta)
                     elif event.type == "response.audio.delta":
-                        audio_chunks.append(event.delta)
+                        # Ensure audio delta is converted to bytes
+                        if isinstance(event.delta, str):
+                            try:
+                                audio_bytes = base64.b64decode(event.delta)
+                            except Exception:
+                                audio_bytes = event.delta.encode("utf-8")
+                        else:
+                            audio_bytes = event.delta
+                        audio_chunks.append(audio_bytes)
                     elif event.type == "response.done":
                         break
                 
@@ -1159,9 +1192,18 @@ Focus on creating hashtags that will help match users with similar interests.{co
                     if event.type == "response.text.delta":
                         text_chunks.append(event.delta)
                     elif event.type == "response.audio.delta":
-                        # Correctly handle streaming audio chunks
-                        audio_chunks.append(event.delta)
-                        logger.debug(f"🎵 Audio delta received: {len(event.delta)} bytes")
+                        # Correctly handle streaming audio chunks - ensure bytes conversion
+                        if isinstance(event.delta, str):
+                            try:
+                                audio_bytes = base64.b64decode(event.delta)
+                                logger.debug(f"🎵 Audio delta decoded from base64: {len(audio_bytes)} bytes")
+                            except Exception:
+                                audio_bytes = event.delta.encode("utf-8")
+                                logger.debug(f"🎵 Audio delta encoded as UTF-8: {len(audio_bytes)} bytes")
+                        else:
+                            audio_bytes = event.delta
+                            logger.debug(f"🎵 Audio delta already bytes: {len(audio_bytes)} bytes")
+                        audio_chunks.append(audio_bytes)
                     elif event.type == "response.done":
                         logger.info("✅ Response stream completed")
                         break
