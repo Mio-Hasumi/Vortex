@@ -435,6 +435,9 @@ async def ai_driven_match(
                 ai_session_id=ai_session_id
             )
             
+            # Small delay to ensure both users have stable WebSocket connections
+            await asyncio.sleep(0.2)
+            
             # Broadcast match found event
             from infrastructure.container import container
             event_broadcaster = container.get_event_broadcaster()

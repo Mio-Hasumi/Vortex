@@ -60,6 +60,13 @@ struct UserVoiceTopicMatchingView: View {
                 
                 Spacer()
                 
+                // Informative text about AI chat
+                Text("While waiting, feel free to chat with our AI assistant!")
+                    .font(.custom("Rajdhani", size: 18))
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(.horizontal)
+                    .padding(.bottom, 4)
+                
                 // AI回复的文字显示区域
                 ScrollView {
                     Text(aiVoiceService.currentResponse)
@@ -117,49 +124,19 @@ struct UserVoiceTopicMatchingView: View {
         )
         // Listen for match found events
         .onReceive(aiVoiceService.$matchFound) { matchData in
-            print("🔔🔔🔔 [NAVIGATION] ===== onReceive TRIGGERED =====")
-            print("🔍 [NAVIGATION] matchData parameter: \(String(describing: matchData))")
-            print("🔍 [NAVIGATION] aiVoiceService.matchFound: \(String(describing: aiVoiceService.matchFound))")
-            print("🔍 [NAVIGATION] Current navigateToLiveChat: \(navigateToLiveChat)")
-            print("🔍 [NAVIGATION] Current self.matchData: \(String(describing: self.matchData))")
-            
             if let matchData = matchData {
-                print("✅✅✅ [NAVIGATION] Match data is VALID!")
-                print("   🆔 Match ID: \(matchData.matchId)")
-                print("   🏠 Room ID: \(matchData.roomId)")
-                print("   👥 Participants: \(matchData.participants.count)")
-                for (index, participant) in matchData.participants.enumerated() {
-                    print("     👤 [\(index)] \(participant.displayName) (\(participant.userId)) - Current: \(participant.isCurrentUser)")
-                }
-                print("   🏷️ Topics: \(matchData.topics)")
-                print("   #️⃣ Hashtags: \(matchData.hashtags)")
-                print("🚀 [NAVIGATION] About to stop AI and set navigation state...")
+                print("🚀 [NAVIGATION] Match found - immediately navigating to chat!")
                 
-                // 🛑 CRITICAL: Stop AI conversation first
+                // Stop AI conversation and navigate immediately
                 Task {
                     await aiVoiceService.stopAIConversation()
-                    print("✅ [NAVIGATION] AI conversation stopped successfully")
-                    
                     await MainActor.run {
-                        print("🎯 [NAVIGATION] Setting matchData and navigation flag...")
                         self.matchData = matchData
                         self.navigateToLiveChat = true
-                        
-                        print("✅ [NAVIGATION] Navigation state set!")
-                        print("   📍 self.matchData is now: \(String(describing: self.matchData))")
-                        print("   🚀 navigateToLiveChat is now: \(navigateToLiveChat)")
+                        print("✅ [NAVIGATION] Direct navigation to chat initiated")
                     }
                 }
-                
-            } else {
-                print("❌❌❌ [NAVIGATION] Match data is NIL!")
-                print("�� [NAVIGATION] Debugging aiVoiceService state:")
-                print("   🔍 aiVoiceService.matchFound: \(String(describing: aiVoiceService.matchFound))")
-                print("   🔍 aiVoiceService.hasActiveMatch: \(aiVoiceService.hasActiveMatch)")
-                print("   🔍 aiVoiceService.lastMatchData: \(String(describing: aiVoiceService.lastMatchData))")
             }
-            
-            print("🔔🔔🔔 [NAVIGATION] ===== onReceive COMPLETED =====")
         }
     }
 }
@@ -715,53 +692,29 @@ Start the conversation now with your greeting and a question about their interes
     }
     
     private func handleMatchFound(_ message: [String: Any]) {
-        print("🎯🎯🎯 [MATCHING] ===== PROCESSING MATCH FOUND MESSAGE =====")
-        print("🔍 [MATCHING] Full message received: \(message)")
-        print("🔍 [MATCHING] Current thread: \(Thread.current)")
-        print("🔍 [MATCHING] Is main thread: \(Thread.isMainThread)")
+        print("🚀 [MATCHING] Match found - processing for immediate navigation")
         
         guard let matchId = message["match_id"] as? String,
               let sessionId = message["session_id"] as? String,
               let roomId = message["room_id"] as? String,
               let livekitToken = message["livekit_token"] as? String else {
-            print("❌❌❌ [MATCHING] CRITICAL: Invalid match data received - missing required fields!")
-            print("❌ [MATCHING] match_id: \(message["match_id"] as? String ?? "MISSING")")
-            print("❌ [MATCHING] session_id: \(message["session_id"] as? String ?? "MISSING")")
-            print("❌ [MATCHING] room_id: \(message["room_id"] as? String ?? "MISSING")")
-            print("❌ [MATCHING] livekit_token: \(message["livekit_token"] as? String ?? "MISSING")")
-            print("🎯🎯🎯 [MATCHING] ===== MATCH PROCESSING FAILED - EXITING =====")
+            print("❌ [MATCHING] Invalid match data - missing required fields")
             return
         }
         
-        print("✅✅✅ [MATCHING] All required fields present:")
-        print("   🆔 Match ID: \(matchId)")
-        print("   📱 Session ID: \(sessionId)")
-        print("   🏠 Room ID: \(roomId)")
-        print("   🎫 LiveKit Token: \(livekitToken.prefix(20))...")
-        
         // Parse participants
         let participantsData = message["participants"] as? [[String: Any]] ?? []
-        print("👥 [MATCHING] Parsing \(participantsData.count) participants...")
-        print("👥 [MATCHING] Raw participants data: \(participantsData)")
-        
         let participants = participantsData.compactMap { data -> MatchParticipant? in
             guard let userId = data["user_id"] as? String,
                   let displayName = data["display_name"] as? String,
                   let isCurrentUser = data["is_current_user"] as? Bool else {
-                print("❌ [MATCHING] Invalid participant data: \(data)")
                 return nil
             }
-            print("👤 [MATCHING] Participant: \(displayName) (\(userId)) - Current user: \(isCurrentUser)")
             return MatchParticipant(userId: userId, displayName: displayName, isCurrentUser: isCurrentUser)
         }
         
-        print("👥 [MATCHING] Successfully parsed \(participants.count) participants")
-        
         let topics = message["topics"] as? [String] ?? []
         let hashtags = message["hashtags"] as? [String] ?? []
-        
-        print("🏷️ [MATCHING] Topics: \(topics)")
-        print("#️⃣ [MATCHING] Hashtags: \(hashtags)")
         
         let liveMatchData = LiveMatchData(
             matchId: matchId,
@@ -773,54 +726,11 @@ Start the conversation now with your greeting and a question about their interes
             hashtags: hashtags
         )
         
-        print("✅✅✅ [MATCHING] LiveMatchData object created successfully!")
-        print("   👥 Participants count: \(participants.count)")
-        print("   🏷️ Topics count: \(topics.count)")
-        print("   #️⃣ Hashtags count: \(hashtags.count)")
-        print("   📦 LiveMatchData object: \(liveMatchData)")
-        
-        print("🚀🚀🚀 [MATCHING] About to dispatch to main queue...")
-        
-        // Update on main thread
+        // Immediately update match found to trigger navigation
         DispatchQueue.main.async {
-            print("🔄🔄🔄 [MATCHING] ===== MAIN QUEUE EXECUTION STARTED =====")
-            print("🔍 [MATCHING] Current thread in main async: \(Thread.current)")
-            print("🔍 [MATCHING] Is main thread: \(Thread.isMainThread)")
-            
-            print("🔍 [MATCHING] Current matchFound value BEFORE: \(String(describing: self.matchFound))")
-            print("🔍 [MATCHING] About to set matchFound...")
-            
-            // Clear any previous match data to force @Published update
-            self.matchFound = nil
-            
-            // Brief delay to ensure the nil assignment is processed
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                print("🔄 [MATCHING] Setting matchFound after nil reset...")
+            print("✅ [MATCHING] Setting matchFound to trigger immediate navigation")
                 self.matchFound = liveMatchData
-                
-                print("✅✅✅ [MATCHING] matchFound has been set!")
-                print("🔍 [MATCHING] matchFound value AFTER setting: \(String(describing: self.matchFound))")
-                print("🔍 [MATCHING] Backup values:")
-                print("   🔍 lastMatchData: \(String(describing: self.lastMatchData))")
-                print("   🔍 hasActiveMatch: \(self.hasActiveMatch)")
-                
-                // Double check the assignment worked
-                if let assignedMatch = self.matchFound {
-                    print("✅✅✅ [MATCHING] VERIFICATION: matchFound is NOT nil!")
-                    print("   🆔 Verified Match ID: \(assignedMatch.matchId)")
-                    print("   🏠 Verified Room ID: \(assignedMatch.roomId)")
-                    print("   👥 Verified Participants: \(assignedMatch.participants.count)")
-                    print("🎯 [MATCHING] This should trigger the @Published observer!")
-                } else {
-                    print("❌❌❌ [MATCHING] CRITICAL ERROR: matchFound is STILL nil after assignment!")
-                    print("❌ [MATCHING] This is a severe bug - assignment failed!")
-                }
-            }
-            
-            print("🔄🔄🔄 [MATCHING] ===== MAIN QUEUE EXECUTION COMPLETED =====")
         }
-        
-        print("🎯🎯🎯 [MATCHING] ===== MATCH PROCESSING COMPLETED =====")
     }
     
     // MARK: - WebSocketDelegate
@@ -1011,11 +921,7 @@ Start the conversation now with your greeting and a question about their interes
             // COMMENTED OUT - too verbose: print("📥 [AI_AUDIO] Audio received confirmation")
             break
             
-        case "audio_chunk":
-            // print("❓ [AI_AUDIO] Unknown AI audio message type: audio_chunk")  // COMMENTED OUT - too verbose
-            if let audioData = message["audio"] as? String {
-                addAudioChunk(audioData)
-            }
+
             
         case "error":
             print("❌ [AI_AUDIO] WebSocket error: \(message["message"] as? String ?? "unknown")")
