@@ -133,8 +133,8 @@ Focus on creating hashtags that help match users effectively."""
                         }
                     )
                     
-                    # Send user audio input using proper streaming method
-                    await connection.append_input_audio(audio_bytes)
+                    # Send user audio input using proper streaming method with keyword argument
+                    await connection.input_audio_buffer.append(audio=audio_bytes)
             
                     # Request response
                     await connection.response.create()
@@ -327,7 +327,7 @@ The response should be natural, friendly, and helpful."""
                     else:
                         audio_bytes = audio_data
                     
-                    await connection.append_input_audio(audio_bytes)
+                    await connection.input_audio_buffer.append(audio=audio_bytes)
                 
                 # Add text if provided
                 if text_input:
