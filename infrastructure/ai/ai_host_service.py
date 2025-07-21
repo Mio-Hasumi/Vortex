@@ -130,7 +130,7 @@ class AIHostService:
             # Add static greeting to conversation history
             session.conversation_history.append({
                 "timestamp": datetime.utcnow().isoformat(),
-                "speaker": "ai_host", 
+                "speaker": "ai_host",
                 "message": static_greeting,
                 "state": "greeting"
             })
