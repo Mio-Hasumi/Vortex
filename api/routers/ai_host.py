@@ -1170,7 +1170,7 @@ Current conversation context:
                         # Official OpenAI Realtime API format
                         audio_data = data.get("audio")  # base64 encoded
                         if audio_data:
-                            logger.info(f"📥 [OpenAI-Official] Streaming audio to OpenAI: {len(audio_data)} base64 chars")
+                            # logger.info(f"📥 [OpenAI-Official] Streaming audio to OpenAI: {len(audio_data)} base64 chars")  # COMMENTED OUT - too verbose
                             
                             try:
                                 # Official OpenAI Realtime API pattern: pass base64 string directly
@@ -1262,7 +1262,7 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
     try:
         async for event in conn:
             event_type = event.type
-            logger.info(f"📨 [RealtimeEvent] {event_type}")
+            # logger.info(f"📨 [RealtimeEvent] {event_type}")  # COMMENTED OUT - too verbose
             
             # Handle different types of events
             if event_type == "conversation.item.input_audio_transcription.completed":
@@ -1291,7 +1291,7 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
             elif event_type == "response.audio.delta":
                 # Streaming audio response from AI
                 audio_delta = event.delta
-                logger.info(f"🎵 [AI Audio] Delta received - type: {type(audio_delta)}, size: {len(audio_delta) if audio_delta else 0}")
+                # logger.info(f"🎵 [AI Audio] Delta received - type: {type(audio_delta)}, size: {len(audio_delta) if audio_delta else 0}")  # COMMENTED OUT - too verbose
                 
                 try:
                     # Convert audio_delta to bytes if it's a string
@@ -1299,14 +1299,14 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
                         try:
                             # Try to decode as base64 first
                             pcm_bytes = base64.b64decode(audio_delta)
-                            logger.info(f"🎵 [AI Audio] Decoded base64 to {len(pcm_bytes)} bytes")
+                            # logger.info(f"🎵 [AI Audio] Decoded base64 to {len(pcm_bytes)} bytes")  # COMMENTED OUT - too verbose
                         except Exception as decode_error:
                             # If not valid base64, try encoding as UTF-8
                             pcm_bytes = audio_delta.encode("utf-8")
                             logger.warning(f"🎵 [AI Audio] Not base64, encoded as UTF-8: {len(pcm_bytes)} bytes")
                     else:
                         pcm_bytes = audio_delta  # Already bytes
-                        logger.info(f"🎵 [AI Audio] Already bytes: {len(pcm_bytes)} bytes")
+                        # logger.info(f"🎵 [AI Audio] Already bytes: {len(pcm_bytes)} bytes")  # COMMENTED OUT - too verbose
                     
                     # Convert PCM16 to WAV and send to client
                     wav_audio = openai_service._pcm16_to_wav(pcm_bytes)
@@ -1337,7 +1337,8 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
                 
             elif event_type == "conversation.item.created":
                 # New conversation item (audio) added
-                logger.info("📥 [Conversation] New audio item added to conversation")
+                # logger.info("📥 [Conversation] New audio item added to conversation")  # COMMENTED OUT - too verbose
+                pass
                 
             elif event_type == "input_audio_buffer.speech_started":
                 # Server VAD detected speech start
@@ -1357,15 +1358,18 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
                 
             elif event_type == "input_audio_buffer.committed":
                 # Audio buffer committed (for manual mode)
-                logger.info("📝 [ServerVAD] Audio buffer committed")
+                # logger.info("📝 [ServerVAD] Audio buffer committed")  # COMMENTED OUT - too verbose
+                pass
                 
             elif event_type == "response.output_item.added":
                 # New output item added to response
-                logger.info("📤 [Response] Output item added")
+                # logger.info("📤 [Response] Output item added")  # COMMENTED OUT - too verbose
+                pass
                 
             elif event_type == "response.content_part.added":
                 # New content part added
-                logger.info("📝 [Response] Content part added")
+                # logger.info("📝 [Response] Content part added")  # COMMENTED OUT - too verbose
+                pass
                 
             elif event_type == "response.created":
                 # AI response started
@@ -1384,9 +1388,15 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
                     "timestamp": datetime.utcnow().isoformat()
                 }))
                 
+            elif event_type in ["response.audio_transcript.delta"]:
+                # Audio transcript deltas - too verbose, skip logging
+                pass
+                
             else:
-                # Log other event types for debugging
-                logger.info(f"📋 [RealtimeEvent] Other: {event_type}")
+                # Log other event types for debugging only if not common/verbose events
+                if event_type not in ["response.audio_transcript.delta", "response.audio_transcript.done"]:
+                    # logger.info(f"📋 [RealtimeEvent] Other: {event_type}")  # COMMENTED OUT - too verbose
+                    pass
                 
     except Exception as e:
         logger.error(f"❌ Error in event listener: {e}")
