@@ -1295,22 +1295,41 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
             elif event_type == "response.audio.delta":
                 # Streaming audio response from AI
                 audio_delta = event.delta
-                logger.info(f"🎵 [AI Audio] Delta: {len(audio_delta)} bytes")
+                logger.info(f"🎵 [AI Audio] Delta received - type: {type(audio_delta)}, size: {len(audio_delta) if audio_delta else 0}")
                 
-                # Convert PCM16 to WAV and send to client
-                wav_audio = openai_service._pcm16_to_wav(audio_delta)
-                await websocket.send_text(json.dumps({
-                    "type": "audio_chunk",
-                    "audio": base64.b64encode(wav_audio).decode("utf-8"),
-                    "format": "wav"
-                }))
-                
-                # Also send the raw delta format for direct handling
-                await websocket.send_text(json.dumps({
-                    "type": "response.audio.delta",
-                    "delta": base64.b64encode(wav_audio).decode("utf-8"),
-                    "format": "wav"
-                }))
+                try:
+                    # Convert audio_delta to bytes if it's a string
+                    if isinstance(audio_delta, str):
+                        try:
+                            # Try to decode as base64 first
+                            pcm_bytes = base64.b64decode(audio_delta)
+                            logger.info(f"🎵 [AI Audio] Decoded base64 to {len(pcm_bytes)} bytes")
+                        except Exception as decode_error:
+                            # If not valid base64, try encoding as UTF-8
+                            pcm_bytes = audio_delta.encode("utf-8")
+                            logger.warning(f"🎵 [AI Audio] Not base64, encoded as UTF-8: {len(pcm_bytes)} bytes")
+                    else:
+                        pcm_bytes = audio_delta  # Already bytes
+                        logger.info(f"🎵 [AI Audio] Already bytes: {len(pcm_bytes)} bytes")
+                    
+                    # Convert PCM16 to WAV and send to client
+                    wav_audio = openai_service._pcm16_to_wav(pcm_bytes)
+                    await websocket.send_text(json.dumps({
+                        "type": "audio_chunk",
+                        "audio": base64.b64encode(wav_audio).decode("utf-8"),
+                        "format": "wav"
+                    }))
+                    
+                    # Also send the raw delta format for direct handling
+                    await websocket.send_text(json.dumps({
+                        "type": "response.audio.delta",
+                        "delta": base64.b64encode(wav_audio).decode("utf-8"),
+                        "format": "wav"
+                    }))
+                    
+                except Exception as audio_error:
+                    logger.error(f"❌ [AI Audio] Processing failed: {audio_error}")
+                    logger.error(f"❌ [AI Audio] audio_delta type: {type(audio_delta)}, content: {str(audio_delta)[:100]}...")
                 
             elif event_type == "response.done":
                 # AI response completed
