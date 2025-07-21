@@ -440,23 +440,21 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             return 
         }
         
+        if audioEngine.isRunning {
+            print("⚠️ [AIVoice] Audio engine is already running.")
+            return
+        }
+        
         do {
-            // 确保引擎已准备好
-            if !audioEngine.isRunning {
-                print("🎵 [AIVoice] Preparing and starting audio engine...")
-                audioEngine.prepare()
-                try audioEngine.start()
-                isRecording = true
-                print("🎙️ [AIVoice] ✅ Audio engine started for streaming - isRecording: \(isRecording)")
-            } else {
-                print("🎙️ [AIVoice] Audio engine already running")
-            }
+            try audioEngine.start()
+            isRecording = true
+            print("✅ [AIVoice] Audio engine started successfully.")
         } catch {
             print("❌ [AIVoice] Failed to start audio engine: \(error)")
         }
     }
     
-    private func stopAudioEngine() {
+    func stopAudioEngine() {
         guard let audioEngine = audioEngine else { return }
         
         if audioEngine.isRunning {
