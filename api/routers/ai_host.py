@@ -938,16 +938,18 @@ async def websocket_audio_stream(websocket: WebSocket):
       "audio": "<Base64 encoded PCM16 audio string>"
     }
     
+    OUTPUT Events (Server → Client):
+    - "stt_done": Complete user speech transcription
+    - "response.text.delta": AI text response streaming
+    - "response.audio.delta": AI audio response streaming  
+    - "audio_chunk": AI audio chunk (legacy compatibility)
+    - "response.done": AI response completed
+    - "ai_response_started": AI begins generating response
+    - "audio_received": Server received audio chunk
+    
     IMPORTANT: The OpenAI SDK expects base64 STRING, not raw bytes.
     Use: conn.input_audio_buffer.append(audio=base64_string)
     NOT: conn.input_audio_buffer.append(audio=raw_bytes)
-    
-    OUTPUT (Server → Client):
-    {
-      "type": "audio_chunk",
-      "audio": "<Base64 encoded WAV audio>",
-      "format": "wav"
-    }
     
     Legacy format still supported for backward compatibility:
     {
@@ -1273,7 +1275,7 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
                 logger.info(f"📝 [Transcription] User said: '{transcription}'")
                 
                 await websocket.send_text(json.dumps({
-                    "type": "stt_result",
+                    "type": "stt_done",  # 修复：改为前端期待的事件类型
                     "text": transcription,
                     "confidence": 0.95,
                     "timestamp": datetime.utcnow().isoformat()
@@ -1285,9 +1287,8 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
                 logger.info(f"📝 [AI Text] Delta: '{text_delta}'")
                 
                 await websocket.send_text(json.dumps({
-                    "type": "stt_chunk",
-                    "text": text_delta,
-                    "confidence": 0.95,
+                    "type": "response.text.delta",  # 修复：使用正确的AI文本响应事件类型
+                    "delta": text_delta,  # 使用delta字段名匹配前端期待
                     "timestamp": datetime.utcnow().isoformat()
                 }))
                 
@@ -1304,11 +1305,18 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
                     "format": "wav"
                 }))
                 
+                # Also send the raw delta format for direct handling
+                await websocket.send_text(json.dumps({
+                    "type": "response.audio.delta",
+                    "delta": base64.b64encode(wav_audio).decode("utf-8"),
+                    "format": "wav"
+                }))
+                
             elif event_type == "response.done":
                 # AI response completed
                 logger.info("✅ [AI] Response completed")
                 await websocket.send_text(json.dumps({
-                    "type": "ai_response_complete",
+                    "type": "response.done",  # 修复：改为前端期待的事件类型
                     "timestamp": datetime.utcnow().isoformat()
                 }))
                 
@@ -1343,6 +1351,14 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
             elif event_type == "response.content_part.added":
                 # New content part added
                 logger.info("📝 [Response] Content part added")
+                
+            elif event_type == "response.created":
+                # AI response started
+                logger.info("🤖 [AI] Response started")
+                await websocket.send_text(json.dumps({
+                    "type": "ai_response_started",
+                    "timestamp": datetime.utcnow().isoformat()
+                }))
                 
             elif event_type == "error":
                 # Handle errors
