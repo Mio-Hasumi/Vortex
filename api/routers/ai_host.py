@@ -929,6 +929,27 @@ async def websocket_audio_stream(websocket: WebSocket):
     """
     Real-time audio streaming WebSocket for GPT-4o Realtime API
     Uses proper async context manager for persistent connection
+    
+    Official OpenAI Realtime API Message Format:
+    
+    INPUT (Client → Server):
+    {
+      "type": "input_audio_buffer.append",
+      "audio": "<Base64 encoded PCM16 audio>"
+    }
+    
+    OUTPUT (Server → Client):
+    {
+      "type": "audio_chunk",
+      "audio": "<Base64 encoded WAV audio>",
+      "format": "wav"
+    }
+    
+    Legacy format still supported for backward compatibility:
+    {
+      "type": "audio_chunk", 
+      "audio_data": "<Base64 encoded audio>"
+    }
     """
     await websocket.accept()
     logger.info("🎙️ GPT-4o Realtime audio streaming WebSocket connected")
@@ -1079,10 +1100,12 @@ async def _handle_realtime_streaming(websocket: WebSocket, openai_service, sessi
                     "output_audio_format": "pcm16", 
                     "input_audio_transcription": {"model": "whisper-1"},
                     "turn_detection": {
-                        "type": "server_vad",  # 🔑 KEY: Use OpenAI's server-side VAD
-                        "threshold": 0.5,      # Sensitivity: 0.0 to 1.0
-                        "prefix_padding_ms": 300,   # Audio before speech starts
-                        "silence_duration_ms": 500  # How long to wait for silence
+                        "type": "server_vad",  # 🔑 Use OpenAI's server-side VAD for automatic turn detection
+                        "threshold": 0.5,      # Speech detection sensitivity: 0.0 (most sensitive) to 1.0 (least sensitive)
+                        "prefix_padding_ms": 300,   # Audio milliseconds before speech to include
+                        "silence_duration_ms": 500, # Silence duration before ending turn
+                        "create_response": True,     # Automatically create response after turn ends
+                        "interrupt_response": True   # Allow interrupting ongoing responses
                     }
                 }
             )
@@ -1140,29 +1163,50 @@ Guidelines:
                     
                     message_type = data.get("type")
                     
-                    if message_type == "audio_chunk":
-                        audio_data = data.get("audio_data")  # base64 encoded
+                    # Handle audio streaming - support both legacy and official OpenAI formats
+                    if message_type == "input_audio_buffer.append":
+                        # Official OpenAI Realtime API format
+                        audio_data = data.get("audio")  # base64 encoded
                         if audio_data:
-                            logger.info(f"📥 [ServerVAD] Streaming audio chunk to OpenAI: {len(audio_data)} base64 chars")
+                            logger.info(f"📥 [OpenAI-Official] Streaming audio to OpenAI: {len(audio_data)} base64 chars")
                             
-                            # Convert base64 audio to raw bytes for Realtime API
                             try:
                                 audio_bytes = base64.b64decode(audio_data)
-                                logger.info(f"📥 [ServerVAD] Decoded audio: {len(audio_bytes)} bytes")
+                                logger.info(f"📥 [OpenAI-Official] Decoded audio: {len(audio_bytes)} bytes")
                                 
                                 # Official OpenAI Realtime API pattern: use keyword argument audio=
-                                # This sends audio chunks to server-side VAD which automatically
-                                # detects speech boundaries and triggers AI responses
                                 await conn.input_audio_buffer.append(audio=audio_bytes)
                                 
+                                # Send acknowledgment using OpenAI format
+                                await websocket.send_text(json.dumps({
+                                    "type": "input_audio_buffer.appended",
+                                    "message": "Audio appended to buffer"
+                                }))
+                                
                             except Exception as e:
-                                logger.error(f"❌ [ServerVAD] Audio processing failed: {e}")
+                                logger.error(f"❌ [OpenAI-Official] Audio processing failed: {e}")
+                    
+                    elif message_type == "audio_chunk":
+                        # Legacy format for backward compatibility
+                        audio_data = data.get("audio_data")  # base64 encoded
+                        if audio_data:
+                            logger.info(f"📥 [Legacy] Streaming audio chunk to OpenAI: {len(audio_data)} base64 chars")
                             
-                            # Send acknowledgment
-                            await websocket.send_text(json.dumps({
-                                "type": "audio_received",
-                                "message": "Audio streamed to server VAD"
-                            }))
+                            try:
+                                audio_bytes = base64.b64decode(audio_data)
+                                logger.info(f"📥 [Legacy] Decoded audio: {len(audio_bytes)} bytes")
+                                
+                                # Convert legacy format to official OpenAI method
+                                await conn.input_audio_buffer.append(audio=audio_bytes)
+                                
+                                # Send acknowledgment
+                                await websocket.send_text(json.dumps({
+                                    "type": "audio_received",
+                                    "message": "Audio streamed to server VAD"
+                                }))
+                                
+                            except Exception as e:
+                                logger.error(f"❌ [Legacy] Audio processing failed: {e}")
                     
                     elif message_type == "utterance_end":
                         # With server VAD, utterance_end is not needed - log for debugging
