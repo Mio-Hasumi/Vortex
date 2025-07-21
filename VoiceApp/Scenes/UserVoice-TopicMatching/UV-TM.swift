@@ -180,10 +180,11 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
                 hasActiveMatch = true
             } else {
                 print("⚠️ [AIVoice] matchFound set to NIL")
-                if hasActiveMatch && lastMatchData != nil {
-                    print("🔄 [AIVoice] Restoring matchFound from backup...")
-                    matchFound = lastMatchData
-                }
+                // REMOVED RESTORE LOGIC - this was causing infinite recursion issues
+                // if hasActiveMatch && lastMatchData != nil {
+                //     print("🔄 [AIVoice] Restoring matchFound from backup...")
+                //     matchFound = lastMatchData
+                // }
             }
         }
     }
@@ -199,6 +200,8 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     private var authToken: String?
     private var isAuthenticated = false
     private var sessionStarted = false
+    private var greetingSent = false  // NEW: Track if greeting has been sent
+    private var isInitializing = false  // NEW: Prevent multiple simultaneous initializations
     
     // 音频相关
     private var audioEngine: AVAudioEngine?
@@ -271,41 +274,46 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     }
     
     func initializeAIConversation(with matchResult: MatchResult) async {
+        // Prevent multiple simultaneous initializations
+        guard !isInitializing && !sessionStarted else {
+            print("⚠️ [AIVoice] Initialization already in progress or session active, skipping...")
+            return
+        }
+        
+        isInitializing = true
         print("🤖 [AIVoice] Initializing AI conversation for session: \(generateSessionId())")
         
         self.matchContext = matchResult
         
-        // 设置对话上下文
-        let systemPrompt = """
-You are Vortex, a friendly AI conversation partner in a voice chat app called Vortex. The user wants to discuss these topics: \(matchResult.topics.joined(separator: ", ")).
+        conversationContext = """
+You are Vortex, a friendly AI conversation companion in a voice chat app. The user is interested in discussing: \(matchResult.topics.joined(separator: ", "))
 
-Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a natural conversation about these topics, asking thoughtful questions and sharing relevant insights. Keep your responses concise and engaging.
+Their original message was: "\(matchResult.transcription)"
+
+Guidelines:
+- Greet naturally with "Hi! I'm Vortex, nice to meet you!"
+- You're a conversation partner who enjoys these topics
+- Keep responses brief and engaging (1-2 sentences max)
+- Ask thoughtful follow-up questions
+- Use natural spoken language (this is voice chat)
+- Focus on the topics, avoid meta-discussion about matching
+- Be genuine and curious about their interests
+
+Start the conversation now with your greeting and a question about their interests.
 """
-        
-                  conversationContext = """
-          You are Vortex, a friendly AI conversation partner in a voice chat app. The user wants to discuss these topics: \(matchResult.topics.joined(separator: ", "))
-        
-        Their original message was: "\(matchResult.transcription)"
-        
-        Key guidelines:
-        - Start with a warm greeting: "Hi, I'm Vortex! Nice to meet you!"
-        - You are NOT a matching algorithm or service
-        - You are a conversation partner who enjoys discussing these topics
-        - Keep responses conversational and engaging (1-3 sentences)
-        - Ask follow-up questions to keep the conversation flowing
-        - Use natural, spoken language (this is voice chat)
-        - Don't mention "finding matches" or "waiting for others"
-        - Focus on having an interesting discussion about the topics
-        
-        Hashtags for context: \(matchResult.hashtags.joined(separator: ", "))
-        """
         
         print("🧠 [AIVoice] AI conversation context set for topics: \(matchResult.topics)")
         
-        // 连接到 WebSocket
-        await connectToRealtimeAPI()
+        do {
+            // 连接到 WebSocket
+            await connectToRealtimeAPI()
+            
+            print("✅ [AIVoice] AI conversation initialized")
+        } catch {
+            print("❌ [AIVoice] Failed to initialize AI conversation: \(error)")
+        }
         
-        print("✅ [AIVoice] AI conversation initialized")
+        isInitializing = false
     }
     
     private func connectToRealtimeAPI() async {
@@ -456,6 +464,8 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
         isListening = false
         sessionStarted = false
         isAuthenticated = false
+        greetingSent = false
+        isInitializing = false
         
         // Clear audio data
         audioQueue.removeAll()
@@ -522,6 +532,8 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
         // 重置认证状态
         isAuthenticated = false
         sessionStarted = false
+        greetingSent = false
+        isInitializing = false
         
         print("✅ [AIVoice] AI conversation stopped and cleaned up")
     }
@@ -776,24 +788,31 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
             print("🔍 [MATCHING] Current matchFound value BEFORE: \(String(describing: self.matchFound))")
             print("🔍 [MATCHING] About to set matchFound...")
             
-            self.matchFound = liveMatchData
+            // Clear any previous match data to force @Published update
+            self.matchFound = nil
             
-            print("✅✅✅ [MATCHING] matchFound has been set!")
-            print("🔍 [MATCHING] matchFound value AFTER setting: \(String(describing: self.matchFound))")
-            print("🔍 [MATCHING] Backup values:")
-            print("   🔍 lastMatchData: \(String(describing: self.lastMatchData))")
-            print("   🔍 hasActiveMatch: \(self.hasActiveMatch)")
-            
-            // Double check the assignment worked
-            if let assignedMatch = self.matchFound {
-                print("✅✅✅ [MATCHING] VERIFICATION: matchFound is NOT nil!")
-                print("   🆔 Verified Match ID: \(assignedMatch.matchId)")
-                print("   🏠 Verified Room ID: \(assignedMatch.roomId)")
-                print("   👥 Verified Participants: \(assignedMatch.participants.count)")
-                print("🎯 [MATCHING] This should trigger the @Published observer!")
-            } else {
-                print("❌❌❌ [MATCHING] CRITICAL ERROR: matchFound is STILL nil after assignment!")
-                print("❌ [MATCHING] This is a severe bug - assignment failed!")
+            // Brief delay to ensure the nil assignment is processed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                print("🔄 [MATCHING] Setting matchFound after nil reset...")
+                self.matchFound = liveMatchData
+                
+                print("✅✅✅ [MATCHING] matchFound has been set!")
+                print("🔍 [MATCHING] matchFound value AFTER setting: \(String(describing: self.matchFound))")
+                print("🔍 [MATCHING] Backup values:")
+                print("   🔍 lastMatchData: \(String(describing: self.lastMatchData))")
+                print("   🔍 hasActiveMatch: \(self.hasActiveMatch)")
+                
+                // Double check the assignment worked
+                if let assignedMatch = self.matchFound {
+                    print("✅✅✅ [MATCHING] VERIFICATION: matchFound is NOT nil!")
+                    print("   🆔 Verified Match ID: \(assignedMatch.matchId)")
+                    print("   🏠 Verified Room ID: \(assignedMatch.roomId)")
+                    print("   👥 Verified Participants: \(assignedMatch.participants.count)")
+                    print("🎯 [MATCHING] This should trigger the @Published observer!")
+                } else {
+                    print("❌❌❌ [MATCHING] CRITICAL ERROR: matchFound is STILL nil after assignment!")
+                    print("❌ [MATCHING] This is a severe bug - assignment failed!")
+                }
             }
             
             print("🔄🔄🔄 [MATCHING] ===== MAIN QUEUE EXECUTION COMPLETED =====")
@@ -936,14 +955,36 @@ Please start by saying "Hi, I'm Vortex! Nice to meet you!" and then engage in a 
             print("✅ [AI_AUDIO] Session started")
             sessionStarted = true
             
-            // Send initial greeting
-            let greetingMessage: [String: Any] = [
-                "type": "user_message",
-                "message": "start_conversation",
-                "timestamp": Date().timeIntervalSince1970
-            ]
-            service.send(greetingMessage)
-            print("👋 [AI_AUDIO] Sent initial greeting request")
+            // Only send greeting once to prevent AI repetition
+            if !greetingSent {
+                greetingSent = true
+                
+                // Send conversation context instead of a user message
+                let contextMessage: [String: Any] = [
+                    "type": "conversation.item.create",
+                    "item": [
+                        "type": "message", 
+                        "role": "system",
+                        "content": [
+                            [
+                                "type": "text",
+                                "text": conversationContext
+                            ]
+                        ]
+                    ]
+                ]
+                service.send(contextMessage)
+                print("🧠 [AI_AUDIO] Sent conversation context (not user message)")
+                
+                // Start a natural conversation without explicit user input
+                let responseMessage: [String: Any] = [
+                    "type": "response.create"
+                ]
+                service.send(responseMessage)
+                print("👋 [AI_AUDIO] Triggered natural AI greeting")
+            } else {
+                print("⚠️ [AI_AUDIO] Greeting already sent, skipping to prevent repetition")
+            }
             
             Task {
                 await startListening()

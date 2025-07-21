@@ -180,6 +180,9 @@ class EventBroadcaster:
             logger.info(f"   🔍 User1 UUID: {user1_uuid}")
             logger.info(f"   🔍 User2 UUID: {user2_uuid}")
             
+            # Give WebSocket connections a moment to be fully established
+            await asyncio.sleep(0.1)
+            
             # Check if users have active WebSocket connections
             user1_connected = await self.connection_manager.is_user_connected(user1_uuid)
             user2_connected = await self.connection_manager.is_user_connected(user2_uuid)
