@@ -935,8 +935,12 @@ async def websocket_audio_stream(websocket: WebSocket):
     INPUT (Client → Server):
     {
       "type": "input_audio_buffer.append",
-      "audio": "<Base64 encoded PCM16 audio>"
+      "audio": "<Base64 encoded PCM16 audio string>"
     }
+    
+    IMPORTANT: The OpenAI SDK expects base64 STRING, not raw bytes.
+    Use: conn.input_audio_buffer.append(audio=base64_string)
+    NOT: conn.input_audio_buffer.append(audio=raw_bytes)
     
     OUTPUT (Server → Client):
     {
@@ -1171,11 +1175,9 @@ Guidelines:
                             logger.info(f"📥 [OpenAI-Official] Streaming audio to OpenAI: {len(audio_data)} base64 chars")
                             
                             try:
-                                audio_bytes = base64.b64decode(audio_data)
-                                logger.info(f"📥 [OpenAI-Official] Decoded audio: {len(audio_bytes)} bytes")
-                                
-                                # Official OpenAI Realtime API pattern: use keyword argument audio=
-                                await conn.input_audio_buffer.append(audio=audio_bytes)
+                                # Official OpenAI Realtime API pattern: pass base64 string directly
+                                # SDK expects base64 string, not raw bytes
+                                await conn.input_audio_buffer.append(audio=audio_data)
                                 
                                 # Send acknowledgment using OpenAI format
                                 await websocket.send_text(json.dumps({
@@ -1193,11 +1195,9 @@ Guidelines:
                             logger.info(f"📥 [Legacy] Streaming audio chunk to OpenAI: {len(audio_data)} base64 chars")
                             
                             try:
-                                audio_bytes = base64.b64decode(audio_data)
-                                logger.info(f"📥 [Legacy] Decoded audio: {len(audio_bytes)} bytes")
-                                
                                 # Convert legacy format to official OpenAI method
-                                await conn.input_audio_buffer.append(audio=audio_bytes)
+                                # Pass base64 string directly, no decoding needed
+                                await conn.input_audio_buffer.append(audio=audio_data)
                                 
                                 # Send acknowledgment
                                 await websocket.send_text(json.dumps({
