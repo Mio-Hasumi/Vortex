@@ -157,6 +157,68 @@ class EventBroadcaster:
         await self.connection_manager.send_to_user(to_user_id, message)
         logger.info(f"👥 Friend request notification sent: {from_user_id} -> {to_user_id}")
     
+    async def broadcast_ai_match_found(self, user1_id: str, user2_id: str, match_data: Dict[str, Any]) -> None:
+        """
+        Broadcast AI match found notification to matched users
+        
+        Args:
+            user1_id: First user ID (string)
+            user2_id: Second user ID (string)
+            match_data: Match information including room details, tokens, etc.
+        """
+        try:
+            logger.info(f"🎯 Broadcasting AI match found: {user1_id} + {user2_id}")
+            
+            # Convert string IDs to UUIDs
+            user1_uuid = UUID(user1_id)
+            user2_uuid = UUID(user2_id)
+            
+            # Get user-specific data from match_data
+            user1_data = match_data["users"][user1_id]
+            user2_data = match_data["users"][user2_id]
+            
+            # Create message for User 1
+            message_user1 = {
+                "type": "match_found",
+                "match_id": match_data["match_id"],
+                "session_id": match_data["session_id"],
+                "room_id": match_data["room_id"],
+                "livekit_token": user1_data["livekit_token"],
+                "participants": user1_data["participants"],
+                "topics": [tag.replace('#', '') for tag in match_data["hashtags"]],
+                "hashtags": match_data["hashtags"],
+                "confidence": match_data["confidence"],
+                "ai_hosted": True,
+                "timestamp": match_data["created_at"]
+            }
+            
+            # Create message for User 2
+            message_user2 = {
+                "type": "match_found",
+                "match_id": match_data["match_id"],
+                "session_id": match_data["session_id"],
+                "room_id": match_data["room_id"],
+                "livekit_token": user2_data["livekit_token"],
+                "participants": user2_data["participants"],
+                "topics": [tag.replace('#', '') for tag in match_data["hashtags"]],
+                "hashtags": match_data["hashtags"],
+                "confidence": match_data["confidence"],
+                "ai_hosted": True,
+                "timestamp": match_data["created_at"]
+            }
+            
+            # Send to both users
+            await self.connection_manager.send_to_user(user1_uuid, message_user1)
+            await self.connection_manager.send_to_user(user2_uuid, message_user2)
+            
+            logger.info(f"✅ AI match found notifications sent successfully")
+            logger.info(f"   📊 Match confidence: {match_data['confidence']:.2f}")
+            logger.info(f"   🏷️ Hashtags: {match_data['hashtags']}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to broadcast AI match found: {e}")
+            logger.exception("Full exception details:")
+    
     async def _monitor_matching_queue(self) -> None:
         """Monitor matching queue for changes"""
         try:
