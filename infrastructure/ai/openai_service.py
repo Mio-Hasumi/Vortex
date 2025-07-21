@@ -134,7 +134,9 @@ Focus on creating hashtags that help match users effectively."""
                     )
                     
                     # Send user audio input using proper streaming method with keyword argument
-                    await connection.input_audio_buffer.append(audio=audio_bytes)
+                    # Convert bytes to base64 string as required by OpenAI SDK
+                    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                    await connection.input_audio_buffer.append(audio=audio_base64)
             
                     # Request response
                     await connection.response.create()
@@ -327,7 +329,14 @@ The response should be natural, friendly, and helpful."""
                     else:
                         audio_bytes = audio_data
                     
-                    await connection.input_audio_buffer.append(audio=audio_bytes)
+                    # Convert bytes to base64 string for OpenAI SDK
+                    if isinstance(audio_data, str):
+                        # Already base64, pass directly
+                        await connection.input_audio_buffer.append(audio=audio_data)
+                    else:
+                        # Raw bytes, need to encode
+                        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                        await connection.input_audio_buffer.append(audio=audio_base64)
                 
                 # Add text if provided
                 if text_input:
