@@ -356,7 +356,7 @@ async def ai_driven_match(
         # Step 2: Based on hashtags, perform intelligent matching
         match_candidates = matching_repo.find_users_by_hashtags(
             hashtags=generated_hashtags,
-            exclude_user_id=current_user_id,
+            exclude_user_id=str(current_user_id),
             max_results=10,
             min_similarity=0.2  # At least 20% similarity
         )
@@ -371,11 +371,11 @@ async def ai_driven_match(
             logger.info(f"🎯 Found match: {matched_user_id} (confidence: {match_confidence:.2f})")
             
             # Create an AI hosted room session
-            ai_session_id = f"ai_session_{current_user_id}_{matched_user_id}_{datetime.utcnow().timestamp()}"
+            ai_session_id = f"ai_session_{str(current_user_id)}_{matched_user_id}_{datetime.utcnow().timestamp()}"
             
             # Add users to the matching queue (if room management is needed)
             await matching_repo.create_ai_match(
-                user1_id=current_user_id,
+                user1_id=str(current_user_id),
                 user2_id=matched_user_id,
                 hashtags=generated_hashtags,
                 confidence=match_confidence,
@@ -389,10 +389,10 @@ async def ai_driven_match(
             # No match found, add to waiting queue
             logger.info("🔍 No immediate match found, adding to queue...")
             
-            ai_session_id = f"ai_waiting_{current_user_id}_{datetime.utcnow().timestamp()}"
+            ai_session_id = f"ai_waiting_{str(current_user_id)}_{datetime.utcnow().timestamp()}"
             
             matching_repo.add_to_ai_queue(
-                user_id=current_user_id,
+                user_id=str(current_user_id),
                 hashtags=generated_hashtags,
                 voice_input=understood_text,
                 ai_session_id=ai_session_id
@@ -402,7 +402,7 @@ async def ai_driven_match(
             status_msg = "waiting_for_match"
         
         # Step 4: Generate a unique match ID
-        match_id = f"ai_match_{current_user_id}_{datetime.utcnow().timestamp()}"
+        match_id = f"ai_match_{str(current_user_id)}_{datetime.utcnow().timestamp()}"
         
         # Build the response
         response = AIMatchResponse(
