@@ -185,8 +185,8 @@ class EventBroadcaster:
                 "room_id": match_data["room_id"],
                 "livekit_token": user1_data["livekit_token"],
                 "participants": user1_data["participants"],
-                "topics": [tag.replace('#', '') for tag in match_data["hashtags"]],
-                "hashtags": match_data["hashtags"],
+                "topics": [str(tag).replace('#', '') for tag in match_data["hashtags"]],
+                "hashtags": [str(tag) for tag in match_data["hashtags"]],
                 "confidence": match_data["confidence"],
                 "ai_hosted": True,
                 "timestamp": match_data["created_at"]
@@ -200,8 +200,8 @@ class EventBroadcaster:
                 "room_id": match_data["room_id"],
                 "livekit_token": user2_data["livekit_token"],
                 "participants": user2_data["participants"],
-                "topics": [tag.replace('#', '') for tag in match_data["hashtags"]],
-                "hashtags": match_data["hashtags"],
+                "topics": [str(tag).replace('#', '') for tag in match_data["hashtags"]],
+                "hashtags": [str(tag) for tag in match_data["hashtags"]],
                 "confidence": match_data["confidence"],
                 "ai_hosted": True,
                 "timestamp": match_data["created_at"]
