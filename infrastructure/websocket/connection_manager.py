@@ -206,7 +206,17 @@ class ConnectionManager:
     
     async def is_user_connected(self, user_id: UUID) -> bool:
         """Check if user has any active WebSocket connections"""
-        return str(user_id) in self.active_connections
+        user_id_str = str(user_id)
+        is_connected = user_id_str in self.active_connections and len(self.active_connections[user_id_str]) > 0
+        
+        logger.debug(f"🔍 [CONNECTION_CHECK] User {user_id}: connected={is_connected}")
+        if user_id_str in self.active_connections:
+            logger.debug(f"   📊 Connection count: {len(self.active_connections[user_id_str])}")
+            logger.debug(f"   🔗 Connection IDs: {list(self.active_connections[user_id_str].keys())}")
+        else:
+            logger.debug(f"   ❌ User not in active_connections at all")
+            
+        return is_connected
     
     async def get_connection_stats(self) -> Dict:
         """Get connection statistics"""

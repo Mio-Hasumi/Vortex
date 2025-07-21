@@ -197,6 +197,10 @@ class FirebaseAdminService:
         """Return server timestamp for Firestore"""
         return firestore.SERVER_TIMESTAMP
 
+    def get_server_timestamp(self):
+        """Return server timestamp for Firestore (alias for server_timestamp)"""
+        return firestore.SERVER_TIMESTAMP
+
     def query_documents(self, collection_name: str, filters: Optional[List[Dict[str, Any]]] = None, 
                        limit: Optional[int] = None, order_by: Optional[str] = None, 
                        order_direction: Optional[str] = "asc") -> List[Dict[str, Any]]:
