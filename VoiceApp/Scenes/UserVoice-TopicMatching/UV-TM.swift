@@ -47,8 +47,7 @@ struct UserVoiceTopicMatchingView: View {
                 // 返回按钮
                 HStack {
                     Button(action: {
-                        // 停止AI服务并返回
-                        aiVoiceService.cleanup()
+                        print("🚪 [EXIT] User tapped exit button - returning to home")
                         dismiss()
                     }) {
                         Image(systemName: "arrow.left")

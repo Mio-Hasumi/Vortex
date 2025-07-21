@@ -177,6 +177,14 @@ class EventBroadcaster:
             user1_data = match_data["users"][user1_id]
             user2_data = match_data["users"][user2_id]
             
+            # Ensure hashtags are strings to prevent UUID object errors
+            hashtags_str = []
+            for tag in match_data["hashtags"]:
+                if hasattr(tag, '__str__'):
+                    hashtags_str.append(str(tag))
+                else:
+                    hashtags_str.append(tag)
+            
             # Create message for User 1
             message_user1 = {
                 "type": "match_found",
@@ -185,8 +193,8 @@ class EventBroadcaster:
                 "room_id": match_data["room_id"],
                 "livekit_token": user1_data["livekit_token"],
                 "participants": user1_data["participants"],
-                "topics": [str(tag).replace('#', '') for tag in match_data["hashtags"]],
-                "hashtags": [str(tag) for tag in match_data["hashtags"]],
+                "topics": [tag.replace('#', '') if isinstance(tag, str) else str(tag).replace('#', '') for tag in hashtags_str],
+                "hashtags": hashtags_str,
                 "confidence": match_data["confidence"],
                 "ai_hosted": True,
                 "timestamp": match_data["created_at"]
@@ -200,8 +208,8 @@ class EventBroadcaster:
                 "room_id": match_data["room_id"],
                 "livekit_token": user2_data["livekit_token"],
                 "participants": user2_data["participants"],
-                "topics": [str(tag).replace('#', '') for tag in match_data["hashtags"]],
-                "hashtags": [str(tag) for tag in match_data["hashtags"]],
+                "topics": [tag.replace('#', '') if isinstance(tag, str) else str(tag).replace('#', '') for tag in hashtags_str],
+                "hashtags": hashtags_str,
                 "confidence": match_data["confidence"],
                 "ai_hosted": True,
                 "timestamp": match_data["created_at"]
@@ -481,9 +489,9 @@ class EventBroadcaster:
             # Generate room ID for AI-hosted conversation
             room_id = UUID(f"ai-room-{uuid4().hex[:8]}")
             
-            # Get common hashtags for room topic
-            user1_hashtags = set(user1.get('hashtags', []))
-            user2_hashtags = set(user2.get('hashtags', []))
+            # Get common hashtags for room topic - ensure all hashtags are strings
+            user1_hashtags = set(str(tag) for tag in user1.get('hashtags', []))
+            user2_hashtags = set(str(tag) for tag in user2.get('hashtags', []))
             common_hashtags = list(user1_hashtags.intersection(user2_hashtags))
             
             # Create AI-friendly topic string
