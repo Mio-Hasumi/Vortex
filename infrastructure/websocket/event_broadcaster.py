@@ -335,8 +335,8 @@ class EventBroadcaster:
                     # Check for potential matches (simplified logic)
                     await self._check_for_matches(queue_items)
                     
-                    # Wait before next check
-                    await asyncio.sleep(10)  # Check every 10 seconds
+                    # Wait before next check (faster checking for better responsiveness)
+                    await asyncio.sleep(2)  # Check every 2 seconds for faster matching
                     
                 except Exception as e:
                     logger.error(f"❌ Error in matching queue monitoring: {e}")
@@ -456,19 +456,37 @@ class EventBroadcaster:
         except Exception as e:
             logger.error(f"❌ Error checking for matches: {e}")
 
-    async def _process_ai_hashtag_matching(self, ai_users: List[Dict]) -> None:
+        async def _process_ai_hashtag_matching(self, ai_users: List[Dict]) -> None:
         """
-        Process AI-driven hashtag matching
+        Process AI-driven hashtag matching - only match users with active WebSocket connections
         """
         try:
             if len(ai_users) < 2:
                 return
+            
+            # Filter users to only those with active WebSocket connections
+            connected_users = []
+            for user in ai_users:
+                try:
+                    user_id = UUID(user.get('user_id'))
+                    is_connected = await self.connection_manager.is_user_connected(user_id)
+                    if is_connected:
+                        connected_users.append(user)
+                    else:
+                        logger.debug(f"🔌 [MATCHING] User {user_id} not connected, skipping for now")
+                except (ValueError, TypeError):
+                    continue
+            
+            logger.info(f"🔌 [MATCHING] Found {len(connected_users)} connected AI users out of {len(ai_users)} total")
+            
+            if len(connected_users) < 2:
+                logger.info(f"⏳ [MATCHING] Need at least 2 connected users, waiting...")
+                return
                 
             # Group users by hashtag similarity
-            matched_pairs = []
             processed_users = set()
             
-            for i, user1 in enumerate(ai_users):
+            for i, user1 in enumerate(connected_users):
                 if user1.get('user_id') in processed_users:
                     continue
                     
@@ -480,7 +498,7 @@ class EventBroadcaster:
                 best_similarity = 0.0
                 
                 # Find best matching user
-                for j, user2 in enumerate(ai_users[i+1:], i+1):
+                for j, user2 in enumerate(connected_users[i+1:], i+1):
                     if user2.get('user_id') in processed_users:
                         continue
                         
@@ -500,10 +518,11 @@ class EventBroadcaster:
                 
                 # Create match if good similarity found
                 if best_match and best_similarity >= 0.2:
-                    await self._create_ai_match(user1, best_match, best_similarity)
+                    logger.info(f"🎯 [MATCHING] Creating AI match: {user1['user_id']} + {best_match['user_id']} (similarity: {best_similarity:.2f})")
+                    await self._create_ai_match_with_room(user1, best_match, best_similarity)
                     processed_users.add(user1.get('user_id'))
                     processed_users.add(best_match.get('user_id'))
-                    
+                        
         except Exception as e:
             logger.error(f"❌ Error in AI hashtag matching: {e}")
 
@@ -561,60 +580,55 @@ class EventBroadcaster:
         except Exception as e:
             logger.error(f"❌ Error in traditional topic matching: {e}")
 
-    async def _create_ai_match(self, user1: Dict, user2: Dict, similarity: float) -> None:
+    async def _create_ai_match_with_room(self, user1: Dict, user2: Dict, similarity: float) -> None:
         """
-        Create an AI-hosted match between two users
+        Create an AI-hosted match between two users with full room and token setup
         """
         try:
-            user1_id = UUID(user1['user_id'])
-            user2_id = UUID(user2['user_id'])
+            from infrastructure.container import container
             
-            # Remove users from queue
-            self.redis.remove_from_matching_queue(user1_id)
-            self.redis.remove_from_matching_queue(user2_id)
+            user1_id_str = user1['user_id']
+            user2_id_str = user2['user_id']
             
-            # Generate room ID for AI-hosted conversation
-            room_id = UUID(f"ai-room-{uuid4().hex[:8]}")
+            # Get hashtags for the match
+            user1_hashtags = user1.get('hashtags', [])
+            user2_hashtags = user2.get('hashtags', [])
+            combined_hashtags = list(set(user1_hashtags + user2_hashtags))
             
-            # Get common hashtags for room topic - ensure all hashtags are strings
-            user1_hashtags = set(str(tag) for tag in user1.get('hashtags', []))
-            user2_hashtags = set(str(tag) for tag in user2.get('hashtags', []))
-            common_hashtags = list(user1_hashtags.intersection(user2_hashtags))
+            if not combined_hashtags:
+                combined_hashtags = ['#GeneralChat']
             
-            # Create AI-friendly topic string
-            if common_hashtags:
-                ai_topic = f"AI guided conversation: {', '.join(common_hashtags[:3])}"
-            else:
-                ai_topic = "AI guided general conversation"
+            logger.info(f"🤖 [BACKGROUND_MATCH] Creating full AI match with room...")
+            logger.info(f"   👤 User1: {user1_id_str}")
+            logger.info(f"   👤 User2: {user2_id_str}")
+            logger.info(f"   🏷️ Hashtags: {combined_hashtags}")
+            logger.info(f"   📊 Similarity: {similarity:.2f}")
             
-            # Broadcast AI match found with special formatting
-            await self.connection_manager.broadcast_to_user(user1_id, {
-                "type": "ai_match_found",
-                "room_id": str(room_id),
-                "partner_id": str(user2_id),
-                "topic": ai_topic,
-                "hashtags": common_hashtags,
-                "similarity_score": similarity,
-                "ai_hosted": True,
-                "timestamp": datetime.utcnow().isoformat()
-            })
+            # Create AI session ID
+            ai_session_id = f"bg_ai_session_{user1_id_str}_{user2_id_str}_{datetime.utcnow().timestamp()}"
             
-            await self.connection_manager.broadcast_to_user(user2_id, {
-                "type": "ai_match_found", 
-                "room_id": str(room_id),
-                "partner_id": str(user1_id),
-                "topic": ai_topic,
-                "hashtags": common_hashtags,
-                "similarity_score": similarity,
-                "ai_hosted": True,
-                "timestamp": datetime.utcnow().isoformat()
-            })
+            # Use the repository to create a full match with room and tokens
+            matching_repo = container.get_matching_repository()
+            match_data = await matching_repo.create_ai_match(
+                user1_id=user1_id_str,
+                user2_id=user2_id_str,
+                hashtags=combined_hashtags,
+                confidence=similarity,
+                ai_session_id=ai_session_id
+            )
             
-            logger.info(f"🤖 AI match created: {user1_id} + {user2_id}, similarity={similarity:.2f}, room={room_id}")
-            logger.info(f"🏷️ Common hashtags: {common_hashtags}")
+            # Now broadcast the full match using the existing broadcast method
+            await self.broadcast_ai_match_found(
+                user1_id=user1_id_str,
+                user2_id=user2_id_str,
+                match_data=match_data
+            )
+            
+            logger.info(f"✅ [BACKGROUND_MATCH] AI match created and broadcast successfully!")
             
         except Exception as e:
-            logger.error(f"❌ Error creating AI match: {e}")
+            logger.error(f"❌ Error creating AI match with room: {e}")
+            logger.exception("Full exception details:")
     
     async def _process_timeout_matches(self) -> None:
         """Process users who have been waiting too long and randomly match them"""

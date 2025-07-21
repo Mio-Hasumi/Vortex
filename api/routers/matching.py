@@ -361,92 +361,39 @@ async def ai_driven_match(
         logger.info(f"   🏷️ Topics: {extracted_topics}")
         logger.info(f"   #️⃣ Hashtags: {generated_hashtags}")
         
-        # Step 2: Based on hashtags, perform intelligent matching
-        match_candidates = matching_repo.find_users_by_hashtags(
+        # Step 2: Always add user to queue first (let background matcher handle matching)
+        logger.info("🔍 Adding user to AI matching queue...")
+        
+        ai_session_id = f"ai_waiting_{str(current_user_id)}_{datetime.utcnow().timestamp()}"
+        
+        matching_repo.add_to_ai_queue(
+            user_id=str(current_user_id),
             hashtags=generated_hashtags,
-            exclude_user_id=str(current_user_id),
-            max_results=10,
-            min_similarity=0.2  # At least 20% similarity
+            voice_input=understood_text,
+            ai_session_id=ai_session_id
         )
         
-        # Step 3: Select the best match
-        if match_candidates:
-            # Sort by similarity and select the best match
-            best_match = max(match_candidates, key=lambda x: x.get("similarity", 0))
-            matched_user_id = best_match["user_id"]
-            match_confidence = best_match["similarity"]
-            
-            logger.info(f"🎯 Found match: {matched_user_id} (confidence: {match_confidence:.2f})")
-            
-            # Create an AI hosted room session
-            ai_session_id = f"ai_session_{str(current_user_id)}_{matched_user_id}_{datetime.utcnow().timestamp()}"
-            
-            # Add users to the matching queue (if room management is needed)
-            await matching_repo.create_ai_match(
-                user1_id=str(current_user_id),
-                user2_id=matched_user_id,
-                hashtags=generated_hashtags,
-                confidence=match_confidence,
-                ai_session_id=ai_session_id
-            )
-            
-            estimated_wait_time = 5  # Almost instant match
-            status_msg = "matched"
-            
-        else:
-            # No match found, add to waiting queue
-            logger.info("🔍 No immediate match found, adding to queue...")
-            
-            ai_session_id = f"ai_waiting_{str(current_user_id)}_{datetime.utcnow().timestamp()}"
-            
-            matching_repo.add_to_ai_queue(
-                user_id=str(current_user_id),
-                hashtags=generated_hashtags,
-                voice_input=understood_text,
-                ai_session_id=ai_session_id
-            )
-            
-            estimated_wait_time = 30  # Estimated wait time
-            status_msg = "waiting_for_match"
+        # Always return waiting status - let background matcher create matches when both users have WebSocket connections
+        estimated_wait_time = 15  # Expected wait time for background matching
+        status_msg = "waiting_for_match"
+        match_confidence = 0.0  # Will be determined by background matcher
         
         # Step 4: Generate a unique match ID
         match_id = f"ai_match_{str(current_user_id)}_{datetime.utcnow().timestamp()}"
         
-        # Build the response
+        # Build the response - always waiting status
         response = AIMatchResponse(
             match_id=match_id,
             session_id=ai_session_id,
             extracted_topics=extracted_topics,
             generated_hashtags=generated_hashtags,
-            match_confidence=match_confidence if match_candidates else 0.0,
+            match_confidence=match_confidence,
             estimated_wait_time=estimated_wait_time,
             ai_greeting=voice_processing_result.get("text_response", ""),
             status=status_msg
         )
         
-        # Step 5: Create actual match and broadcast event (if real-time matching) 
-        if match_candidates:
-            # Create the actual match with room and tokens
-            match_data = await matching_repo.create_ai_match(
-                user1_id=str(current_user_id),
-                user2_id=matched_user_id,
-                hashtags=generated_hashtags,
-                confidence=match_confidence,
-                ai_session_id=ai_session_id
-            )
-            
-            # Small delay to ensure both users have stable WebSocket connections
-            await asyncio.sleep(0.2)
-            
-            # Broadcast match found event
-            from infrastructure.container import container
-            event_broadcaster = container.get_event_broadcaster()
-            
-            await event_broadcaster.broadcast_ai_match_found(
-                user1_id=str(current_user_id),
-                user2_id=matched_user_id,
-                match_data=match_data
-            )
+        # No immediate matching - let background queue monitor handle this when both users have WebSocket connections
         
         logger.info(f"🎉 AI-driven match process completed successfully!")
         logger.info(f"   📊 Status: {status_msg}")
