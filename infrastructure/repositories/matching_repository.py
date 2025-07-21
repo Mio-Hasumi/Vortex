@@ -431,11 +431,14 @@ class MatchingRepository:
             # Create LiveKit room for the match
             room_name = f"ai_match_{user1_id[:8]}_{user2_id[:8]}_{int(datetime.utcnow().timestamp())}"
             
+            # Ensure all hashtags are strings
+            hashtags_str = [str(tag) for tag in hashtags]
+            
             # Create room entity
             from api.routers.rooms import create_room_entity
             room = create_room_entity(
-                name=f"AI Chat: {', '.join(hashtags[:2])}",
-                topic=', '.join(hashtags),
+                name=f"AI Chat: {', '.join(hashtags_str[:2])}",
+                topic=', '.join(hashtags_str),
                 created_by=user1_uuid,
                 max_participants=3,  # 2 users + 1 AI host
                 is_private=False
@@ -481,7 +484,7 @@ class MatchingRepository:
                 "session_id": ai_session_id,
                 "room_id": str(saved_room.id),
                 "livekit_room_name": saved_room.livekit_room_name,
-                "hashtags": hashtags,
+                "hashtags": hashtags_str,  # Use string version of hashtags
                 "confidence": confidence,
                 "created_at": datetime.utcnow().isoformat(),
                 "users": {
