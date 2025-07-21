@@ -235,10 +235,10 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
     private func setupAudioSession() {
         do {
             audioSession = AVAudioSession.sharedInstance()
-            // Configure for voice chat with speaker output
-            try audioSession?.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+            // Configure for voice chat with echo cancellation (removed defaultToSpeaker to prevent feedback)
+            try audioSession?.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth])
             try audioSession?.setActive(true)
-            print("✅ [LiveKit] Audio session configured for voice chat")
+            print("✅ [LiveKit] Audio session configured for voice chat with echo cancellation")
         } catch {
             print("❌ [LiveKit] Audio session setup failed: \(error)")
         }

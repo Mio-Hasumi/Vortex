@@ -262,23 +262,44 @@ class EventBroadcaster:
             logger.info(f"   👥 User1 participants: {len(message_user1['participants'])}")
             logger.info(f"   👥 User2 participants: {len(message_user2['participants'])}")
             
-            # Send to both users
-            logger.info(f"📤📤📤 [BROADCAST] Sending messages to users...")
+            # Send to both users with retry mechanism
+            logger.info(f"📤📤📤 [BROADCAST] Sending messages to users with retry...")
             
-            user1_sent = await self.connection_manager.send_to_user(user1_uuid, message_user1)
-            logger.info(f"📤 [BROADCAST] User1 message sent: {user1_sent}")
+            # Try sending to both users multiple times to ensure delivery
+            max_retries = 3
+            retry_delay = 0.5  # 500ms between retries
             
-            user2_sent = await self.connection_manager.send_to_user(user2_uuid, message_user2)
-            logger.info(f"📤 [BROADCAST] User2 message sent: {user2_sent}")
+            user1_sent = False
+            user2_sent = False
             
+            for attempt in range(max_retries):
+                if not user1_sent:
+                    user1_sent = await self.connection_manager.send_to_user(user1_uuid, message_user1)
+                    logger.info(f"📤 [BROADCAST] User1 message attempt {attempt + 1}: {user1_sent}")
+                
+                if not user2_sent:
+                    user2_sent = await self.connection_manager.send_to_user(user2_uuid, message_user2)
+                    logger.info(f"📤 [BROADCAST] User2 message attempt {attempt + 1}: {user2_sent}")
+                
+                # If both users received the message, we're done
+                if user1_sent and user2_sent:
+                    logger.info(f"✅✅✅ [BROADCAST] BOTH users received notification on attempt {attempt + 1}!")
+                    break
+                
+                # Wait before retry
+                if attempt < max_retries - 1:  # Don't wait after the last attempt
+                    logger.info(f"⏳ [BROADCAST] Waiting {retry_delay}s before retry...")
+                    await asyncio.sleep(retry_delay)
+            
+            # Final status check
             if user1_sent and user2_sent:
                 logger.info(f"✅✅✅ [BROADCAST] AI match found notifications sent to BOTH users successfully!")
             elif user1_sent or user2_sent:
-                logger.warning(f"⚠️⚠️⚠️ [BROADCAST] Only ONE user received the notification!")
+                logger.warning(f"⚠️⚠️⚠️ [BROADCAST] Only ONE user received the notification after {max_retries} attempts!")
                 logger.warning(f"   User1 received: {user1_sent}")
                 logger.warning(f"   User2 received: {user2_sent}")
             else:
-                logger.error(f"❌❌❌ [BROADCAST] NO users received the notification!")
+                logger.error(f"❌❌❌ [BROADCAST] NO users received the notification after {max_retries} attempts!")
                 logger.error(f"   This indicates both users have disconnected WebSockets!")
             
             logger.info(f"📊 [BROADCAST] Match details:")
