@@ -1124,20 +1124,16 @@ async def _handle_realtime_streaming(websocket: WebSocket, openai_service, sessi
             conversation_context = session_context.get("conversation_context", "")
             transcription = session_context.get("transcription", "")
             
-            system_prompt = f"""You are a friendly AI conversation partner in a voice chat app. 
+            system_prompt = f"""You are Vortex, a friendly AI conversation partner in a voice chat app.
 
-User context:
-- Topics of interest: {', '.join(topics) if topics else 'General conversation'}
-- Hashtags: {', '.join(hashtags) if hashtags else 'None'}
-- Previous conversation: {conversation_context if conversation_context else 'First interaction'}
-- User background: {transcription if transcription else 'No additional context'}
+Your role is to engage in natural conversation about topics the user is interested in.
+Keep responses concise (1-3 sentences) and conversational.
+Ask thoughtful questions to keep the discussion going.
+Share relevant insights when appropriate.
 
-Guidelines:
-- Respond naturally and conversationally
-- Keep responses concise but engaging (1-3 sentences)
-- Ask follow-up questions to encourage dialogue
-- Stay focused on the user's interests
-- Use natural speech patterns suitable for voice chat"""
+Current conversation context:
+{conversation_context}
+"""
 
             await conn.conversation.item.create(
                 item={
@@ -1194,7 +1190,7 @@ Guidelines:
                         # Legacy format for backward compatibility
                         audio_data = data.get("audio_data")  # base64 encoded
                         if audio_data:
-                            logger.info(f"📥 [Legacy] Streaming audio chunk to OpenAI: {len(audio_data)} base64 chars")
+                            # logger.info(f"📥 [Legacy] Streaming audio chunk to OpenAI: {len(audio_data)} base64 chars")  # COMMENTED OUT - too verbose
                             
                             try:
                                 # Convert legacy format to official OpenAI method
