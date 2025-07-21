@@ -134,7 +134,7 @@ Focus on creating hashtags that help match users effectively."""
                     )
                     
                     # Send user audio input using proper streaming method
-                    await connection.input_audio_buffer.append(audio_bytes)
+                    await connection.append_input_audio(audio_bytes)
             
                     # Request response
                     await connection.response.create()
@@ -146,8 +146,8 @@ Focus on creating hashtags that help match users effectively."""
                     async for event in connection:
                         if event.type == "response.text.delta":
                             text_chunks.append(event.delta)
-                        elif event.type == "response.audio":
-                            audio_chunks.append(event.audio.data)
+                        elif event.type == "response.audio.delta":
+                            audio_chunks.append(event.delta)
                         elif event.type == "response.done":
                             break
                     
@@ -327,7 +327,7 @@ The response should be natural, friendly, and helpful."""
                     else:
                         audio_bytes = audio_data
                     
-                    await connection.input_audio_buffer.append(audio_bytes)
+                    await connection.append_input_audio(audio_bytes)
                 
                 # Add text if provided
                 if text_input:
@@ -353,19 +353,19 @@ The response should be natural, friendly, and helpful."""
                 async for event in connection:
                     if event.type == "response.text.delta":
                         text_chunks.append(event.delta)
-                    elif event.type == "response.audio":
-                        audio_chunks.append(event.audio.data)
+                    elif event.type == "response.audio.delta":
+                        audio_chunks.append(event.delta)
                     elif event.type == "response.done":
                         break
                 
                 # Combine responses
                 text_response = "".join(text_chunks)
-                audio_response = b"".join(audio_chunks)
+                audio_response = b"".join(audio_chunks) if audio_chunks else None
                 
-                return {
+                result = {
                     "ai_response": {
                         "text": text_response,
-                        "audio": audio_response,
+                        "audio": None,
                         "audio_transcript": None  # Realtime API doesn't provide transcript
                     },
                     "moderation_type": moderation_mode,
@@ -373,6 +373,15 @@ The response should be natural, friendly, and helpful."""
                     "timestamp": datetime.utcnow().isoformat(),
                     "participants": room_participants
                 }
+                
+                # Add audio if available (base64 encoded for JSON serialization)
+                if audio_response:
+                    # Convert raw PCM16 to WAV format for iOS compatibility
+                    wav_audio = self._pcm16_to_wav(audio_response)
+                    result["ai_response"]["audio"] = base64.b64encode(wav_audio).decode("utf-8")
+                    result["ai_response"]["audio_format"] = "wav"
+                
+                return result
         
         except Exception as e:
             logger.error(f"❌ Room moderation failed: {e}")
