@@ -259,7 +259,7 @@ struct HomeView: View {
                                                 Text("Recording... Tap to stop")
                                                     .font(.system(size: 48, weight: .light))
                                                     .foregroundColor(.white)
-                                                    .opacity(showCursor ? 1.0 : 0.7)
+                                                    .shadow(color: .white, radius: showCursor ? 3 : 0)
                                                     .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: showCursor)
                                             }
                                             .padding(.leading, 20) // Move both dot and text to the right
@@ -274,7 +274,7 @@ struct HomeView: View {
                                                 Text(voiceService.matchStatus ?? "Finding matches...")
                                                     .font(.system(size: 48, weight: .light))
                                                     .foregroundColor(.white)
-                                                    .opacity(showCursor ? 1.0 : 0.7)
+                                                    .shadow(color: .white, radius: showCursor ? 3 : 0)
                                                     .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: showCursor)
                                             }
                                             .padding(.leading, 20) // Move both spinner and text to the right
