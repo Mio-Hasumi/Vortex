@@ -139,19 +139,28 @@ class Container:
             )
             
             # Agent Manager Service (NEW: manages VortexAgent deployment)
+            logger.info("🤖 CONTAINER DEBUG: Initializing AgentManagerService...")
+            logger.info(f"🤖 CONTAINER DEBUG: LiveKit service available: {self._instances.get('livekit_service') is not None}")
+            logger.info(f"🤖 CONTAINER DEBUG: OpenAI service available: {self._instances.get('openai_service') is not None}")
+            logger.info(f"🤖 CONTAINER DEBUG: AI Host service available: {self._instances.get('ai_host_service') is not None}")
+            
             self._instances['agent_manager_service'] = AgentManagerService(
                 livekit_service=self._instances['livekit_service'],
                 openai_service=self._instances.get('openai_service'),
                 ai_host_service=self._instances.get('ai_host_service')
             )
             
+            logger.info("✅ CONTAINER DEBUG: AgentManagerService initialized successfully")
             logger.info("✅ AI services initialized successfully")
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize AI services: {e}")
+            logger.error(f"❌ CONTAINER ERROR: Failed to initialize AI services: {e}")
+            import traceback
+            logger.error(f"❌ CONTAINER ERROR: Traceback: {traceback.format_exc()}")
             # Fallback: create placeholder services
             self._instances['openai_service'] = None
             self._instances['ai_host_service'] = None
+            self._instances['agent_manager_service'] = None
 
     # Core service getters
     def get_firebase_auth(self) -> FirebaseAuth:
