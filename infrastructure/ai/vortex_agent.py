@@ -388,8 +388,14 @@ Remember: Less is often more. Let users have their conversations naturally unles
                 logger.info("[AGENT] 🤐 PASSIVE - staying silent")
                 return
             
-            # ACTIVE MODE: Manually handle the response
-            logger.info(f"[AGENT] 🎯 ACTIVE - {intervention_type} - handling manually")
+            # 只在白名单里才说 - 严格控制介入条件
+            allowed_interventions = {"direct_call", "profanity"}
+            if intervention_type not in allowed_interventions:
+                logger.info(f"[AGENT] 🚫 Trigger '{intervention_type}' ignored (not in allowed list: {allowed_interventions})")
+                return
+            
+            # ACTIVE MODE: Handle allowed interventions only
+            logger.info(f"[AGENT] 🎯 ACTIVE - {intervention_type}")
             self.listening_mode = False
             self.room_context["conversation_state"] = "active"
             
@@ -403,12 +409,7 @@ Remember: Less is often more. Let users have their conversations naturally unles
                 await self.session.say(response_msg, allow_interruptions=True)
                 # Schedule return to listening mode after response
                 asyncio.create_task(self._return_to_listening_mode(delay=5.0))
-            else:
-                # Other intervention types - provide a general helpful response
-                response_msg = f"Hi {participant_info['name']}! I heard you mention something. How can I help with your conversation?"
-                await self.session.say(response_msg, allow_interruptions=True)
-                # Schedule return to listening mode after response
-                asyncio.create_task(self._return_to_listening_mode(delay=5.0))
+            # 删除了 else 分支 - 不再对其他类型强制响应
             
         except Exception as e:
             logger.error(f"[AGENT ERROR] ❌ Error in on_user_turn_completed: {e}")
@@ -573,18 +574,17 @@ Remember: Less is often more. Let users have their conversations naturally unles
                 logger.info(f"[AGENT] ⚠️ Profanity detected: {profanity_found}")
                 return "profanity"
             
-            # 3. Help/suggestion requests - more comprehensive patterns
+            # 3. Help/suggestion requests - RESTRICTED: must mention vortex explicitly
             help_patterns = [
-                r'\b(help|assist|suggest|recommend)\b',
-                r'\bwhat\s+(should|can|could)\s+we\b',
-                r'\b(ideas?|topics?)\b.*\?',
-                r'\bdon\'?t\s+know\s+what\s+to\b',
-                r'\brun\s+out\s+of\s+things\b'
+                r'\bvortex\b.*\b(help|assist|suggest|recommend)\b',
+                r'\b(help|assist|suggest|recommend)\b.*\bvortex\b',
+                r'\bvortex\b.*\bwhat\s+(should|can|could)\s+(we|I)\b',
+                r'\bvortex\b.*\b(ideas?|topics?)\b'
             ]
             
             for pattern in help_patterns:
                 if re.search(pattern, user_input_lower):
-                    logger.info(f"[AGENT] 🆘 Help request detected with pattern: '{pattern}'")
+                    logger.info(f"[AGENT] 🆘 Vortex-specific help request detected with pattern: '{pattern}'")
                     return "help_request"
             
             # Stay passive for normal conversation
