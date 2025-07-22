@@ -19,10 +19,9 @@ import asyncio
 import logging
 import os
 import signal
-from typing import Dict, Any
-from uuid import UUID
+from typing import Dict, Any, Set
 
-from livekit import agents
+from livekit import agents, rtc
 from livekit.agents import JobContext, WorkerOptions, cli
 
 # Import our VortexAgent implementation
@@ -71,12 +70,20 @@ class VortexAgentWorker:
 worker = VortexAgentWorker()
 
 
+def is_human_participant(participant: rtc.RemoteParticipant) -> bool:
+    """Check if participant is a real human (not AI)"""
+    return (
+        participant.kind == rtc.ParticipantKind.STANDARD and 
+        not participant.identity.startswith(('ai_host_', 'vortex_', 'agent_'))
+    )
+
+
 async def entrypoint(ctx: JobContext):
     """
     Main entry point for the VortexAgent
     
-    This function is called whenever a new job (room connection) is created.
-    It sets up the agent session and connects to the LiveKit room.
+    This function handles participant monitoring and greeting at the JobContext level,
+    as recommended by LiveKit Agents framework.
     """
     try:
         logger.info(f"🚀 VortexAgent starting job in room: {ctx.room.name}")
@@ -87,6 +94,8 @@ async def entrypoint(ctx: JobContext):
         
         # Extract room context from job metadata if available
         room_context = {}
+        expected_users = 2  # Default expected users
+        
         if ctx.job.metadata:
             try:
                 import json
@@ -98,12 +107,74 @@ async def entrypoint(ctx: JobContext):
                     "created_by": metadata.get("created_by"),
                     "room_settings": metadata.get("room_settings", {})
                 }
-                logger.info(f"📋 Room context loaded: {room_context}")
+                expected_users = len(metadata.get("participants", [])) or 2
+                logger.info(f"📋 Room context loaded: expected_users={expected_users}")
                 
             except json.JSONDecodeError:
                 logger.warning("⚠️ Could not parse job metadata as JSON")
         
-        # Create VortexAgent session with STT-LLM-TTS pipeline
+        # Connect to room first
+        await ctx.connect()
+        logger.info(f"✅ Connected to LiveKit room: {ctx.room.name}")
+        
+        # Track humans in room and setup greeting logic
+        humans_in_room: Set[str] = set()
+        greeting_event = asyncio.Event()
+        
+        async def on_participant_join(ctx: JobContext, participant: rtc.RemoteParticipant):
+            """Handle participant joining"""
+            try:
+                if not is_human_participant(participant):
+                    logger.debug(f"[PARTICIPANT] Skipping non-human participant: {participant.identity}")
+                    return
+                
+                logger.info(f"[PARTICIPANT] Human joined: {participant.identity}")
+                humans_in_room.add(participant.identity)
+                
+                # Notify agent
+                vortex_agent = worker.active_sessions[ctx.room.name]["agent"]
+                vortex_agent.notify_participant_joined(
+                    participant.identity, 
+                    {"name": participant.name or participant.identity, "join_time": asyncio.get_event_loop().time()}
+                )
+                
+                # Check if we should greet
+                if len(humans_in_room) >= expected_users and not greeting_event.is_set():
+                    logger.info(f"[GREETING] 🎉 {len(humans_in_room)} humans joined - triggering greeting!")
+                    greeting_event.set()
+                    
+            except Exception as e:
+                logger.error(f"[PARTICIPANT ERROR] Error handling participant join: {e}")
+        
+        async def on_participant_leave(ctx: JobContext, participant: rtc.RemoteParticipant):
+            """Handle participant leaving"""
+            try:
+                if not is_human_participant(participant):
+                    return
+                    
+                logger.info(f"[PARTICIPANT] Human left: {participant.identity}")
+                humans_in_room.discard(participant.identity)
+                
+                # Notify agent
+                vortex_agent = worker.active_sessions[ctx.room.name]["agent"]
+                vortex_agent.notify_participant_left(participant.identity)
+                    
+            except Exception as e:
+                logger.error(f"[PARTICIPANT ERROR] Error handling participant leave: {e}")
+        
+        # Register participant event handlers
+        ctx.add_participant_entrypoint(on_participant_join)
+        ctx.add_participant_entrypoint(on_participant_leave)
+        
+        # Check for existing participants
+        for participant in ctx.room.remote_participants.values():
+            if is_human_participant(participant):
+                logger.info(f"[PARTICIPANT] Found existing human: {participant.identity}")
+                humans_in_room.add(participant.identity)
+        
+        logger.info(f"[PARTICIPANT] Initial human count: {len(humans_in_room)}")
+        
+        # Create VortexAgent session
         session, vortex_agent = create_vortex_agent_session(
             openai_service=worker.openai_service,
             ai_host_service=worker.ai_host_service,
@@ -114,13 +185,9 @@ async def entrypoint(ctx: JobContext):
         worker.active_sessions[ctx.room.name] = {
             "session": session,
             "agent": vortex_agent,
-            "context": room_context
+            "context": room_context,
+            "humans": humans_in_room
         }
-        
-        # Connect to the room and start the session
-        await ctx.connect()
-        
-        logger.info(f"✅ Connected to LiveKit room: {ctx.room.name}")
         
         # Start the agent session
         await session.start(
@@ -130,8 +197,33 @@ async def entrypoint(ctx: JobContext):
         
         logger.info(f"🎭 VortexAgent active in room: {ctx.room.name}")
         
-        # The session will handle conversation automatically from here
-        # The agent will greet participants and facilitate conversation
+        # Wait for enough participants to join (if not already present)
+        if len(humans_in_room) >= expected_users:
+            greeting_event.set()
+        
+        # Wait for greeting trigger and deliver greeting
+        try:
+            await asyncio.wait_for(greeting_event.wait(), timeout=30.0)  # 30 second timeout
+            
+            # Deliver greeting via session.say() (bypasses LLM)
+            greeting_msg = "Hi everyone! I'm Vortex, your AI conversation assistant. I'm here to help facilitate your discussion and provide assistance when needed. Feel free to continue your conversation!"
+            
+            logger.info(f"[GREETING] 📢 Delivering greeting to {len(humans_in_room)} participants")
+            await session.say(greeting_msg, allow_interruptions=True)
+            
+            # Mark agent as greeted and set to listening mode
+            vortex_agent.has_greeted = True
+            vortex_agent.has_been_introduced = True
+            vortex_agent.set_listening_mode(True)
+            
+            logger.info("[GREETING] ✅ Greeting delivered, agent now in listening mode")
+            
+        except asyncio.TimeoutError:
+            logger.warning("[GREETING] ⏰ Greeting timeout - proceeding without greeting")
+            vortex_agent.set_listening_mode(True)
+        
+        # Keep the session running
+        logger.info("🎯 VortexAgent session running - waiting for completion")
         
     except Exception as e:
         logger.error(f"❌ VortexAgent job failed: {e}")
@@ -254,10 +346,7 @@ def main():
     # Create worker options
     worker_opts = WorkerOptions(
         entrypoint_fnc=entrypoint,
-        prewarm_fnc=prewarm,
-        # Configure worker settings
-        shutdown_timeout=30.0,  # 30 second timeout for graceful shutdown
-        job_entrypoint_timeout=10.0,  # 10 second timeout for job initialization
+        prewarm_fnc=prewarm
     )
     
     try:
