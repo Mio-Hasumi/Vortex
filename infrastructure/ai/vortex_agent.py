@@ -15,6 +15,8 @@ Features:
 
 import asyncio
 import logging
+import re
+from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 from uuid import UUID
 
@@ -67,7 +69,11 @@ class VortexAgent(Agent):
             "participants": [],
             "topics": [],
             "conversation_state": "greeting",
-            "total_exchanges": 0
+            "total_exchanges": 0,
+            "match_type": "ai_driven",
+            "timeout_explanation": False,
+            "intervention_mode": "on_demand",
+            "topics_context": "General conversation"
         }
         
         # Agent personality settings
@@ -75,93 +81,344 @@ class VortexAgent(Agent):
             "name": "Vortex",
             "style": "friendly",
             "engagement_level": 8,  # 1-10 scale
-            "intervention_threshold": 10  # seconds of silence before suggesting topics
+            "intervention_threshold": 15  # seconds of silence before suggesting topics
+        }
+        
+        # Conversation monitoring
+        self.conversation_log = []
+        self.last_user_message_time = None
+        self.silence_threshold = 20  # seconds before considering it "too quiet"
+        self.listening_mode = True  # Start in passive listening mode
+        self.has_been_introduced = False  # Track if agent has introduced itself
+        
+        # Profanity filter (basic words - can be expanded)
+        self.profanity_words = {
+            'fuck', 'shit', 'bitch', 'damn', 'ass', 'bastard', 'hell',
+            'crap', 'piss', 'whore', 'slut', 'dickhead', 'asshole'
         }
         
         logger.info("✅ VortexAgent initialized with conversation hosting capabilities")
 
+    def update_room_context(
+        self, 
+        participants: List[Dict[str, Any]] = None, 
+        topics: List[str] = None,
+        settings: Dict[str, Any] = None
+    ):
+        """
+        Update room context and agent settings based on match information
+        
+        Args:
+            participants: List of room participants
+            topics: Conversation topics/hashtags
+            settings: Custom agent settings from match creation
+        """
+        try:
+            if participants:
+                self.room_context["participants"] = participants
+            
+            if topics:
+                self.room_context["topics"] = topics
+                
+            if settings:
+                # Update room context from custom settings
+                self.room_context.update({
+                    "match_type": settings.get("match_type", "ai_driven"),
+                    "timeout_explanation": settings.get("timeout_explanation", False),
+                    "intervention_mode": settings.get("intervention_mode", "on_demand"),
+                    "topics_context": settings.get("topics_context", "General conversation"),
+                    "hashtags": settings.get("hashtags", []),
+                    "confidence": settings.get("confidence", 0.5)
+                })
+                
+                # Update personality based on settings
+                self.personality.update({
+                    "engagement_level": settings.get("engagement_level", 8),
+                    "style": settings.get("personality", "friendly"),
+                })
+                
+                # Update intervention thresholds
+                if settings.get("engagement_level"):
+                    # Higher engagement = more likely to intervene
+                    engagement = settings["engagement_level"]
+                    self.silence_threshold = max(15, 30 - (engagement * 2))  # 15-30 seconds
+                    
+            logger.info(f"[AGENT] Room context updated: match_type={self.room_context.get('match_type')}, timeout={self.room_context.get('timeout_explanation')}")
+                    
+        except Exception as e:
+            logger.error(f"[AGENT ERROR] ❌ Error updating room context: {e}")
+
     def _get_agent_instructions(self) -> str:
         """Get the system instructions for Vortex agent"""
-        return """You are Vortex, an intelligent AI conversation host in a voice chat application. Your role is to facilitate engaging, natural conversations between participants.
+        return """You are Vortex, an intelligent AI conversation assistant in a voice chat application. 
 
-Your key responsibilities:
-1. 🎭 HOST: Welcome new participants warmly and help them feel comfortable
-2. 🗣️ FACILITATE: Keep conversations flowing by asking thoughtful questions and suggesting topics
-3. ✅ FACT-CHECK: When participants mention information, provide friendly verification if needed
-4. 🎪 ENGAGE: Suggest interesting topics when conversations naturally pause
-5. 🤝 INCLUDE: Ensure all participants have opportunities to contribute
-6. ⚖️ MODERATE: Keep discussions positive and respectful
+IMPORTANT: You operate in PASSIVE LISTENING mode by default. You should only speak when:
+1. Someone directly calls you ("Hey Vortex", "Hi Vortex", etc.)
+2. Someone uses inappropriate language that needs gentle correction
+3. Someone asks for help or suggestions
+4. The conversation has been quiet for too long (you'll be notified)
 
-Conversation style:
-- Be warm, friendly, and genuinely interested
-- Keep responses concise (1-3 sentences typically)
+When you DO respond:
+- Be warm, friendly, and genuinely helpful
+- Keep responses concise (1-3 sentences typically) 
 - Ask open-ended questions to encourage discussion
 - Share relevant insights when appropriate
 - Use natural, conversational language
-- Be encouraging and supportive
+- Focus on facilitating rather than dominating the conversation
 
-When conversations stall:
-- Suggest related topics or ask follow-up questions
-- Share interesting facts or perspectives
-- Invite quieter participants to share their thoughts
-- Transition to new topics smoothly
+Your role is to:
+✅ LISTEN: Quietly monitor conversations and learn from the flow
+✅ ASSIST: Help when specifically called upon or when intervention is needed
+✅ FACILITATE: Suggest topics or ask questions when requested
+✅ MODERATE: Gently redirect inappropriate conversations
+✅ SUPPORT: Create a comfortable environment for natural conversation
 
-Remember: You're a helpful host, not the main speaker. Your goal is to help participants have great conversations with each other."""
+Remember: Less is often more. Let users have their conversations naturally unless they specifically need your help."""
 
     async def on_enter(self) -> None:
         """Called when agent becomes active in the session"""
-        logger.info("🎭 Vortex agent entering room as conversation host")
+        logger.info("[AGENT] Vortex agent entering room - will greet users first")
         
         # Update room context
         job_ctx = get_job_context()
         self.room_context["room_name"] = job_ctx.room.name
         
-        # Greet participants warmly
-        await self.session.say(
-            "Hi everyone! I'm Vortex, your AI conversation host. I'm here to help facilitate our discussion and make sure everyone has a great time. What would you all like to talk about today?",
-            allow_interruptions=True
-        )
+        # Give users a moment to settle in
+        await asyncio.sleep(3)
         
-        # Update conversation state
-        self.room_context["conversation_state"] = "active"
+        # ACTIVE introduction first to explain usage
+        if self.room_context.get("timeout_explanation", False):
+            # Timeout match explanation
+            greeting = (
+                "Hi there! I'm Vortex, your AI conversation assistant. "
+                f"{self.room_context.get('topics_context', 'Since no one was immediately interested in the same topics, I randomly connected you two.')} "
+                "I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join the conversation, suggest topics, or help in any way!"
+            )
+        else:
+            # Regular match with shared interests
+            topics_context = self.room_context.get('topics_context', 'You were matched based on shared interests.')
+            hashtags = self.room_context.get('hashtags', [])
+            
+            if hashtags:
+                greeting = (
+                    f"Hi everyone! I'm Vortex, your AI conversation assistant. "
+                    f"I see you both are interested in {', '.join(hashtags[:3])}{'...' if len(hashtags) > 3 else ''}! "
+                    f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to suggest topics, answer questions, or help with your conversation. Enjoy chatting!"
+                )
+            else:
+                greeting = (
+                    f"Hi everyone! I'm Vortex, your AI conversation assistant. "
+                    f"{topics_context} "
+                    f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join in, suggest topics, or help with your conversation!"
+                )
+        
+        # Active greeting
+        await self.session.say(greeting, allow_interruptions=True)
+        
+        # AFTER greeting, switch to passive listening mode
+        self.listening_mode = True
+        self.last_user_message_time = datetime.now()
+        self.room_context["conversation_state"] = "listening"
+        self.has_been_introduced = True
+        
+        logger.info("[AGENT] Vortex introduction complete - now in passive listening mode")
 
     async def on_exit(self) -> None:
         """Called when agent is leaving the session"""
-        logger.info("👋 Vortex agent exiting room")
+        logger.info("[AGENT] Vortex agent exiting room")
         await self.session.say(
             "Thanks for the great conversation everyone! Hope to chat with you again soon.",
             allow_interruptions=False
         )
 
     async def on_user_turn_completed(self, turn_ctx: ChatContext, new_message: ChatMessage) -> None:
-        """Process user input and update conversation context"""
+        """Process user input with smart intervention logic"""
         try:
-            # Increment conversation exchange counter
-            self.room_context["total_exchanges"] += 1
-            
             # Extract user message content
             user_input = new_message.text_content()
             
-            # Add conversation context for better responses
-            if self.ai_host_service:
-                # Use existing AI service to analyze conversation flow
-                conversation_context = {
-                    "room_context": self.room_context,
-                    "recent_message": user_input,
-                    "total_exchanges": self.room_context["total_exchanges"],
-                    "conversation_state": self.room_context["conversation_state"]
-                }
+            # Update conversation tracking
+            self.last_user_message_time = datetime.now()
+            self.conversation_log.append({
+                "timestamp": self.last_user_message_time,
+                "content": user_input,
+                "participant": turn_ctx.participant_identity if hasattr(turn_ctx, 'participant_identity') else "Unknown"
+            })
+            
+            # Keep only recent conversation history (last 20 messages)
+            if len(self.conversation_log) > 20:
+                self.conversation_log = self.conversation_log[-20:]
+            
+            # Check intervention triggers
+            intervention_type = await self._should_intervene(user_input)
+            
+            if intervention_type:
+                # Agent is being called to participate
+                self.listening_mode = False
+                self.room_context["conversation_state"] = "active"
                 
-                # Add enriched context to the turn
-                turn_ctx.add_message(
-                    role="system",
-                    content=f"Conversation context: {conversation_context['total_exchanges']} exchanges so far. Current state: {conversation_context['conversation_state']}. Respond as a helpful conversation host."
-                )
+                # Increment conversation exchange counter
+                self.room_context["total_exchanges"] += 1
                 
-            logger.info(f"📝 Processed user turn: {self.room_context['total_exchanges']} exchanges")
+                # Handle specific intervention types - no need for separate introduction since we greet at start
+                    
+                # Add conversation context for better responses
+                if self.ai_host_service:
+                    conversation_context = {
+                        "room_context": self.room_context,
+                        "recent_message": user_input,
+                        "total_exchanges": self.room_context["total_exchanges"],
+                        "conversation_state": self.room_context["conversation_state"],
+                        "conversation_history": self.conversation_log[-5:],  # Last 5 messages
+                        "intervention_type": intervention_type
+                    }
+                    
+                    # Add enriched context to the turn
+                    if intervention_type == "profanity":
+                        turn_ctx.add_message(
+                            role="system",
+                            content=f"Someone used inappropriate language. Gently redirect the conversation in a positive direction without being preachy."
+                        )
+                    else:
+                        turn_ctx.add_message(
+                            role="system",
+                            content=f"You are now actively participating in the conversation. Recent context: {conversation_context['total_exchanges']} exchanges total. Recent messages: {[msg['content'] for msg in conversation_context['conversation_history']]}. Respond naturally and helpfully."
+                        )
+            else:
+                # Stay in listening mode - don't respond
+                # Just log the activity
+                logger.info(f"[AGENT] Listening - recorded message from user, staying passive")
+                self.room_context["conversation_state"] = "listening"
+                return  # Don't let the agent respond
+            
+            logger.info(f"[AGENT] Processed user turn - active intervention triggered")
             
         except Exception as e:
-            logger.error(f"❌ Error in on_user_turn_completed: {e}")
+            logger.error(f"[AGENT ERROR] ❌ Error in on_user_turn_completed: {e}")
+
+    async def _should_intervene(self, user_input: str) -> str:
+        """
+        Determine if the agent should actively respond based on intervention triggers
+        
+        Agent will intervene when:
+        1. "Hey Vortex" is mentioned
+        2. Profanity/bad language is detected
+        3. Help requests are made
+        4. Room is being too quiet
+        
+        Args:
+            user_input: User's message content
+            
+        Returns:
+            Intervention type string or None if should stay passive
+        """
+        try:
+            user_input_lower = user_input.lower()
+            
+            # 1. Direct call to Vortex
+            vortex_triggers = ['hey vortex', 'hi vortex', 'hello vortex', 'vortex', '@vortex']
+            for trigger in vortex_triggers:
+                if trigger in user_input_lower:
+                    logger.info(f"[AGENT] Intervention triggered: Direct call detected ('{trigger}')")
+                    return "direct_call"
+            
+            # 2. Profanity detection
+            words = re.findall(r'\b\w+\b', user_input_lower)
+            for word in words:
+                if word in self.profanity_words:
+                    logger.info(f"[AGENT] Intervention triggered: Profanity detected ('{word}')")
+                    return "profanity"
+            
+            # 3. Questions or requests for help (secondary triggers)
+            help_triggers = ['help', 'what should we', 'what can we', 'suggest', 'ideas', 'topics']
+            for trigger in help_triggers:
+                if trigger in user_input_lower:
+                    logger.info(f"[AGENT] Intervention triggered: Help request detected ('{trigger}')")
+                    return "help_request"
+            
+            # Stay passive for normal conversation
+            return None
+            
+        except Exception as e:
+            logger.error(f"[AGENT ERROR] ❌ Error checking intervention triggers: {e}")
+            return None
+
+    async def check_silence_intervention(self) -> None:
+        """
+        Background task to check for silence and intervene if conversation is too quiet
+        This should be called periodically
+        """
+        try:
+            if not self.last_user_message_time:
+                return
+            
+            silence_duration = (datetime.now() - self.last_user_message_time).total_seconds()
+            
+            if silence_duration > self.silence_threshold:
+                logger.info(f"[AGENT] Silence intervention triggered: {silence_duration:.1f}s of quiet")
+                
+                # Generate a gentle conversation starter
+                await self.session.say(
+                    "I couldn't help but notice things got a bit quiet. Would you like me to suggest something to talk about?",
+                    allow_interruptions=True
+                )
+                
+                # Reset the timer
+                self.last_user_message_time = datetime.now()
+                self.room_context["conversation_state"] = "active"
+                
+        except Exception as e:
+            logger.error(f"[AGENT ERROR] ❌ Error in silence intervention: {e}")
+
+    @function_tool()
+    async def introduce_myself(
+        self,
+        context: RunContext,
+        reason: str = "user_called"
+    ) -> str:
+        """
+        Provide a context-aware introduction when users call for Vortex
+        
+        Args:
+            reason: Why the introduction is being given
+        """
+        try:
+            # Context-aware greeting based on match type
+            if self.room_context.get("timeout_explanation", False):
+                # Timeout match explanation
+                greeting = (
+                    f"Hi there! I'm Vortex, your AI conversation assistant. "
+                    f"{self.room_context.get('topics_context', 'Since no one was immediately interested in the same topics, I randomly connected you two.')} "
+                    f"I can help suggest topics to talk about, answer questions, or just facilitate your conversation. What would you like to chat about?"
+                )
+            else:
+                # Regular match with shared interests
+                topics_context = self.room_context.get('topics_context', 'You were matched based on shared interests.')
+                hashtags = self.room_context.get('hashtags', [])
+                
+                if hashtags:
+                    greeting = (
+                        f"Hi everyone! I'm Vortex, your AI conversation assistant. "
+                        f"I see you both are interested in {', '.join(hashtags[:3])}{'...' if len(hashtags) > 3 else ''}. "
+                        f"I can help facilitate your discussion, suggest related topics, or answer questions. What aspect would you like to explore?"
+                    )
+                else:
+                    greeting = (
+                        f"Hi everyone! I'm Vortex, your AI conversation assistant. "
+                        f"{topics_context} "
+                        f"I can help with topic suggestions, answer questions, or just facilitate your conversation. How can I help?"
+                    )
+            
+            await self.session.say(greeting, allow_interruptions=True)
+            return f"Introduction provided: {reason}"
+            
+        except Exception as e:
+            logger.error(f"[AGENT ERROR] ❌ Error in introduction: {e}")
+            await self.session.say(
+                "Hi! I'm Vortex, your AI conversation assistant. I'm here to help with your conversation - just let me know what you'd like to talk about!",
+                allow_interruptions=True
+            )
+            return f"Fallback introduction provided due to error: {str(e)}"
 
     @function_tool()
     async def suggest_conversation_topic(
@@ -178,7 +435,7 @@ Remember: You're a helpful host, not the main speaker. Your goal is to help part
             reason: Why the topic is being suggested (conversation lull, related to previous topic, etc.)
         """
         try:
-            logger.info(f"💡 Suggesting topic in category: {topic_category} for reason: {reason}")
+            logger.info(f"[AGENT] Suggesting topic in category: {topic_category} for reason: {reason}")
             
             # Use OpenAI service to generate contextual topic suggestions
             if self.openai_service:
@@ -350,7 +607,7 @@ Remember: You're a helpful host, not the main speaker. Your goal is to help part
     async def handle_silence(self, silence_duration: float):
         """Handle periods of silence in the conversation"""
         if silence_duration > self.personality["intervention_threshold"]:
-            logger.info(f"🤫 Handling {silence_duration}s of silence")
+            logger.info(f"[SILENCE] Handling {silence_duration}s of silence")
             
             # Suggest a topic or ask a question
             await self.suggest_conversation_topic(
@@ -382,40 +639,41 @@ def create_vortex_agent_session(
     """
     
     try:
-        logger.info("🏗️ SESSION DEBUG: Starting VortexAgent session creation with OpenAI Realtime API")
-        logger.info(f"🏗️ SESSION DEBUG: OpenAI service provided: {openai_service is not None}")
-        logger.info(f"🏗️ SESSION DEBUG: AI host service provided: {ai_host_service is not None}")
-        logger.info(f"🏗️ SESSION DEBUG: Room context provided: {room_context is not None}")
+        logger.info("[SESSION DEBUG] Starting VortexAgent session creation with OpenAI Realtime API")
+        logger.info(f"[SESSION DEBUG] OpenAI service provided: {openai_service is not None}")
+        logger.info(f"[SESSION DEBUG] AI host service provided: {ai_host_service is not None}")
+        logger.info(f"[SESSION DEBUG] Room context provided: {room_context is not None}")
         
         # Import OpenAI Realtime components
-        logger.info("🏗️ SESSION DEBUG: Importing OpenAI Realtime components...")
+        logger.info("[SESSION DEBUG] Importing OpenAI Realtime components...")
         from livekit.plugins import openai
         from openai.types.beta.realtime.session import TurnDetection
-        logger.info("🏗️ SESSION DEBUG: ✅ OpenAI imports successful")
+        logger.info("[SESSION DEBUG] ✅ OpenAI imports successful")
         
         # Create the agent instance
-        logger.info("🏗️ SESSION DEBUG: Creating VortexAgent instance...")
+        logger.info("[SESSION DEBUG] Creating VortexAgent instance...")
         vortex_agent = VortexAgent(
             openai_service=openai_service,
             ai_host_service=ai_host_service
         )
-        logger.info("🏗️ SESSION DEBUG: ✅ VortexAgent instance created")
+        logger.info("[SESSION DEBUG] ✅ VortexAgent instance created")
         
         # Update room context if provided
-        logger.info("🏗️ SESSION DEBUG: Updating room context...")
+        logger.info("[SESSION DEBUG] Updating room context...")
         if room_context:
-            logger.info(f"🏗️ SESSION DEBUG: Room context details: {room_context}")
+            logger.info(f"[SESSION DEBUG] Room context details: {room_context}")
             vortex_agent.update_room_context(
                 participants=room_context.get("participants", []),
-                topics=room_context.get("topics", [])
+                topics=room_context.get("topics", []),
+                settings=room_context.get("room_settings", {})  # Pass the settings from room context
             )
-            logger.info("🏗️ SESSION DEBUG: ✅ Room context updated")
+            logger.info("[SESSION DEBUG] ✅ Room context updated")
         else:
-            logger.info("🏗️ SESSION DEBUG: No room context to update")
+            logger.info("[SESSION DEBUG] No room context to update")
         
         # Create session with OpenAI Realtime API (OFFICIAL APPROACH)
         # This replaces separate STT + LLM + TTS + VAD components
-        logger.info("🏗️ SESSION DEBUG: Creating AgentSession with OpenAI Realtime API...")
+        logger.info("[SESSION DEBUG] Creating AgentSession with OpenAI Realtime API...")
         
         # Create HTTP session for OpenAI API calls
         import aiohttp
@@ -438,14 +696,14 @@ def create_vortex_agent_session(
                 http_session=http_session  # Provide HTTP session explicitly
             )
         )
-        logger.info("🏗️ SESSION DEBUG: ✅ AgentSession created successfully")
+        logger.info("[SESSION DEBUG] ✅ AgentSession created successfully")
         
-        logger.info("✅ SESSION DEBUG: VortexAgent session creation completed successfully")
+        logger.info("[SESSION DEBUG] ✅ VortexAgent session creation completed successfully")
         return session, vortex_agent
         
     except Exception as e:
-        logger.error(f"❌ SESSION ERROR: Failed to create VortexAgent session: {e}")
-        logger.error(f"❌ SESSION ERROR: Error type: {type(e)}")
+        logger.error(f"[SESSION ERROR] ❌ Failed to create VortexAgent session: {e}")
+        logger.error(f"[SESSION ERROR] ❌ Error type: {type(e)}")
         import traceback
-        logger.error(f"❌ SESSION ERROR: Traceback: {traceback.format_exc()}")
+        logger.error(f"[SESSION ERROR] ❌ Traceback: {traceback.format_exc()}")
         raise Exception(f"Failed to create VortexAgent session: {str(e)}") 

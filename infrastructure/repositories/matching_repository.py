@@ -216,13 +216,14 @@ class MatchingRepository:
                     # Create AI session ID for timeout match
                     ai_session_id = f"timeout_ai_session_{user1_id}_{user2_id}_{datetime.utcnow().timestamp()}"
                     
-                    # Create full AI match with room and tokens
+                    # Create full AI match with room and tokens - TIMEOUT VERSION
                     match_data = await self.create_ai_match(
                         user1_id=user1_id,
                         user2_id=user2_id,
                         hashtags=combined_hashtags,
                         confidence=0.5,  # Moderate confidence for timeout matches
-                        ai_session_id=ai_session_id
+                        ai_session_id=ai_session_id,
+                        is_timeout_match=True  # FLAG: This is a timeout match
                     )
                     
                     match_info = {
@@ -412,7 +413,7 @@ class MatchingRepository:
             logger.error(f"❌ Failed to get timeout users count: {e}")
             return 0
     
-    async def create_ai_match(self, user1_id: str, user2_id: str, hashtags: List[str], confidence: float, ai_session_id: str) -> Dict[str, Any]:
+    async def create_ai_match(self, user1_id: str, user2_id: str, hashtags: List[str], confidence: float, ai_session_id: str, is_timeout_match: bool = False) -> Dict[str, Any]:
         """
         Create an AI-hosted match between two users
         
@@ -480,18 +481,37 @@ class MatchingRepository:
                 if agent_manager:
                     logger.info(f"🤖 AI MATCH DEBUG: Deploying VortexAgent to AI match room: {saved_room.name}")
                     
-                    # Deploy the agent with room context
-                    deployment_result = await agent_manager.deploy_agent_to_room(
-                        room=saved_room,
-                        room_topics=hashtags_str,  # Use hashtags as topics
-                        custom_settings={
+                    # Configure agent settings based on match type
+                    if is_timeout_match:
+                        agent_settings = {
+                            "auto_greet": True,
+                            "personality": "understanding",
+                            "engagement_level": 7,  # Less aggressive for timeout matches
+                            "match_type": "timeout_fallback",
+                            "hashtags": hashtags_str,
+                            "confidence": confidence,
+                            "intervention_mode": "on_demand",  # Only speak when called or needed
+                            "timeout_explanation": True,  # Flag to explain timeout connection
+                            "topics_context": f"Since no one was immediately interested in the same topics, I've randomly connected you two. Let's see what interesting conversations emerge!"
+                        }
+                    else:
+                        agent_settings = {
                             "auto_greet": True,
                             "personality": "engaging",
                             "engagement_level": 9,
-                            "match_type": "ai_driven",
+                            "match_type": "ai_driven",  # Normal topic-based match
                             "hashtags": hashtags_str,
-                            "confidence": confidence
+                            "confidence": confidence,
+                            "intervention_mode": "on_demand",  # Only speak when called or needed
+                            "timeout_explanation": False,
+                            "topics_context": f"Users matched based on shared interests: {', '.join(hashtags_str)}"
                         }
+                    
+                    # Deploy the agent with context-appropriate settings
+                    deployment_result = await agent_manager.deploy_agent_to_room(
+                        room=saved_room,
+                        room_topics=hashtags_str,  # Use hashtags as topics
+                        custom_settings=agent_settings
                     )
                     
                     logger.info(f"🤖 AI MATCH DEBUG: Agent deployment result: {deployment_result}")
