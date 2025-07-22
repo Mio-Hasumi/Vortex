@@ -469,7 +469,7 @@ class EventBroadcaster:
 
             # Only log when there are users to process
             if len(ai_driven_users) > 1:
-                logger.info(f"🤖 [MATCHING] Processing {len(ai_driven_users)} AI users for hashtag matching")
+                logger.info(f"🎯 [MATCHING] Processing {len(ai_driven_users)} users for AI-driven hashtag matching")
                 await self._process_ai_hashtag_matching(ai_driven_users)
             
             if len(topic_based_users) > 1:
@@ -549,18 +549,37 @@ class EventBroadcaster:
                     union = user1_hashtags.union(user2_hashtags)
                     similarity = len(intersection) / len(union) if union else 0
                     
-                    # Require at least 10% similarity for a match (reduced from 20% for easier testing)
-                    if similarity >= 0.1 and similarity > best_similarity:
+                    # Debug logging to see why matching fails
+                    logger.info(f"🔍 [MATCHING] Comparing {user1_id[:8]}...↔{user2_id[:8]}...")
+                    logger.info(f"   User1 hashtags: {list(user1_hashtags)[:3]}..." if len(user1_hashtags) > 3 else f"   User1 hashtags: {list(user1_hashtags)}")
+                    logger.info(f"   User2 hashtags: {list(user2_hashtags)[:3]}..." if len(user2_hashtags) > 3 else f"   User2 hashtags: {list(user2_hashtags)}")
+                    logger.info(f"   Shared: {list(intersection)} ({len(intersection)} hashtags)")
+                    logger.info(f"   Total: {len(union)} hashtags, Similarity: {similarity:.3f}")
+                    
+                    # Require at least 1 shared hashtag OR lower threshold for better matching
+                    min_similarity = 0.05 if len(intersection) > 0 else 0.0  # 5% if shared, 0% if desperate
+                    if similarity >= min_similarity and similarity > best_similarity:
                         best_similarity = similarity
                         best_match = user2
                         logger.info(f"🎯 [MATCHING] Similarity {user1_id[:8]}...↔{user2_id[:8]}...: {similarity:.2f} (shared: {intersection})")
 
-                # Create match if good similarity found
-                if best_match and best_similarity >= 0.1:
+                # Create match if good similarity found (using flexible threshold)
+                min_threshold = 0.05 if best_similarity > 0 else 0.0  # 5% if they share hashtags, 0% if desperate
+                if best_match and best_similarity >= min_threshold:
                     logger.info(f"🎉 [MATCHING] CREATING MATCH: {user1['user_id'][:8]}... + {best_match['user_id'][:8]}... (similarity: {best_similarity:.2f})")
                     await self._create_ai_match_with_room(user1, best_match, best_similarity)
                     processed_users.add(user1.get('user_id'))
                     processed_users.add(best_match.get('user_id'))
+                else:
+                    # FALLBACK: If only 2 users and they've been waiting, match them anyway
+                    if len(connected_users) == 2 and not processed_users:
+                        other_user = connected_users[1] if connected_users[0] == user1 else connected_users[0]
+                        logger.info(f"🔄 [MATCHING] FALLBACK MATCH: Only 2 users waiting, matching regardless of similarity")
+                        logger.info(f"   Matching: {user1['user_id'][:8]}... + {other_user['user_id'][:8]}...")
+                        await self._create_ai_match_with_room(user1, other_user, 0.01)  # Minimum similarity for timeout match
+                        processed_users.add(user1.get('user_id'))
+                        processed_users.add(other_user.get('user_id'))
+                        break  # Exit the loop since we matched the only 2 users
                         
         except Exception as e:
             logger.error(f"❌ Error in AI hashtag matching: {e}")

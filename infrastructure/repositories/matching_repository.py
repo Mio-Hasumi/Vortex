@@ -508,6 +508,7 @@ class MatchingRepository:
                         }
                     
                     # Deploy the agent with context-appropriate settings
+                    logger.info(f"🎯 AI MATCH: Deploying VortexAgent FIRST before user navigation...")
                     deployment_result = await agent_manager.deploy_agent_to_room(
                         room=saved_room,
                         room_topics=hashtags_str,  # Use hashtags as topics
@@ -519,9 +520,20 @@ class MatchingRepository:
                     if deployment_result.get("success"):
                         logger.info(f"✅ VortexAgent deployed successfully to AI match room: {saved_room.name}")
                         logger.info(f"✅ AI MATCH SUCCESS: Agent identity: {deployment_result.get('agent_identity')}")
+                        
+                        # CRITICAL: Wait for agent to be fully ready before proceeding
+                        logger.info(f"⏳ AI MATCH: Waiting for VortexAgent to be fully ready...")
+                        agent_ready = await agent_manager.wait_for_agent_ready(saved_room.livekit_room_name, timeout=10)
+                        
+                        if agent_ready:
+                            logger.info(f"🎉 AI MATCH: VortexAgent confirmed ready! Users can now join.")
+                        else:
+                            logger.warning(f"⚠️ AI MATCH: VortexAgent readiness timeout - proceeding anyway")
+                            
                     else:
                         logger.error(f"❌ VortexAgent deployment failed for AI match room: {saved_room.name}")
                         logger.error(f"❌ AI MATCH FAILURE: Error: {deployment_result.get('error')}")
+                        # Continue without agent rather than fail the match
                 else:
                     logger.error("❌ CRITICAL: Agent manager service not available for AI match - no AI host will be deployed")
                     

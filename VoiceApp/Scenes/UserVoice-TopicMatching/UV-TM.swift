@@ -46,6 +46,8 @@ struct UserVoiceTopicMatchingView: View {
     // Navigation state for when match is found
     @State private var navigateToLiveChat = false
     @State private var matchData: LiveMatchData?
+    @State private var showPreparingRoom = false
+    @State private var preparingMessage = "Preparing room..."
 
     var body: some View {
         ZStack {
@@ -74,13 +76,33 @@ struct UserVoiceTopicMatchingView: View {
                 
                 Spacer()
                 
-                // AI text response display area
+                // AI text response display area OR preparing room message
                 ScrollView {
-                    Text(aiVoiceService.currentResponse)
-                        .font(.custom("Rajdhani", size: 28))
-                        .foregroundColor(.white)
-                        .multilineTextAlignment(.center)
+                    if showPreparingRoom {
+                        VStack(spacing: 16) {
+                            // Preparing room UI
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(1.5)
+                            
+                            Text(preparingMessage)
+                                .font(.custom("Rajdhani", size: 28))
+                                .foregroundColor(.white)
+                                .multilineTextAlignment(.center)
+                            
+                            Text("Setting up AI host...")
+                                .font(.custom("Rajdhani", size: 18))
+                                .foregroundColor(.white.opacity(0.7))
+                                .multilineTextAlignment(.center)
+                        }
                         .padding()
+                    } else {
+                        Text(aiVoiceService.currentResponse)
+                            .font(.custom("Rajdhani", size: 28))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .padding()
+                    }
                 }
                 
                 Spacer()
@@ -173,21 +195,95 @@ struct UserVoiceTopicMatchingView: View {
         // Listen for match found events
         .onReceive(aiVoiceService.$matchFound) { matchData in
             if let matchData = matchData {
-                print("🚀 [NAVIGATION] Match found - immediately navigating to chat!")
+                print("🎯 [NAVIGATION] Match found - entering room preparation phase!")
                 
-                // Stop AI conversation and navigate immediately
+                // Stop AI conversation and show preparing state
                 Task {
                     await aiVoiceService.stopAIConversation()
                     await MainActor.run {
                         self.matchData = matchData
-                        // Add a small delay to ensure proper navigation
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            self.navigateToLiveChat = true
-                            print("✅ [NAVIGATION] Direct navigation to chat initiated")
-                        }
+                        self.showPreparingRoom = true
+                        self.preparingMessage = "Match found! Preparing your room..."
+                        print("🏗️ [NAVIGATION] Showing room preparation UI")
                     }
+                    
+                    // Wait for agent to be ready before navigation
+                    await waitForAgentReadyAndNavigate(matchData: matchData)
                 }
             }
+        }
+    }
+    
+    // MARK: - Agent Readiness Check
+    
+    private func waitForAgentReadyAndNavigate(matchData: LiveMatchData) async {
+        print("🤖 [AGENT_CHECK] Starting agent readiness check for room: \(matchData.roomId)")
+        
+        // Update UI to show agent setup status
+        await MainActor.run {
+            preparingMessage = "Setting up AI host..."
+        }
+        
+        // Check agent readiness with timeout
+        let maxAttempts = 15  // 15 seconds timeout
+        var agentReady = false
+        
+        for attempt in 1...maxAttempts {
+            print("🔍 [AGENT_CHECK] Attempt \(attempt)/\(maxAttempts): Checking if agent is ready...")
+            
+            // Update UI with progress
+            await MainActor.run {
+                preparingMessage = "Setting up AI host... (\(attempt)/\(maxAttempts))"
+            }
+            
+            // Check if agent is ready via API
+            agentReady = await checkAgentStatus(roomId: matchData.roomId)
+            
+            if agentReady {
+                print("✅ [AGENT_CHECK] Agent confirmed ready! Proceeding to navigation...")
+                break
+            }
+            
+            // Wait 1 second before next check
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        
+        // Navigate to chat regardless of agent status (with timeout fallback)
+        await MainActor.run {
+            if agentReady {
+                preparingMessage = "AI host ready! Joining room..."
+                print("🎉 [AGENT_CHECK] Agent ready - navigating to chat!")
+            } else {
+                preparingMessage = "Joining room... (AI host may join shortly)"
+                print("⚠️ [AGENT_CHECK] Agent readiness timeout - proceeding anyway")
+            }
+            
+            // Short delay for UI feedback, then navigate
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.showPreparingRoom = false
+                self.navigateToLiveChat = true
+                print("🚀 [NAVIGATION] Navigating to chat room!")
+            }
+        }
+    }
+    
+    private func checkAgentStatus(roomId: String) async -> Bool {
+        do {
+            // Call backend API to check if agent is ready using the proper path format
+            let endpoint = "/api/agents/status/\(roomId)"
+            let response: AgentStatusResponse = try await APIService.shared.request(
+                endpoint: endpoint,
+                method: "GET"
+            )
+            
+            // Backend returns is_active (bool), need to check that field instead
+            let isReady = response.is_active
+            print("🔍 [AGENT_CHECK] Agent active: \(response.is_active), ready: \(isReady)")
+            
+            return isReady
+        } catch {
+            print("❌ [AGENT_CHECK] Error checking agent status: \(error)")
+            return false  // Assume not ready on error
         }
     }
 }
