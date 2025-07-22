@@ -16,6 +16,7 @@ struct HashtagScreen: View {
     @Environment(\.dismiss) private var dismiss
     
     @StateObject private var liveKitService = LiveKitCallService()
+    @State private var showHangUpConfirmation = false
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -81,18 +82,23 @@ struct HashtagScreen: View {
                 .offset(y: 38)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
 
-            // Back button with proper cleanup
+            // Hang up button with proper cleanup
             VStack {
                 HStack {
-                    Button(action: {
-                        liveKitService.disconnect()
-                        dismiss()
-                    }) {
-                        Image(systemName: "arrow.left")
-                            .font(.title2)
-                            .foregroundColor(.white)
-                    }
                     Spacer()
+                    Button(action: {
+                        print("📞 [CHAT] User tapped hang up button - showing confirmation")
+                        showHangUpConfirmation = true
+                    }) {
+                        Image("X circle")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 60, height: 60)
+                            .foregroundColor(.red)
+                            .shadow(color: .red.opacity(0.6), radius: 15)
+                            .scaleEffect(showHangUpConfirmation ? 1.1 : 1.0)
+                            .animation(.easeInOut(duration: 0.2), value: showHangUpConfirmation)
+                    }
                 }
                 .padding()
                 Spacer()
@@ -149,6 +155,19 @@ struct HashtagScreen: View {
             liveKitService.disconnect()
         }
         .navigationBarHidden(true)
+        .alert("End Call", isPresented: $showHangUpConfirmation) {
+            Button("Cancel", role: .cancel) {
+                showHangUpConfirmation = false
+            }
+            Button("End Call", role: .destructive) {
+                print("📞 [CHAT] User confirmed hang up - ending call")
+                liveKitService.disconnect()
+                // Navigate back to home screen
+                dismiss()
+            }
+        } message: {
+            Text("Are you sure you want to end this call? You'll be returned to the home screen.")
+        }
     }
 }
 

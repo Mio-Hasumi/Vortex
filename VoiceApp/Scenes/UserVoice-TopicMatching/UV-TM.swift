@@ -48,6 +48,10 @@ struct UserVoiceTopicMatchingView: View {
                 HStack {
                     Button(action: {
                         print("🚪 [EXIT] User tapped exit button - returning to home")
+                        // Clean up AI voice service before dismissing
+                        aiVoiceService.cleanup()
+                        // CRITICAL FIX: Reset navigation state to prevent self-matching
+                        VoiceMatchingService.shared.resetNavigation()
                         dismiss()
                     }) {
                         Image(systemName: "arrow.left")
@@ -110,6 +114,13 @@ struct UserVoiceTopicMatchingView: View {
             Task {
                 await aiVoiceService.initializeAIConversation(with: matchResult)
             }
+        }
+        .onDisappear {
+            // Ensure cleanup when view disappears
+            print("🚪 [EXIT] View disappearing - cleaning up AI voice service")
+            aiVoiceService.cleanup()
+            // CRITICAL FIX: Reset navigation state to prevent self-matching
+            VoiceMatchingService.shared.resetNavigation()
         }
         .navigationBarHidden(true)
         // Navigation to live chat when match is found
@@ -428,36 +439,7 @@ Start the conversation now with your greeting and a question about their interes
         }
     }
     
-    func cleanup() {
-        print("🧹 [AIVoice] Starting cleanup process")
-        
-        // Stop audio engine
-        stopAudioEngine()
-        
-        // Stop any playing audio
-        stopAllAudio()
-        
-        // Disconnect both WebSocket connections
-        webSocketService?.disconnect()
-        webSocketService = nil
-        
-        matchingWebSocketService?.disconnect()
-        matchingWebSocketService = nil
-        
-        // Reset all state
-        isConnected = false
-        isListening = false
-        sessionStarted = false
-        isAuthenticated = false
-        greetingSent = false
-        isInitializing = false
-        
-        // Clear audio data
-        audioQueue.removeAll()
-        audioAccumulator = Data()
-        
-        print("✅ [AIVoice] Cleanup completed")
-    }
+
     
     private func startAudioEngine() {
         guard !isMuted, let audioEngine = audioEngine else { 
@@ -534,11 +516,61 @@ Start the conversation now with your greeting and a question about their interes
     
     deinit {
         print("🧹 [AIVoice] AIVoiceService deallocating - cleaning up resources")
-        Task {
-            await stopAIConversation()
+        
+        // Synchronous cleanup to prevent crashes - NO ASYNC CALLS in deinit
+        cleanupSynchronously()
+    }
+    
+    // Synchronous cleanup method for deinit
+    private func cleanupSynchronously() {
+        print("🧹 [AIVoice] Starting synchronous cleanup")
+        
+        // Stop audio engine immediately
+        if let audioEngine = audioEngine, audioEngine.isRunning {
+            audioEngine.stop()
+            inputNode?.removeTap(onBus: 0)
         }
-        // Also disconnect Matching WebSocket
+        audioEngine = nil
+        inputNode = nil
+        isRecording = false
+        
+        // Stop audio playback immediately
+        currentAudioPlayer?.stop()
+        currentAudioPlayer = nil
+        audioQueue.removeAll()
+        audioAccumulator = Data()
+        isPlayingAudio = false
+        
+        // Disconnect WebSockets immediately
+        webSocketService?.disconnect()
+        webSocketService = nil
+        
         matchingWebSocketService?.disconnect()
+        matchingWebSocketService = nil
+        
+        // Reset all state (don't use @Published properties in deinit)
+        isConnected = false
+        isListening = false
+        isMuted = false
+        isAISpeaking = false
+        currentResponse = ""
+        isAuthenticated = false
+        sessionStarted = false
+        greetingSent = false
+        isInitializing = false
+        conversationActive = false
+        
+        // Clear match data
+        hasActiveMatch = false
+        lastMatchData = nil
+        matchFound = nil
+        
+        print("✅ [AIVoice] Synchronous cleanup completed")
+    }
+    
+    // Public cleanup method for view dismissal
+    func cleanup() {
+        cleanupSynchronously()
     }
     
     // MARK: - 🔧 Fixed unified audio playback system
