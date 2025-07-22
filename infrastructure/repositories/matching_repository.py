@@ -366,7 +366,7 @@ class MatchingRepository:
                     'language_preference': 'en-US'
                 },
                 'ai_analysis': ai_analysis or {},
-                'queue_type': 'ai_matching',
+                'match_type': 'ai_driven',  # CRITICAL FIX: Change from 'queue_type' to 'match_type' with correct value
                 'timestamp': datetime.utcnow().isoformat()
             }
             
@@ -415,7 +415,7 @@ class MatchingRepository:
             Match information dictionary
         """
         try:
-            logger.info(f"🤖 Creating AI match: {user1_id} + {user2_id} (confidence: {confidence:.2f})")
+            logger.info(f"🎯 [LIVEKIT] Creating AI match: {user1_id[:8]}... + {user2_id[:8]}... (confidence: {confidence:.2f})")
             
             # Import here to avoid circular imports
             from infrastructure.container import container
@@ -434,6 +434,8 @@ class MatchingRepository:
             # Ensure all hashtags are strings
             hashtags_str = [str(tag) for tag in hashtags]
             
+            logger.info(f"🏠 [LIVEKIT] Creating room: {room_name}")
+            
             # Create room entity
             from api.routers.rooms import create_room_entity
             room = create_room_entity(
@@ -446,10 +448,12 @@ class MatchingRepository:
             
             # Save room to repository
             saved_room = await room_repo.save(room)
+            logger.info(f"✅ [LIVEKIT] Room saved: {saved_room.id} (LiveKit: {saved_room.livekit_room_name})")
             
             # Add both users as participants
             room_repo.add_participant(saved_room.id, user1_uuid)
             room_repo.add_participant(saved_room.id, user2_uuid)
+            logger.info(f"👥 [LIVEKIT] Added participants: {user1_id[:8]}..., {user2_id[:8]}...")
             
             # Create match record
             match = Match(
@@ -467,8 +471,10 @@ class MatchingRepository:
             saved_match = self.save_match(match)
             
             # Generate LiveKit tokens for both users
+            logger.info(f"🎫 [LIVEKIT] Generating tokens for room: {saved_room.livekit_room_name}")
             user1_token = room_repo.generate_livekit_token(saved_room.id, user1_uuid)
             user2_token = room_repo.generate_livekit_token(saved_room.id, user2_uuid)
+            logger.info(f"✅ [LIVEKIT] Tokens generated successfully")
             
             # Get user information for participant data
             user1_info = user_repo.find_by_id(user1_uuid)
@@ -477,6 +483,7 @@ class MatchingRepository:
             # Remove users from matching queue
             self.remove_from_queue(user1_uuid)
             self.remove_from_queue(user2_uuid)
+            logger.info(f"🗑️ [MATCHING] Users removed from queue")
             
             # Prepare match data
             match_data = {
@@ -523,15 +530,15 @@ class MatchingRepository:
                 }
             }
             
-            logger.info(f"✅ AI match created successfully:")
+            logger.info(f"🎉 [LIVEKIT] AI match created successfully!")
             logger.info(f"   🆔 Match ID: {saved_match.id}")
-            logger.info(f"   🏠 Room ID: {saved_room.id}")
+            logger.info(f"   🏠 Room: {saved_room.livekit_room_name}")
             logger.info(f"   🏷️ Hashtags: {hashtags}")
             
             return match_data
             
         except Exception as e:
-            logger.error(f"❌ Failed to create AI match: {e}")
+            logger.error(f"❌ [LIVEKIT] Failed to create AI match: {e}")
             logger.exception("Full exception details:")
             raise
     
