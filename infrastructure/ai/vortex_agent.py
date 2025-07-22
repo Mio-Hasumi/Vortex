@@ -1123,7 +1123,6 @@ def create_vortex_agent_session(
                 threshold=0.5,
                 prefix_padding_ms=300,
                 silence_duration_ms=500,
-                create_response=True,
                 interrupt_response=True,
             ),
         )
@@ -1132,7 +1131,6 @@ def create_vortex_agent_session(
         session = AgentSession(
             llm=rt_llm,
             vad=vad,             # None 时用 Realtime 内置
-            auto_response=False  # 完全手动控制，只有调用 session.say() 时才说话
         )
         
         logger.info("[SESSION DEBUG] ✅ AgentSession created with OpenAI Realtime API")
