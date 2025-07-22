@@ -467,6 +467,51 @@ class MatchingRepository:
             saved_room = await room_repo.save(room)
             logger.info(f"✅ [LIVEKIT] Room saved: {saved_room.id} (LiveKit: {saved_room.livekit_room_name})")
             
+            # NEW: Deploy VortexAgent to the AI match room
+            logger.info(f"🚀 AI MATCH DEBUG: Starting VortexAgent deployment for AI match room: {saved_room.name}")
+            logger.info(f"🚀 AI MATCH DEBUG: Room ID: {saved_room.id}")
+            logger.info(f"🚀 AI MATCH DEBUG: LiveKit room name: {saved_room.livekit_room_name}")
+            logger.info(f"🚀 AI MATCH DEBUG: Hashtags: {hashtags_str}")
+            
+            try:
+                agent_manager = container.get_agent_manager_service()
+                logger.info(f"🔍 AI MATCH DEBUG: Agent manager retrieved: {agent_manager is not None}")
+                
+                if agent_manager:
+                    logger.info(f"🤖 AI MATCH DEBUG: Deploying VortexAgent to AI match room: {saved_room.name}")
+                    
+                    # Deploy the agent with room context
+                    deployment_result = await agent_manager.deploy_agent_to_room(
+                        room=saved_room,
+                        room_topics=hashtags_str,  # Use hashtags as topics
+                        custom_settings={
+                            "auto_greet": True,
+                            "personality": "engaging",
+                            "engagement_level": 9,
+                            "match_type": "ai_driven",
+                            "hashtags": hashtags_str,
+                            "confidence": confidence
+                        }
+                    )
+                    
+                    logger.info(f"🤖 AI MATCH DEBUG: Agent deployment result: {deployment_result}")
+                    
+                    if deployment_result.get("success"):
+                        logger.info(f"✅ VortexAgent deployed successfully to AI match room: {saved_room.name}")
+                        logger.info(f"✅ AI MATCH SUCCESS: Agent identity: {deployment_result.get('agent_identity')}")
+                    else:
+                        logger.error(f"❌ VortexAgent deployment failed for AI match room: {saved_room.name}")
+                        logger.error(f"❌ AI MATCH FAILURE: Error: {deployment_result.get('error')}")
+                else:
+                    logger.error("❌ CRITICAL: Agent manager service not available for AI match - no AI host will be deployed")
+                    
+            except Exception as agent_error:
+                logger.error(f"❌ AI MATCH EXCEPTION: Error deploying VortexAgent to AI match: {agent_error}")
+                logger.error(f"❌ AI MATCH EXCEPTION: Error type: {type(agent_error)}")
+                import traceback
+                logger.error(f"❌ AI MATCH EXCEPTION: Traceback: {traceback.format_exc()}")
+                # Don't fail match creation if agent deployment fails
+            
             # Add both users as participants
             room_repo.add_participant(saved_room.id, user1_uuid)
             room_repo.add_participant(saved_room.id, user2_uuid)
