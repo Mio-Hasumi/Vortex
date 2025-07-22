@@ -35,6 +35,737 @@ struct MatchParticipant {
     }
 }
 
+// Enhanced response model for WaitingRoomAgent
+struct WaitingRoomAgentResponse {
+    let sessionId: String
+    let status: String
+    let agentType: String
+    let features: AgentFeatures
+    let agentReady: Bool
+}
+
+struct AgentFeatures {
+    let realtimeVoice: Bool
+    let topicExtraction: Bool
+    let hashtagGeneration: Bool
+    let conversationFlow: Bool
+    let openaiRealtime: Bool
+}
+
+struct AgentSessionSummary {
+    let sessionId: String
+    let extractedTopics: [String]
+    let generatedHashtags: [String]
+    let matchingReady: Bool
+    let conversationTurns: Int
+    let sessionDuration: Double?
+}
+
+// Simplified view, keeping only core functionality but enhanced with WaitingRoomAgent
+struct UserVoiceTopicMatchingView: View {
+    let matchResult: MatchResult
+    @Environment(\.dismiss) private var dismiss
+    
+    // Enhanced AI service with WaitingRoomAgent support
+    @StateObject private var aiVoiceService = EnhancedAIVoiceService.shared
+    
+    // Navigation state for when match is found
+    @State private var navigateToLiveChat = false
+    @State private var matchData: LiveMatchData?
+    @State private var showPreparingRoom = false
+    @State private var preparingMessage = "Preparing room..."
+    
+    // WaitingRoomAgent specific state
+    @State private var agentSessionId: String?
+    @State private var agentFeatures: AgentFeatures?
+    @State private var showAgentStatus = false
+    @State private var extractedTopics: [String] = []
+    @State private var generatedHashtags: [String] = []
+
+    var body: some View {
+        ZStack {
+            // Background
+            Color.black.ignoresSafeArea()
+
+            // Top UI elements
+            VStack {
+                // Back button and agent status
+                HStack {
+                    Button(action: {
+                        print("🚪 [EXIT] User tapped exit button - returning to home")
+                        // Clean up enhanced AI voice service before dismissing
+                        Task {
+                            await aiVoiceService.cleanup()
+                        }
+                        // CRITICAL FIX: Reset navigation state to prevent self-matching
+                        VoiceMatchingService.shared.resetNavigation()
+                        dismiss()
+                    }) {
+                        Image(systemName: "arrow.left")
+                            .font(.title2)
+                            .foregroundColor(.white)
+                    }
+                    
+                    Spacer()
+                    
+                    // NEW: Agent status indicator
+                    if let features = agentFeatures {
+                        Button(action: { showAgentStatus.toggle() }) {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(features.openaiRealtime ? .green : .orange)
+                                    .frame(width: 8, height: 8)
+                                Text("Vortex")
+                                    .font(.caption)
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.white.opacity(0.2))
+                            .clipShape(Capsule())
+                        }
+                        .sheet(isPresented: $showAgentStatus) {
+                            AgentStatusView(
+                                features: features,
+                                extractedTopics: extractedTopics,
+                                generatedHashtags: generatedHashtags,
+                                sessionId: agentSessionId
+                            )
+                        }
+                    }
+                }
+                .padding()
+                
+                Spacer()
+                
+                // AI text response display area OR preparing room message
+                ScrollView {
+                    if showPreparingRoom {
+                        VStack(spacing: 16) {
+                            // Preparing room UI
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(1.5)
+                            
+                            Text(preparingMessage)
+                                .font(.custom("Rajdhani", size: 28))
+                                .foregroundColor(.white)
+                                .multilineTextAlignment(.center)
+                            
+                            Text("Setting up enhanced AI host...")
+                                .font(.custom("Rajdhani", size: 18))
+                                .foregroundColor(.white.opacity(0.7))
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding()
+                    } else {
+                        VStack(spacing: 12) {
+                            // Main AI response
+                            Text(aiVoiceService.currentResponse)
+                                .font(.custom("Rajdhani", size: 28))
+                                .foregroundColor(.white)
+                                .multilineTextAlignment(.center)
+                                .padding()
+                            
+                            // NEW: Show extracted topics as they're discovered
+                            if !extractedTopics.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Topics I've picked up:")
+                                        .font(.caption)
+                                        .foregroundColor(.white.opacity(0.7))
+                                    
+                                    LazyVGrid(columns: [
+                                        GridItem(.flexible()),
+                                        GridItem(.flexible())
+                                    ], spacing: 8) {
+                                        ForEach(extractedTopics, id: \.self) { topic in
+                                            Text(topic)
+                                                .font(.caption)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background(Color.blue.opacity(0.3))
+                                                .foregroundColor(.white)
+                                                .clipShape(Capsule())
+                                        }
+                                    }
+                                }
+                                .padding()
+                                .background(Color.white.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .transition(.opacity)
+                            }
+                        }
+                    }
+                }
+                
+                Spacer()
+            }
+            
+            // Bottom microphone button
+            VStack {
+                Spacer()
+                // Add subtle searching indicator if still waiting for match
+                if !navigateToLiveChat, let firstTopic = extractedTopics.first ?? matchResult.topics.first {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                        
+                        Text("Searching for someone to talk about \(firstTopic) with you...")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color.white.opacity(0.7))
+                    }
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
+                }
+                Button(action: {
+                    // Toggle mute state
+                    aiVoiceService.toggleMute()
+                }) {
+                    Image(systemName: aiVoiceService.isMuted ? "mic.slash.fill" : "mic.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(aiVoiceService.isMuted ? .red : .white)
+                        .padding(20)
+                        .background(Circle().fill(Color.white.opacity(0.2)))
+                }
+                
+                HStack(spacing: 8) {
+                    Text(aiVoiceService.isMuted ? "Muted" : "Listening...")
+                        .foregroundColor(.white)
+                    
+                    if aiVoiceService.isUsingEnhancedAgent {
+                        Text("• Enhanced AI")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                }
+                .padding(.bottom, 30)
+            }
+        }
+        .onAppear {
+            // Initialize enhanced AI conversation when view appears
+            Task {
+                await initializeEnhancedAIConversation()
+            }
+        }
+        .onDisappear {
+            // Only cleanup if we're not navigating to a successful match
+            print("🚪 [EXIT] View disappearing - checking if we should cleanup")
+            
+            if navigateToLiveChat && matchData != nil {
+                print("✅ [EXIT] Navigating to live chat - preserving AI service indefinitely")
+                // Don't cleanup the AI service when navigating to a successful match
+                // Let the chat room handle cleanup when the user actually leaves the chat
+                print("🔒 [EXIT] AI service will persist until chat room is manually exited")
+            } else {
+                print("🧹 [EXIT] No active navigation - cleaning up AI voice service")
+                Task {
+                    await aiVoiceService.cleanup()
+                }
+            }
+            
+            // CRITICAL FIX: Only reset navigation state if we're not navigating to a successful match
+            if !navigateToLiveChat || matchData == nil {
+                print("🔄 [EXIT] Resetting navigation state")
+                VoiceMatchingService.shared.resetNavigation()
+            } else {
+                print("🔒 [EXIT] Preserving navigation state during successful match navigation")
+            }
+        }
+        .navigationBarHidden(true)
+        // Navigation to live chat when match is found
+        .background(
+            NavigationLink(
+                destination: Group {
+                    if let data = matchData {
+                        HashtagScreen(matchData: data)
+                            .onAppear {
+                                print("🚀 [NAVIGATION] HashtagScreen appeared")
+                                print("   🆔 Match ID: \(data.matchId)")
+                                print("   🏠 Room ID: \(data.roomId)")
+                                print("   👥 Participants: \(data.participants.count)")
+                            }
+                    } else {
+                        EmptyView()
+                    }
+                },
+                isActive: $navigateToLiveChat
+            ) {
+                EmptyView()
+            }
+            .hidden()
+        )
+        // Listen for match found events
+        .onReceive(aiVoiceService.$matchFound) { matchData in
+            if let matchData = matchData {
+                print("🎯 [NAVIGATION] Match found - entering room preparation phase!")
+                
+                // Stop AI conversation and show preparing state
+                Task {
+                    await aiVoiceService.stopAIConversation()
+                    await MainActor.run {
+                        self.matchData = matchData
+                        self.showPreparingRoom = true
+                        self.preparingMessage = "Match found! Preparing your room..."
+                        print("🏗️ [NAVIGATION] Showing room preparation UI")
+                    }
+                    
+                    // Wait for agent to be ready before navigation
+                    await waitForAgentReadyAndNavigate(matchData: matchData)
+                }
+            }
+        }
+        // Listen for topic/hashtag updates
+        .onReceive(aiVoiceService.$sessionSummary) { summary in
+            if let summary = summary {
+                extractedTopics = summary.extractedTopics
+                generatedHashtags = summary.generatedHashtags
+            }
+        }
+    }
+    
+    // MARK: - Enhanced AI Initialization
+    
+    private func initializeEnhancedAIConversation() async {
+        print("🤖 [ENHANCED_AI] Starting enhanced AI conversation with WaitingRoomAgent")
+        
+        do {
+            // NEW: Start WaitingRoomAgent session
+            let response = try await startWaitingRoomAgentSession()
+            
+            await MainActor.run {
+                self.agentSessionId = response.sessionId
+                self.agentFeatures = response.features
+            }
+            
+            print("✅ [ENHANCED_AI] WaitingRoomAgent session started: \(response.sessionId)")
+            
+            // Initialize the enhanced AI service with new session
+            await aiVoiceService.initializeWithEnhancedAgent(
+                matchResult: matchResult,
+                sessionId: response.sessionId,
+                features: response.features
+            )
+            
+            // Start monitoring session for topic extraction
+            startSessionMonitoring(sessionId: response.sessionId)
+            
+        } catch {
+            print("❌ [ENHANCED_AI] Failed to start enhanced session, falling back to legacy: \(error)")
+            // Fallback to legacy system
+            await aiVoiceService.initializeLegacyAIConversation(with: matchResult)
+        }
+    }
+    
+    private func startWaitingRoomAgentSession() async throws -> WaitingRoomAgentResponse {
+        let request = StartWaitingRoomRequest(
+            preferences: ["topics": matchResult.topics],
+            language: "en-US",
+            conversationStyle: "casual"
+        )
+        
+        let apiResponse: [String: Any] = try await APIService.shared.request(
+            endpoint: "/api/ai-host/start-waiting-room-agent",
+            method: "POST",
+            body: request
+        )
+        
+        guard let sessionId = apiResponse["session_id"] as? String,
+              let status = apiResponse["status"] as? String,
+              let agentType = apiResponse["agent_type"] as? String,
+              let featuresDict = apiResponse["features"] as? [String: Any] else {
+            throw APIError.invalidResponse
+        }
+        
+        let features = AgentFeatures(
+            realtimeVoice: featuresDict["realtime_voice"] as? Bool ?? false,
+            topicExtraction: featuresDict["topic_extraction"] as? Bool ?? false,
+            hashtagGeneration: featuresDict["hashtag_generation"] as? Bool ?? false,
+            conversationFlow: featuresDict["conversation_flow"] as? Bool ?? false,
+            openaiRealtime: featuresDict["openai_realtime"] as? Bool ?? false
+        )
+        
+        return WaitingRoomAgentResponse(
+            sessionId: sessionId,
+            status: status,
+            agentType: agentType,
+            features: features,
+            agentReady: status == "agent_ready"
+        )
+    }
+    
+    private func startSessionMonitoring(sessionId: String) {
+        print("🔍 [SESSION_MONITOR] Starting session monitoring for: \(sessionId)")
+        
+        // Monitor session every 5 seconds for topic extraction updates
+        Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { timer in
+            Task {
+                await checkSessionSummary(sessionId: sessionId)
+                
+                // Stop monitoring if we found a match or if view is dismissed
+                if navigateToLiveChat || matchData != nil {
+                    print("🛑 [SESSION_MONITOR] Stopping session monitoring - match found")
+                    timer.invalidate()
+                }
+            }
+        }
+    }
+    
+    private func checkSessionSummary(sessionId: String) async {
+        do {
+            let summaryResponse: [String: Any] = try await APIService.shared.request(
+                endpoint: "/api/ai-host/session/\(sessionId)/agent-summary",
+                method: "GET"
+            )
+            
+            guard let summary = summaryResponse["summary"] as? [String: Any] else {
+                return
+            }
+            
+            let extractedTopics = summary["extracted_topics"] as? [String] ?? []
+            let generatedHashtags = summary["generated_hashtags"] as? [String] ?? []
+            let matchingReady = summary["matching_ready"] as? Bool ?? false
+            
+            await MainActor.run {
+                self.extractedTopics = extractedTopics
+                self.generatedHashtags = generatedHashtags
+                
+                // Update the AI service with new session summary
+                let sessionSummary = AgentSessionSummary(
+                    sessionId: sessionId,
+                    extractedTopics: extractedTopics,
+                    generatedHashtags: generatedHashtags,
+                    matchingReady: matchingReady,
+                    conversationTurns: summary["conversation_turns"] as? Int ?? 0,
+                    sessionDuration: summary["session_duration_seconds"] as? Double
+                )
+                
+                aiVoiceService.updateSessionSummary(sessionSummary)
+            }
+            
+            print("🔍 [SESSION_MONITOR] Topics: \(extractedTopics.count), Hashtags: \(generatedHashtags.count), Ready: \(matchingReady)")
+            
+        } catch {
+            print("❌ [SESSION_MONITOR] Failed to get session summary: \(error)")
+        }
+    }
+    
+    // MARK: - Agent Readiness Check (Enhanced)
+    
+    private func waitForAgentReadyAndNavigate(matchData: LiveMatchData) async {
+        print("🤖 [AGENT_CHECK] Starting enhanced agent readiness check for room: \(matchData.roomId)")
+        
+        // Update UI to show agent setup status
+        await MainActor.run {
+            preparingMessage = "Setting up enhanced AI host..."
+        }
+        
+        // Check agent readiness with timeout
+        let maxAttempts = 20  // 20 seconds timeout for enhanced agent
+        var agentReady = false
+        
+        for attempt in 1...maxAttempts {
+            print("🔍 [AGENT_CHECK] Attempt \(attempt)/\(maxAttempts): Checking if enhanced agent is ready...")
+            
+            // Update UI with progress
+            await MainActor.run {
+                preparingMessage = "Setting up enhanced AI host... (\(attempt)/\(maxAttempts))"
+            }
+            
+            // Check if agent is ready via API
+            agentReady = await checkEnhancedAgentStatus(roomId: matchData.roomId)
+            
+            if agentReady {
+                print("✅ [AGENT_CHECK] Enhanced agent confirmed ready! Proceeding to navigation...")
+                break
+            }
+            
+            // Wait 1 second before next check
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        
+        // Navigate to chat regardless of agent status (with timeout fallback)
+        await MainActor.run {
+            if agentReady {
+                preparingMessage = "Enhanced AI host ready! Joining room..."
+                print("🎉 [AGENT_CHECK] Enhanced agent ready - navigating to chat!")
+            } else {
+                preparingMessage = "Joining room... (Enhanced AI host may join shortly)"
+                print("⚠️ [AGENT_CHECK] Enhanced agent readiness timeout - proceeding anyway")
+            }
+            
+            // Short delay for UI feedback, then navigate
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.showPreparingRoom = false
+                self.navigateToLiveChat = true
+                print("🚀 [NAVIGATION] Navigating to chat room with enhanced AI!")
+            }
+        }
+    }
+    
+    private func checkEnhancedAgentStatus(roomId: String) async -> Bool {
+        do {
+            // NEW: Check agent health and status
+            let healthResponse: [String: Any] = try await APIService.shared.request(
+                endpoint: "/api/ai-host/agent-health",
+                method: "GET"
+            )
+            
+            guard let status = healthResponse["status"] as? String,
+                  let components = healthResponse["components"] as? [String: Any],
+                  let waitingRoomAgent = components["waiting_room_agent"] as? [String: Any] else {
+                return false
+            }
+            
+            let agentStatus = waitingRoomAgent["status"] as? String ?? "unavailable"
+            let isHealthy = status == "healthy"
+            let isAgentAvailable = agentStatus == "available"
+            
+            print("🔍 [AGENT_CHECK] Health: \(isHealthy), Agent: \(isAgentAvailable)")
+            
+            return isHealthy && isAgentAvailable
+        } catch {
+            print("❌ [AGENT_CHECK] Error checking enhanced agent status: \(error)")
+            return false
+        }
+    }
+}
+
+// MARK: - Agent Status View (NEW)
+struct AgentStatusView: View {
+    let features: AgentFeatures
+    let extractedTopics: [String]
+    let generatedHashtags: [String]
+    let sessionId: String?
+    
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Agent Info
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Vortex AI Status")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    HStack {
+                        Circle()
+                            .fill(features.openaiRealtime ? .green : .orange)
+                            .frame(width: 12, height: 12)
+                        Text(features.openaiRealtime ? "Enhanced AI Active" : "Standard AI Active")
+                            .font(.body)
+                    }
+                }
+                
+                // Features
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Capabilities")
+                        .font(.headline)
+                    
+                    FeatureRow(title: "Real-time Voice", enabled: features.realtimeVoice)
+                    FeatureRow(title: "Topic Extraction", enabled: features.topicExtraction)
+                    FeatureRow(title: "Hashtag Generation", enabled: features.hashtagGeneration)
+                    FeatureRow(title: "Conversation Flow", enabled: features.conversationFlow)
+                }
+                
+                // Extracted Topics
+                if !extractedTopics.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Topics Discovered")
+                            .font(.headline)
+                        
+                        LazyVGrid(columns: [
+                            GridItem(.flexible()),
+                            GridItem(.flexible())
+                        ], spacing: 8) {
+                            ForEach(extractedTopics, id: \.self) { topic in
+                                Text(topic)
+                                    .font(.caption)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.blue.opacity(0.2))
+                                    .foregroundColor(.blue)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                }
+                
+                // Generated Hashtags
+                if !generatedHashtags.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Hashtags for Matching")
+                            .font(.headline)
+                        
+                        LazyVGrid(columns: [
+                            GridItem(.flexible()),
+                            GridItem(.flexible())
+                        ], spacing: 8) {
+                            ForEach(generatedHashtags, id: \.self) { hashtag in
+                                Text(hashtag)
+                                    .font(.caption)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.green.opacity(0.2))
+                                    .foregroundColor(.green)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                }
+                
+                Spacer()
+                
+                // Session Info
+                if let sessionId = sessionId {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Session Info")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("ID: \(sessionId.suffix(8))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding()
+            .navigationTitle("AI Assistant")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarItems(trailing: Button("Done") { dismiss() })
+        }
+    }
+}
+
+struct FeatureRow: View {
+    let title: String
+    let enabled: Bool
+    
+    var body: some View {
+        HStack {
+            Image(systemName: enabled ? "checkmark.circle.fill" : "circle")
+                .foregroundColor(enabled ? .green : .gray)
+            Text(title)
+            Spacer()
+        }
+    }
+}
+
+// MARK: - Enhanced AI Voice Service with WaitingRoomAgent Support
+
+class EnhancedAIVoiceService: ObservableObject {
+    static let shared = EnhancedAIVoiceService()
+    
+    @Published var isConnected = false
+    @Published var isListening = false
+    @Published var isMuted = false
+    @Published var currentResponse = ""
+    @Published var isAISpeaking = false
+    @Published var matchFound: LiveMatchData?
+    @Published var sessionSummary: AgentSessionSummary?
+    @Published var isUsingEnhancedAgent = false
+    
+    private var agentSessionId: String?
+    private var agentFeatures: AgentFeatures?
+    private var legacyService: AIVoiceService?
+    
+    private init() {
+        // Initialize with legacy service as fallback
+        legacyService = AIVoiceService.shared
+        setupBindings()
+    }
+    
+    private func setupBindings() {
+        // Bind to legacy service properties
+        legacyService?.$isConnected.assign(to: &$isConnected)
+        legacyService?.$isListening.assign(to: &$isListening)
+        legacyService?.$isMuted.assign(to: &$isMuted)
+        legacyService?.$currentResponse.assign(to: &$currentResponse)
+        legacyService?.$isAISpeaking.assign(to: &$isAISpeaking)
+        legacyService?.$matchFound.assign(to: &$matchFound)
+    }
+    
+    func initializeWithEnhancedAgent(
+        matchResult: MatchResult,
+        sessionId: String,
+        features: AgentFeatures
+    ) async {
+        print("🚀 [ENHANCED_AI] Initializing with WaitingRoomAgent: \(sessionId)")
+        
+        await MainActor.run {
+            self.agentSessionId = sessionId
+            self.agentFeatures = features
+            self.isUsingEnhancedAgent = true
+        }
+        
+        // If enhanced agent is available, use it directly through WebSocket
+        if features.openaiRealtime {
+            print("✅ [ENHANCED_AI] Using OpenAI Realtime API through WaitingRoomAgent")
+            await initializeEnhancedWebSocketConnection(sessionId: sessionId)
+        } else {
+            print("⚠️ [ENHANCED_AI] Enhanced agent not ready, using hybrid mode")
+            await legacyService?.initializeAIConversation(with: matchResult)
+        }
+    }
+    
+    func initializeLegacyAIConversation(with matchResult: MatchResult) async {
+        print("🔄 [ENHANCED_AI] Falling back to legacy AI conversation")
+        await MainActor.run {
+            self.isUsingEnhancedAgent = false
+        }
+        await legacyService?.initializeAIConversation(with: matchResult)
+    }
+    
+    private func initializeEnhancedWebSocketConnection(sessionId: String) async {
+        // TODO: Implement direct WebSocket connection to WaitingRoomAgent
+        // This would connect directly to the LiveKit room where the agent is running
+        print("🔌 [ENHANCED_AI] Enhanced WebSocket connection not yet implemented, using legacy fallback")
+        await MainActor.run {
+            self.isUsingEnhancedAgent = false
+        }
+    }
+    
+    func updateSessionSummary(_ summary: AgentSessionSummary) {
+        DispatchQueue.main.async {
+            self.sessionSummary = summary
+        }
+    }
+    
+    func toggleMute() {
+        legacyService?.toggleMute()
+    }
+    
+    func stopAIConversation() async {
+        await legacyService?.stopAIConversation()
+    }
+    
+    func cleanup() async {
+        await MainActor.run {
+            self.agentSessionId = nil
+            self.agentFeatures = nil
+            self.isUsingEnhancedAgent = false
+            self.sessionSummary = nil
+        }
+        await legacyService?.cleanup()
+    }
+}
+
+// MARK: - Request Models for New API
+
+struct StartWaitingRoomRequest: Codable {
+    let preferences: [String: [String]]
+    let language: String
+    let conversationStyle: String
+}
+
+enum APIError: Error {
+    case invalidResponse
+    case networkError
+    case serverError(String)
+}
+
+// MARK: - Keep existing components for backward compatibility
+
 // Simplified view, keeping only core functionality
 struct UserVoiceTopicMatchingView: View {
     let matchResult: MatchResult
