@@ -288,19 +288,19 @@ Your role is to facilitate, not lead conversations. Stay quiet and let people co
         """Process user input - only respond when explicitly addressed"""
         try:
             user_input = new_message.text_content()
-        participant_info = self._get_participant_info(new_message)
-        
+            participant_info = self._get_participant_info(new_message)
+            
             # Simple logging
-        logger.info(f"[AGENT] 🎙️ User message from {participant_info['name']}: '{user_input[:50]}...'")
-        
+            logger.info(f"[AGENT] 🎙️ User message from {participant_info['name']}: '{user_input[:50]}...'")
+            
             # Update conversation log
-        self.conversation_log.append({
-            "timestamp": datetime.now().isoformat(),
-            "participant_name": participant_info['name'],
-            "participant_identity": participant_info['identity'],
-            "message": user_input,
-            "is_ai_host": participant_info.get('is_ai_host', False)
-        })
+            self.conversation_log.append({
+                "timestamp": datetime.now().isoformat(),
+                "participant_name": participant_info['name'],
+                "participant_identity": participant_info['identity'],
+                "message": user_input,
+                "is_ai_host": participant_info.get('is_ai_host', False)
+            })
             
             # Skip AI host messages
             if participant_info.get("is_ai_host", False):
