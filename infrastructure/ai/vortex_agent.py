@@ -1100,6 +1100,7 @@ def create_vortex_agent_session(
         
         # Create AgentSession with OpenAI Realtime API (end-to-end low latency)
         from livekit.plugins.openai import realtime
+        from livekit.plugins import openai
         from openai.types.beta.realtime.session import TurnDetection
         
         # VAD 兜底配置 (优先 WebRTC，避免 silero 导入错误)
@@ -1129,9 +1130,16 @@ def create_vortex_agent_session(
         )
         # 系统提示仍由 Agent 自己的 instructions 提供，不要重复塞到 Realtime
         
+        # Add TTS model for session.say() calls (separate from Realtime API)
+        tts_model = openai.TTS(
+            model="tts-1",
+            voice="nova",  # Match Realtime API voice style
+        )
+        
         session = AgentSession(
             llm=rt_llm,
-            vad=vad,             # None 时用 Realtime 内置
+            tts=tts_model,           # For manual session.say() calls
+            vad=vad,                 # None 时用 Realtime 内置
         )
         
         logger.info("[SESSION DEBUG] ✅ AgentSession created with OpenAI Realtime API")
