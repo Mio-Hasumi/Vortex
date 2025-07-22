@@ -401,8 +401,11 @@ Remember: Less is often more. Let users have their conversations naturally unles
             
             # Handle different intervention types with manual responses
             if intervention_type == "direct_call":
-                # User called "hey vortex" - introduce myself
-                await self.introduce_myself(context=None, reason="user_called", caller_name=participant_info['name'])
+                # User called "hey vortex" - simple response
+                response_msg = f"Hi {participant_info['name']}! I'm here to help. What can I do for you?"
+                await self.session.say(response_msg, allow_interruptions=True)
+                # Schedule return to listening mode after response
+                asyncio.create_task(self._return_to_listening_mode(delay=5.0))
             elif intervention_type == "profanity":
                 # Handle inappropriate language
                 response_msg = f"Hey {participant_info['name']}, let's keep our conversation positive and respectful. What would you like to talk about instead?"
