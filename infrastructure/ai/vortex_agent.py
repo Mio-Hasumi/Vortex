@@ -195,136 +195,74 @@ Remember: Less is often more. Let users have their conversations naturally unles
     async def on_enter(self) -> None:
         """Called when agent becomes active in the session"""
         try:
-            logger.info("🎭 ====================== VORTEX AGENT ON_ENTER CALLED ======================")
-            logger.info("🎭 [AGENT] Vortex agent entering room - will greet users first")
-            logger.info(f"🎭 [AGENT] Agent initialization state:")
-            logger.info(f"🎭 [AGENT]   - Has session: {hasattr(self, 'session') and self.session is not None}")
-            logger.info(f"🎭 [AGENT]   - Listening mode: {getattr(self, 'listening_mode', 'not set')}")
-            logger.info(f"🎭 [AGENT]   - Has been introduced: {getattr(self, 'has_been_introduced', 'not set')}")
-            logger.info(f"🎭 [AGENT]   - Room context keys: {list(self.room_context.keys())}")
+            logger.info("[AGENT] Vortex agent entering room - will greet users first")
             
             # Update room context
-            logger.info("🎭 [AGENT] Getting job context...")
             job_ctx = get_job_context()
-            logger.info(f"🎭 [AGENT] Job context obtained: {type(job_ctx)}")
-            logger.info(f"🎭 [AGENT] Job room name: {job_ctx.room.name}")
-            
             self.room_context["room_name"] = job_ctx.room.name
-            logger.info(f"🎭 [AGENT] Room context updated with name: {job_ctx.room.name}")
-            logger.info(f"🎭 [AGENT] Current participants in job room: {len(job_ctx.room.remote_participants)}")
+            logger.info(f"[AGENT] Room context updated: {job_ctx.room.name}")
             
             # Give users a moment to settle in
-            logger.info("🎭 [AGENT] Waiting 3 seconds for users to settle...")
-            for i in range(3):
-                await asyncio.sleep(1)
-                logger.info(f"🎭 [AGENT] Waiting... {i+1}/3 seconds")
-            logger.info("🎭 [AGENT] ✅ Wait complete, preparing greeting...")
-            
-            # Check room context before greeting
-            logger.info(f"🎭 [AGENT] Final room context check:")
-            logger.info(f"🎭 [AGENT]   - Timeout explanation: {self.room_context.get('timeout_explanation', 'not set')}")
-            logger.info(f"🎭 [AGENT]   - Topics context: {self.room_context.get('topics_context', 'not set')}")
-            logger.info(f"🎭 [AGENT]   - Hashtags count: {len(self.room_context.get('hashtags', []))}")
+            logger.info("[AGENT] Waiting 3 seconds for users to settle...")
+            await asyncio.sleep(3)
             
             # ACTIVE introduction first to explain usage
-            logger.info("🎭 [AGENT] Determining greeting type...")
             if self.room_context.get("timeout_explanation", False):
                 # Timeout match explanation
-                logger.info("🎭 [AGENT] Creating timeout match greeting...")
                 greeting = (
                     "Hi there! I'm Vortex, your AI conversation assistant. "
                     f"{self.room_context.get('topics_context', 'Since no one was immediately interested in the same topics, I randomly connected you two.')} "
                     "I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join the conversation, suggest topics, or help in any way!"
                 )
-                logger.info("🎭 [AGENT] ✅ Timeout match greeting created")
             else:
                 # Regular match with shared interests
-                logger.info("🎭 [AGENT] Creating regular match greeting...")
                 topics_context = self.room_context.get('topics_context', 'You were matched based on shared interests.')
                 hashtags = self.room_context.get('hashtags', [])
-                logger.info(f"🎭 [AGENT] Topics context: {topics_context}")
-                logger.info(f"🎭 [AGENT] Hashtags: {hashtags}")
                 
                 if hashtags:
-                    logger.info("🎭 [AGENT] Using hashtag-based greeting...")
                     greeting = (
                         f"Hi everyone! I'm Vortex, your AI conversation assistant. "
                         f"I see you both are interested in {', '.join(hashtags[:3])}{'...' if len(hashtags) > 3 else ''}! "
                         f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to suggest topics, answer questions, or help with your conversation. Enjoy chatting!"
                     )
-                    logger.info("🎭 [AGENT] ✅ Hashtag-based greeting created")
                 else:
-                    logger.info("🎭 [AGENT] Using generic greeting...")
                     greeting = (
                         f"Hi everyone! I'm Vortex, your AI conversation assistant. "
                         f"{topics_context} "
                         f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join in, suggest topics, or help with your conversation!"
                     )
-                    logger.info("🎭 [AGENT] ✅ Generic greeting created")
             
-            logger.info(f"🎭 [AGENT] Final greeting preview: {greeting[:100]}...")
-            logger.info(f"🎭 [AGENT] Full greeting length: {len(greeting)} characters")
+            logger.info(f"[AGENT] About to say greeting: {greeting[:100]}...")
             
             # Check if session exists
-            logger.info("🎭 [AGENT] Pre-greeting session checks...")
             if not hasattr(self, 'session') or self.session is None:
-                logger.error("🎭 [AGENT] ❌ CRITICAL ERROR: self.session is None! Cannot speak.")
-                logger.error("🎭 [AGENT] ❌ This means the session wasn't properly linked to the agent!")
+                logger.error("[AGENT] ❌ ERROR: self.session is None! Cannot speak.")
                 return
             
-            logger.info(f"🎭 [AGENT] ✅ Session exists: {type(self.session)}")
-            logger.info(f"🎭 [AGENT] Session has say method: {hasattr(self.session, 'say')}")
-            
             # Active greeting
-            logger.info("🎭 =================== ATTEMPTING TO SPEAK ===================")
-            logger.info("🎭 [AGENT] About to call session.say()...")
-            logger.info(f"🎭 [AGENT] Greeting to say: '{greeting}'")
-            logger.info(f"🎭 [AGENT] Allow interruptions: True")
-            
-            try:
-                await self.session.say(greeting, allow_interruptions=True)
-                logger.info("🎭 [AGENT] ✅✅✅ GREETING SAID SUCCESSFULLY! ✅✅✅")
-                logger.info("🎭 [AGENT] Vortex should now be speaking in the room!")
-            except Exception as say_error:
-                logger.error(f"🎭 [AGENT] ❌❌❌ session.say() FAILED: {say_error}")
-                import traceback
-                logger.error(f"🎭 [AGENT] Say error traceback: {traceback.format_exc()}")
-                raise say_error
+            logger.info("[AGENT] Calling session.say()...")
+            await self.session.say(greeting, allow_interruptions=True)
+            logger.info("[AGENT] ✅ Greeting said successfully!")
             
             # AFTER greeting, switch to passive listening mode
-            logger.info("🎭 [AGENT] Setting up post-greeting state...")
             self.listening_mode = True
             self.last_user_message_time = datetime.now()
             self.room_context["conversation_state"] = "listening"
             self.has_been_introduced = True
             
-            logger.info("🎭 [AGENT] ✅ Post-greeting setup complete:")
-            logger.info(f"🎭 [AGENT]   - Listening mode: {self.listening_mode}")
-            logger.info(f"🎭 [AGENT]   - Conversation state: {self.room_context['conversation_state']}")
-            logger.info(f"🎭 [AGENT]   - Has been introduced: {self.has_been_introduced}")
-            logger.info("🎭 ================= VORTEX AGENT READY FOR CONVERSATION =================")
-            logger.info("🎭 [AGENT] Vortex introduction complete - now in passive listening mode")
+            logger.info("[AGENT] Vortex introduction complete - now in passive listening mode")
             
         except Exception as e:
-            logger.error("🎭 ❌❌❌ ================= CRITICAL ERROR IN ON_ENTER =================")
-            logger.error(f"🎭 [AGENT] ❌ ERROR in on_enter: {e}")
-            logger.error(f"🎭 [AGENT] ❌ Error type: {type(e)}")
+            logger.error(f"[AGENT] ❌ ERROR in on_enter: {e}")
             import traceback
-            logger.error(f"🎭 [AGENT] ❌ Traceback: {traceback.format_exc()}")
-            logger.error("🎭 [AGENT] ❌ This is why Vortex couldn't greet!")
-            
+            logger.error(f"[AGENT] Traceback: {traceback.format_exc()}")
             # Try a simple fallback greeting
-            logger.info("🎭 [AGENT] Attempting fallback greeting...")
             try:
                 if hasattr(self, 'session') and self.session:
-                    logger.info("🎭 [AGENT] Session exists, trying fallback greeting...")
                     await self.session.say("Hi! I'm Vortex, your AI assistant. Say 'Hey Vortex' anytime you need help!", allow_interruptions=True)
-                    logger.info("🎭 [AGENT] ✅ Fallback greeting said successfully!")
-                else:
-                    logger.error("🎭 [AGENT] ❌ Cannot use fallback - no session available")
+                    logger.info("[AGENT] ✅ Fallback greeting said successfully!")
             except Exception as fallback_e:
-                logger.error(f"🎭 [AGENT] ❌ Even fallback greeting failed: {fallback_e}")
-                logger.error("🎭 [AGENT] ❌ This confirms there's a fundamental issue with session.say()")
+                logger.error(f"[AGENT] ❌ Even fallback greeting failed: {fallback_e}")
 
     async def on_exit(self) -> None:
         """Called when agent is leaving the session"""
@@ -869,14 +807,11 @@ def create_vortex_agent_session(
     openai_service: OpenAIService,
     ai_host_service: Optional[AIHostService] = None,
     room_context: Dict[str, Any] = None
-) -> Tuple[AgentSession, VortexAgent]:
+) -> Tuple[Any, VortexAgent]:
     """
-    Create a VortexAgent session using OpenAI Realtime API (Official Best Practice)
+    Create a VortexAgent session using LiveKit Agents framework
     
-    Uses OpenAI's integrated Realtime API for optimal performance:
-    - Built-in STT, LLM, TTS, and VAD
-    - Lower latency than separate components
-    - Better turn detection and interruption handling
+    Returns the VortexAgent instance that will be used with session.start()
     
     Args:
         openai_service: OpenAI service for LLM functionality
@@ -884,20 +819,14 @@ def create_vortex_agent_session(
         room_context: Context about the room and participants
         
     Returns:
-        Tuple of (AgentSession, VortexAgent) ready for use
+        Tuple of (None, VortexAgent) - the VortexAgent is ready to use with session.start()
     """
     
     try:
-        logger.info("[SESSION DEBUG] Starting VortexAgent session creation with OpenAI Realtime API")
+        logger.info("[SESSION DEBUG] Starting VortexAgent creation with LiveKit Agents framework")
         logger.info(f"[SESSION DEBUG] OpenAI service provided: {openai_service is not None}")
         logger.info(f"[SESSION DEBUG] AI host service provided: {ai_host_service is not None}")
         logger.info(f"[SESSION DEBUG] Room context provided: {room_context is not None}")
-        
-        # Import OpenAI Realtime components
-        logger.info("[SESSION DEBUG] Importing OpenAI Realtime components...")
-        from livekit.plugins import openai
-        from openai.types.beta.realtime.session import TurnDetection
-        logger.info("[SESSION DEBUG] ✅ OpenAI imports successful")
         
         # Create the agent instance
         logger.info("[SESSION DEBUG] Creating VortexAgent instance...")
@@ -920,44 +849,13 @@ def create_vortex_agent_session(
         else:
             logger.info("[SESSION DEBUG] No room context to update")
         
-        # Create session with OpenAI Realtime API (OFFICIAL APPROACH)
-        # This replaces separate STT + LLM + TTS + VAD components
-        logger.info("[SESSION DEBUG] Creating AgentSession with OpenAI Realtime API...")
-        
-        # Create HTTP session for OpenAI API calls
-        import aiohttp
-        http_session = aiohttp.ClientSession()
-        
-        session = AgentSession(
-            agent=vortex_agent,  # Pass the VortexAgent instance!
-            llm=openai.realtime.RealtimeModel(
-                model="gpt-4o-realtime-preview",  # Latest Realtime model
-                voice="shimmer",  # Natural, friendly voice
-                temperature=0.8,  # Balanced creativity
-                modalities=["text", "audio"],  # Both text and audio support
-                turn_detection=TurnDetection(
-                    type="server_vad",  # Server-side voice activity detection
-                    threshold=0.5,  # Balanced sensitivity 
-                    prefix_padding_ms=300,  # Include 300ms before speech
-                    silence_duration_ms=500,  # 500ms silence ends turn
-                    create_response=True,  # Auto-generate responses
-                    interrupt_response=True  # Allow natural interruptions
-                ),
-                http_session=http_session  # Provide HTTP session explicitly
-            )
-        )
-        logger.info("[SESSION DEBUG] ✅ AgentSession created successfully")
-        
-        # Set the session reference in the agent so it can use self.session.say()
-        vortex_agent.session = session
-        logger.info("[SESSION DEBUG] ✅ Agent-Session linkage established")
-        
-        logger.info("[SESSION DEBUG] ✅ VortexAgent session creation completed successfully")
-        return session, vortex_agent
+        logger.info("[SESSION DEBUG] ✅ VortexAgent creation completed successfully")
+        # Return None as session (will be created by the framework), and the agent
+        return None, vortex_agent
         
     except Exception as e:
-        logger.error(f"[SESSION ERROR] ❌ Failed to create VortexAgent session: {e}")
+        logger.error(f"[SESSION ERROR] ❌ Failed to create VortexAgent: {e}")
         logger.error(f"[SESSION ERROR] ❌ Error type: {type(e)}")
         import traceback
         logger.error(f"[SESSION ERROR] ❌ Traceback: {traceback.format_exc()}")
-        raise Exception(f"Failed to create VortexAgent session: {str(e)}") 
+        raise Exception(f"Failed to create VortexAgent: {str(e)}") 

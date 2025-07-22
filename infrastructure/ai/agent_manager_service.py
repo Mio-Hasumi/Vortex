@@ -251,55 +251,56 @@ class AgentManagerService:
             # Enable microphone for the agent
             logger.info(f"[AGENT RUN DEBUG] Setting up agent audio...")
             try:
-                # Use the correct LiveKit method for enabling microphone
-                source = room.local_participant.microphone
-                if source:
-                    await source.set_enabled(True)
-                    logger.info(f"[AGENT RUN DEBUG] ✅ Microphone enabled")
-                else:
-                    logger.info(f"[AGENT RUN DEBUG] No microphone source available")
+                await room.local_participant.set_microphone_enabled(True)
+                logger.info(f"[AGENT RUN DEBUG] ✅ Microphone enabled")
             except Exception as mic_error:
                 logger.error(f"[AGENT RUN DEBUG] ❌ Microphone setup failed: {mic_error}")
-                # This is not critical, continue without microphone setup
             
-            # Create and configure the agent session
-            logger.info(f"🤖 [AGENT RUN DEBUG] Creating VortexAgent session...")
-            logger.info(f"🤖 [AGENT RUN DEBUG] OpenAI service available: {self.openai_service is not None}")
-            logger.info(f"🤖 [AGENT RUN DEBUG] AI host service available: {self.ai_host_service is not None}")
-            logger.info(f"🤖 [AGENT RUN DEBUG] Room context keys: {list(metadata.get('room_context', {}).keys())}")
-            
-            session, agent = create_vortex_agent_session(
-                openai_service=self.openai_service,
-                ai_host_service=self.ai_host_service,
-                room_context=metadata.get("room_context", {})
-            )
-            logger.info(f"🤖 [AGENT RUN DEBUG] ✅ VortexAgent session created")
-            logger.info(f"🤖 [AGENT RUN DEBUG] Agent type: {type(agent)}")
-            logger.info(f"🤖 [AGENT RUN DEBUG] Session type: {type(session)}")
-            logger.info(f"🤖 [AGENT RUN DEBUG] Agent has session reference: {hasattr(agent, 'session') and agent.session is not None}")
-            
-            # Start the agent session with the connected room
-            logger.info(f"🚀 [AGENT RUN DEBUG] Starting agent session...")
-            logger.info(f"🚀 [AGENT RUN DEBUG] Room connection state: {room.connection_state}")
-            logger.info(f"🚀 [AGENT RUN DEBUG] Room name in session start: {room.name}")
-            logger.info(f"🚀 [AGENT RUN DEBUG] Current participants before session start: {len(room.remote_participants)}")
-            
+            # Create and configure the agent session with OpenAI Realtime API (OFFICIAL APPROACH)
+            logger.info(f"[AGENT RUN DEBUG] Creating VortexAgent session with OpenAI Realtime API...")
             try:
-                # Since we already passed the agent to AgentSession constructor, 
-                # we only need to provide the room
-                logger.info(f"🚀 [AGENT RUN DEBUG] About to call session.start()...")
-                await session.start(room=room)
-                logger.info(f"🚀 [AGENT RUN DEBUG] ✅ Agent session started successfully!")
-                logger.info(f"🚀 [AGENT RUN DEBUG] Session state after start: active")
+                # Import LiveKit Agents framework components
+                from livekit import agents
+                from livekit.plugins import openai
                 
-                # Give a moment for session to initialize
-                await asyncio.sleep(1)
-                logger.info(f"🚀 [AGENT RUN DEBUG] Agent should now be initializing...")
+                # Create the VortexAgent
+                _, agent = create_vortex_agent_session(
+                    openai_service=self.openai_service,
+                    ai_host_service=self.ai_host_service,
+                    room_context=metadata.get("room_context", {})
+                )
+                logger.info(f"[AGENT RUN DEBUG] ✅ VortexAgent created")
+                
+                # Create AgentSession with OpenAI Realtime API (as per official guide)
+                from openai.types.beta.realtime.session import TurnDetection
+                
+                session = agents.AgentSession(
+                    llm=openai.realtime.RealtimeModel(
+                        model="gpt-4o-realtime-preview",
+                        voice="shimmer",
+                        temperature=0.8,
+                        modalities=["text", "audio"],
+                        # Use Server VAD for turn detection (proper OpenAI format)
+                        turn_detection=TurnDetection(
+                            type="server_vad",
+                            threshold=0.5,
+                            prefix_padding_ms=300,
+                            silence_duration_ms=500,
+                            create_response=True,
+                            interrupt_response=True,
+                        )
+                    )
+                )
+                logger.info(f"[AGENT RUN DEBUG] ✅ AgentSession created with OpenAI Realtime API")
+                
+                # Start the agent session with the room
+                await session.start(agent=agent, room=room)
+                logger.info(f"[AGENT RUN DEBUG] ✅ Agent session started successfully!")
                 
             except Exception as session_error:
-                logger.error(f"🚀 [AGENT RUN DEBUG] ❌ Agent session start failed: {session_error}")
+                logger.error(f"[AGENT RUN DEBUG] ❌ Agent session creation/start failed: {session_error}")
                 import traceback
-                logger.error(f"🚀 [AGENT RUN DEBUG] Session error traceback: {traceback.format_exc()}")
+                logger.error(f"[AGENT RUN DEBUG] Session error traceback: {traceback.format_exc()}")
                 # Don't return here, keep the agent running even if session start failed
             
             # Log that the agent is now active
