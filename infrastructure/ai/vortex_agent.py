@@ -91,6 +91,9 @@ class VortexAgent(Agent):
         self.listening_mode = True  # Start in passive listening mode
         self.has_been_introduced = False  # Track if agent has introduced itself
         
+        # Participant tracking
+        self.participant_map = {}  # Maps LiveKit identity to user info
+        
         # Profanity filter (basic words - can be expanded)
         self.profanity_words = {
             'fuck', 'shit', 'bitch', 'damn', 'ass', 'bastard', 'hell',
@@ -131,6 +134,19 @@ class VortexAgent(Agent):
                     "confidence": settings.get("confidence", 0.5)
                 })
                 
+                # Pre-populate participant map if participant info is available in settings
+                if participants:
+                    for participant in participants:
+                        if isinstance(participant, dict):
+                            identity = participant.get("userId", f"user_{participant.get('displayName', 'unknown')}")
+                            self.participant_map[identity] = {
+                                "identity": identity,
+                                "name": participant.get("displayName", "User"),
+                                "is_ai_host": participant.get("isAIHost", False),
+                                "join_time": datetime.now(),
+                                "message_count": 0
+                            }
+                
                 # Update personality based on settings
                 self.personality.update({
                     "engagement_level": settings.get("engagement_level", 8),
@@ -144,6 +160,7 @@ class VortexAgent(Agent):
                     self.silence_threshold = max(15, 30 - (engagement * 2))  # 15-30 seconds
                     
             logger.info(f"[AGENT] Room context updated: match_type={self.room_context.get('match_type')}, timeout={self.room_context.get('timeout_explanation')}")
+            logger.info(f"[AGENT] Participants pre-loaded: {list(self.participant_map.keys())}")
                     
         except Exception as e:
             logger.error(f"[AGENT ERROR] ❌ Error updating room context: {e}")
@@ -234,15 +251,21 @@ Remember: Less is often more. Let users have their conversations naturally unles
     async def on_user_turn_completed(self, turn_ctx: ChatContext, new_message: ChatMessage) -> None:
         """Process user input with smart intervention logic"""
         try:
-            # Extract user message content
+            # Extract user message content and participant info
             user_input = new_message.text_content()
+            participant_info = self._get_participant_info(new_message)
             
-            # Update conversation tracking
+            # Update participant message count
+            participant_info["message_count"] += 1
+            
+            # Update conversation tracking with proper participant identification
             self.last_user_message_time = datetime.now()
             self.conversation_log.append({
                 "timestamp": self.last_user_message_time,
                 "content": user_input,
-                "participant": turn_ctx.participant_identity if hasattr(turn_ctx, 'participant_identity') else "Unknown"
+                "participant_identity": participant_info["identity"],
+                "participant_name": participant_info["name"],
+                "is_ai_host": participant_info.get("is_ai_host", False)
             })
             
             # Keep only recent conversation history (last 20 messages)
@@ -273,16 +296,24 @@ Remember: Less is often more. Let users have their conversations naturally unles
                         "intervention_type": intervention_type
                     }
                     
-                    # Add enriched context to the turn
+                    # Add enriched context to the turn with participant awareness
                     if intervention_type == "profanity":
                         turn_ctx.add_message(
                             role="system",
-                            content=f"Someone used inappropriate language. Gently redirect the conversation in a positive direction without being preachy."
+                            content=f"{participant_info['name']} used inappropriate language. Gently redirect the conversation in a positive direction without being preachy. Address them by name."
                         )
                     else:
+                        # Build recent speakers summary
+                        recent_speakers = {}
+                        for msg in conversation_context['conversation_history']:
+                            speaker = msg.get('participant_name', 'Someone')
+                            recent_speakers[speaker] = recent_speakers.get(speaker, 0) + 1
+                        
+                        speakers_summary = ", ".join([f"{name} ({count} messages)" for name, count in recent_speakers.items()])
+                        
                         turn_ctx.add_message(
                             role="system",
-                            content=f"You are now actively participating in the conversation. Recent context: {conversation_context['total_exchanges']} exchanges total. Recent messages: {[msg['content'] for msg in conversation_context['conversation_history']]}. Respond naturally and helpfully."
+                            content=f"{participant_info['name']} just called you to participate. Recent conversation: {conversation_context['total_exchanges']} exchanges total. Recent speakers: {speakers_summary}. Address {participant_info['name']} by name and respond naturally to their message: '{user_input}'"
                         )
             else:
                 # Stay in listening mode - don't respond
@@ -291,10 +322,97 @@ Remember: Less is often more. Let users have their conversations naturally unles
                 self.room_context["conversation_state"] = "listening"
                 return  # Don't let the agent respond
             
-            logger.info(f"[AGENT] Processed user turn - active intervention triggered")
+            logger.info(f"[AGENT] Processed turn from {participant_info['name']} ({participant_info['identity']}) - intervention: {intervention_type or 'none'}")
             
         except Exception as e:
             logger.error(f"[AGENT ERROR] ❌ Error in on_user_turn_completed: {e}")
+            import traceback
+            logger.error(f"[AGENT ERROR] Traceback: {traceback.format_exc()}")
+
+    def _get_participant_info(self, message: ChatMessage) -> Dict[str, Any]:
+        """
+        Extract participant information from ChatMessage
+        
+        Based on LiveKit documentation, participant identity should be available
+        through the message or session context.
+        """
+        try:
+            # Try to get participant identity from the message
+            # ChatMessage should have participant information
+            participant_identity = getattr(message, 'participant_identity', None) or getattr(message, 'identity', None)
+            
+            if not participant_identity:
+                # Fallback: try to get from job context
+                try:
+                    job_ctx = get_job_context()
+                    if hasattr(job_ctx, 'participant') and hasattr(job_ctx.participant, 'identity'):
+                        participant_identity = job_ctx.participant.identity
+                except:
+                    pass
+            
+            if not participant_identity:
+                # Last resort: generate unknown participant ID
+                participant_identity = f"unknown_participant_{len(self.participant_map)}"
+                logger.warning(f"[AGENT] Could not determine participant identity, using: {participant_identity}")
+            
+            # Check if we have cached participant info
+            if participant_identity in self.participant_map:
+                return self.participant_map[participant_identity]
+            
+            # Create new participant info
+            participant_info = {
+                "identity": participant_identity,
+                "name": self._get_display_name(participant_identity),
+                "is_ai_host": participant_identity.startswith("ai_host_"),
+                "join_time": datetime.now(),
+                "message_count": 0
+            }
+            
+            # Cache participant info
+            self.participant_map[participant_identity] = participant_info
+            logger.info(f"[AGENT] New participant registered: {participant_identity} -> {participant_info['name']}")
+            
+            return participant_info
+            
+        except Exception as e:
+            logger.error(f"[AGENT ERROR] ❌ Error getting participant info: {e}")
+            # Fallback participant info
+            return {
+                "identity": "unknown_participant",
+                "name": "Someone",
+                "is_ai_host": False,
+                "join_time": datetime.now(),
+                "message_count": 0
+            }
+
+    def _get_display_name(self, identity: str) -> str:
+        """
+        Convert LiveKit identity to human-readable display name
+        
+        Based on LiveKit token generation patterns:
+        - user_12345 -> User
+        - ai_host_67890 -> Vortex (AI)
+        - alice_bob -> Alice
+        """
+        try:
+            if identity.startswith("ai_host_"):
+                return "Vortex (AI)"
+            elif identity.startswith("user_"):
+                # Try to get actual name from room context participants
+                user_id = identity.replace("user_", "")
+                participants = self.room_context.get("participants", [])
+                for participant in participants:
+                    if participant.get("userId") == user_id:
+                        return participant.get("displayName", "User")
+                return "User"
+            else:
+                # Extract name from identity (e.g., "alice_smith" -> "Alice")
+                name_part = identity.split("_")[0] if "_" in identity else identity
+                return name_part.title()
+                
+        except Exception as e:
+            logger.error(f"[AGENT ERROR] ❌ Error getting display name for {identity}: {e}")
+            return "Someone"
 
     async def _should_intervene(self, user_input: str) -> str:
         """
@@ -357,11 +475,17 @@ Remember: Less is often more. Let users have their conversations naturally unles
             if silence_duration > self.silence_threshold:
                 logger.info(f"[AGENT] Silence intervention triggered: {silence_duration:.1f}s of quiet")
                 
-                # Generate a gentle conversation starter
-                await self.session.say(
-                    "I couldn't help but notice things got a bit quiet. Would you like me to suggest something to talk about?",
-                    allow_interruptions=True
-                )
+                # Get participant names for personalized message
+                participant_names = [info["name"] for info in self.participant_map.values() if not info.get("is_ai_host", False)]
+                
+                if len(participant_names) == 2:
+                    greeting = f"Hey {participant_names[0]} and {participant_names[1]}, I noticed things got a bit quiet. Would you like me to suggest something to talk about?"
+                elif len(participant_names) == 1:
+                    greeting = f"Hey {participant_names[0]}, I noticed things got quiet. Would you like me to suggest a topic to get the conversation going?"
+                else:
+                    greeting = "I couldn't help but notice things got a bit quiet. Would you like me to suggest something to talk about?"
+                
+                await self.session.say(greeting, allow_interruptions=True)
                 
                 # Reset the timer
                 self.last_user_message_time = datetime.now()
@@ -370,54 +494,98 @@ Remember: Less is often more. Let users have their conversations naturally unles
         except Exception as e:
             logger.error(f"[AGENT ERROR] ❌ Error in silence intervention: {e}")
 
+    def get_participant_summary(self) -> str:
+        """Get a summary of current participants for context"""
+        try:
+            participants = [info for info in self.participant_map.values() if not info.get("is_ai_host", False)]
+            if not participants:
+                return "No participants identified yet"
+            
+            summary_parts = []
+            for participant in participants:
+                msg_count = participant.get("message_count", 0)
+                summary_parts.append(f"{participant['name']} ({msg_count} messages)")
+            
+            return f"Participants: {', '.join(summary_parts)}"
+            
+        except Exception as e:
+            logger.error(f"[AGENT ERROR] ❌ Error creating participant summary: {e}")
+            return "Participant information unavailable"
+
     @function_tool()
     async def introduce_myself(
         self,
         context: RunContext,
-        reason: str = "user_called"
+        reason: str = "user_called",
+        caller_name: str = None
     ) -> str:
         """
         Provide a context-aware introduction when users call for Vortex
         
         Args:
             reason: Why the introduction is being given
+            caller_name: Name of the person who called Vortex
         """
         try:
+            # Get list of participant names for personalized greeting
+            participant_names = [info["name"] for info in self.participant_map.values() if not info.get("is_ai_host", False)]
+            
             # Context-aware greeting based on match type
             if self.room_context.get("timeout_explanation", False):
                 # Timeout match explanation
-                greeting = (
-                    f"Hi there! I'm Vortex, your AI conversation assistant. "
-                    f"{self.room_context.get('topics_context', 'Since no one was immediately interested in the same topics, I randomly connected you two.')} "
-                    f"I can help suggest topics to talk about, answer questions, or just facilitate your conversation. What would you like to chat about?"
-                )
+                if caller_name:
+                    greeting = (
+                        f"Hi {caller_name}! I'm Vortex, your AI conversation assistant. "
+                        f"{self.room_context.get('topics_context', 'Since no one was immediately interested in the same topics, I randomly connected you two.')} "
+                        f"I can help suggest topics to talk about, answer questions, or just facilitate your conversation. What would you like to chat about?"
+                    )
+                else:
+                    greeting = (
+                        f"Hi there! I'm Vortex, your AI conversation assistant. "
+                        f"{self.room_context.get('topics_context', 'Since no one was immediately interested in the same topics, I randomly connected you two.')} "
+                        f"I can help suggest topics to talk about, answer questions, or just facilitate your conversation. What would you like to chat about?"
+                    )
             else:
                 # Regular match with shared interests
                 topics_context = self.room_context.get('topics_context', 'You were matched based on shared interests.')
                 hashtags = self.room_context.get('hashtags', [])
                 
                 if hashtags:
-                    greeting = (
-                        f"Hi everyone! I'm Vortex, your AI conversation assistant. "
-                        f"I see you both are interested in {', '.join(hashtags[:3])}{'...' if len(hashtags) > 3 else ''}. "
-                        f"I can help facilitate your discussion, suggest related topics, or answer questions. What aspect would you like to explore?"
-                    )
+                    if caller_name and len(participant_names) > 1:
+                        greeting = (
+                            f"Hi {caller_name}! I'm Vortex, your AI conversation assistant. "
+                            f"I see you and {', '.join([name for name in participant_names if name != caller_name])} are interested in {', '.join(hashtags[:3])}{'...' if len(hashtags) > 3 else ''}. "
+                            f"I can help facilitate your discussion, suggest related topics, or answer questions. What aspect would you like to explore?"
+                        )
+                    else:
+                        greeting = (
+                            f"Hi everyone! I'm Vortex, your AI conversation assistant. "
+                            f"I see you're interested in {', '.join(hashtags[:3])}{'...' if len(hashtags) > 3 else ''}. "
+                            f"I can help facilitate your discussion, suggest related topics, or answer questions. What aspect would you like to explore?"
+                        )
                 else:
-                    greeting = (
-                        f"Hi everyone! I'm Vortex, your AI conversation assistant. "
-                        f"{topics_context} "
-                        f"I can help with topic suggestions, answer questions, or just facilitate your conversation. How can I help?"
-                    )
+                    if caller_name:
+                        greeting = (
+                            f"Hi {caller_name}! I'm Vortex, your AI conversation assistant. "
+                            f"{topics_context} "
+                            f"I can help with topic suggestions, answer questions, or just facilitate your conversation. How can I help?"
+                        )
+                    else:
+                        greeting = (
+                            f"Hi everyone! I'm Vortex, your AI conversation assistant. "
+                            f"{topics_context} "
+                            f"I can help with topic suggestions, answer questions, or just facilitate your conversation. How can I help?"
+                        )
             
             await self.session.say(greeting, allow_interruptions=True)
-            return f"Introduction provided: {reason}"
+            return f"Introduction provided to {caller_name or 'participants'}: {reason}"
             
         except Exception as e:
             logger.error(f"[AGENT ERROR] ❌ Error in introduction: {e}")
-            await self.session.say(
-                "Hi! I'm Vortex, your AI conversation assistant. I'm here to help with your conversation - just let me know what you'd like to talk about!",
-                allow_interruptions=True
-            )
+            fallback_greeting = f"Hi {caller_name}! " if caller_name else "Hi! "
+            fallback_greeting += "I'm Vortex, your AI conversation assistant. I'm here to help with your conversation - just let me know what you'd like to talk about!"
+            
+            await self.session.say(fallback_greeting, allow_interruptions=True)
             return f"Fallback introduction provided due to error: {str(e)}"
 
     @function_tool()
