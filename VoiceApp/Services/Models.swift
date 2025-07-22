@@ -44,6 +44,14 @@ struct AIMatchResponse: Codable {
     let status: String
 }
 
+struct WaitingRoomRequest: Codable {}
+
+struct WaitingRoomResponse: Codable {
+    let room_name: String
+    let user_token: String
+    let agent_identity: String
+}
+
 // Use AnyCodable to handle dynamic JSON data
 struct MatchConfirmationResponse: Codable {
     let match_id: String

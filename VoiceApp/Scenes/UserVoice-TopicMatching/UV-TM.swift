@@ -37,253 +37,27 @@ struct MatchParticipant {
 
 // Simplified view, keeping only core functionality
 struct UserVoiceTopicMatchingView: View {
-    let matchResult: MatchResult
-    @Environment(\.dismiss) private var dismiss
+    @StateObject private var liveKitService = LiveKitCallService()
+    @State private var showHangUpConfirmation = false
+    @State private var isIntentionallyLeaving = false
     
-    // AI service, handles all WebSocket and audio logic
-    @StateObject private var aiVoiceService = AIVoiceService.shared
-    
-    // Navigation state for when match is found
-    @State private var navigateToLiveChat = false
-    @State private var matchData: LiveMatchData?
-    @State private var showPreparingRoom = false
-    @State private var preparingMessage = "Preparing room..."
+    let waitingRoomInfo: WaitingRoomResponse
 
     var body: some View {
         ZStack {
-            // Background
-            Color.black.ignoresSafeArea()
-
-            // Top UI elements
-            VStack {
-                // Back button
-                HStack {
-                    Button(action: {
-                        print("🚪 [EXIT] User tapped exit button - returning to home")
-                        // Clean up AI voice service before dismissing
-                        aiVoiceService.cleanup()
-                        // CRITICAL FIX: Reset navigation state to prevent self-matching
-                        VoiceMatchingService.shared.resetNavigation()
-                        dismiss()
-                    }) {
-                        Image(systemName: "arrow.left")
-                            .font(.title2)
-                            .foregroundColor(.white)
-                    }
-                    Spacer()
-                }
-                .padding()
-                
-                Spacer()
-                
-                // AI text response display area OR preparing room message
-                ScrollView {
-                    if showPreparingRoom {
-                        VStack(spacing: 16) {
-                            // Preparing room UI
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(1.5)
-                            
-                            Text(preparingMessage)
-                                .font(.custom("Rajdhani", size: 28))
-                                .foregroundColor(.white)
-                                .multilineTextAlignment(.center)
-                            
-                            Text("Setting up AI host...")
-                                .font(.custom("Rajdhani", size: 18))
-                                .foregroundColor(.white.opacity(0.7))
-                                .multilineTextAlignment(.center)
-                        }
-                        .padding()
-                    } else {
-                        Text(aiVoiceService.currentResponse)
-                            .font(.custom("Rajdhani", size: 28))
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.center)
-                            .padding()
-                    }
-                }
-                
-                Spacer()
-            }
-            
-            // Bottom microphone button
-            VStack {
-                Spacer()
-                // Add subtle searching indicator if still waiting for match
-                if !navigateToLiveChat, let firstTopic = matchResult.topics.first {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.8)
-                        
-                        Text("Searching for someone to talk about #\(firstTopic) with you...")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(Color.white.opacity(0.7))
-                    }
-                    .padding(.bottom, 8)
-                    .transition(.opacity)
-                }
-                Button(action: {
-                    // Toggle mute state
-                    aiVoiceService.toggleMute()
-                }) {
-                    Image(systemName: aiVoiceService.isMuted ? "mic.slash.fill" : "mic.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(aiVoiceService.isMuted ? .red : .white)
-                        .padding(20)
-                        .background(Circle().fill(Color.white.opacity(0.2)))
-                }
-                
-                Text(aiVoiceService.isMuted ? "Muted" : "Listening...")
-                    .foregroundColor(.white)
-                    .padding(.bottom, 30)
-            }
-        }
-        .onAppear {
-            // Initialize AI conversation when view appears
-            Task {
-                await aiVoiceService.initializeAIConversation(with: matchResult)
-            }
-        }
-        .onDisappear {
-            // Only cleanup if we're not navigating to a successful match
-            print("🚪 [EXIT] View disappearing - checking if we should cleanup")
-            
-            if navigateToLiveChat && matchData != nil {
-                print("✅ [EXIT] Navigating to live chat - preserving AI service indefinitely")
-                // Don't cleanup the AI service when navigating to a successful match
-                // Let the chat room handle cleanup when the user actually leaves the chat
-                print("🔒 [EXIT] AI service will persist until chat room is manually exited")
-            } else {
-                print("🧹 [EXIT] No active navigation - cleaning up AI voice service")
-                aiVoiceService.cleanup()
-            }
-            
-            // CRITICAL FIX: Only reset navigation state if we're not navigating to a successful match
-            if !navigateToLiveChat || matchData == nil {
-                print("🔄 [EXIT] Resetting navigation state")
-                VoiceMatchingService.shared.resetNavigation()
-            } else {
-                print("🔒 [EXIT] Preserving navigation state during successful match navigation")
-            }
-        }
-        .navigationBarHidden(true)
-        // Navigation to live chat when match is found
-        .background(
-            NavigationLink(
-                destination: Group {
-                    if let data = matchData {
-                        HashtagScreen(matchData: data)
-                            .onAppear {
-                                print("🚀 [NAVIGATION] HashtagScreen appeared")
-                                print("   🆔 Match ID: \(data.matchId)")
-                                print("   🏠 Room ID: \(data.roomId)")
-                                print("   👥 Participants: \(data.participants.count)")
-                            }
-                    } else {
-                        EmptyView()
-                    }
-                },
-                isActive: $navigateToLiveChat
-            ) {
-                EmptyView()
-            }
-            .hidden()
-        )
-        // Listen for match found events
-        .onReceive(aiVoiceService.$matchFound) { matchData in
-            if let matchData = matchData {
-                print("🎯 [NAVIGATION] Match found - entering room preparation phase!")
-                
-                // Stop AI conversation and show preparing state
-                Task {
-                    await aiVoiceService.stopAIConversation()
-                    await MainActor.run {
-                        self.matchData = matchData
-                        self.showPreparingRoom = true
-                        self.preparingMessage = "Match found! Preparing your room..."
-                        print("🏗️ [NAVIGATION] Showing room preparation UI")
-                    }
-                    
-                    // Wait for agent to be ready before navigation
-                    await waitForAgentReadyAndNavigate(matchData: matchData)
-                }
-            }
-        }
-    }
-    
-    // MARK: - Agent Readiness Check
-    
-    private func waitForAgentReadyAndNavigate(matchData: LiveMatchData) async {
-        print("🤖 [AGENT_CHECK] Starting agent readiness check for room: \(matchData.roomId)")
-        
-        // Update UI to show agent setup status
-        await MainActor.run {
-            preparingMessage = "Setting up AI host..."
-        }
-        
-        // Check agent readiness with timeout
-        let maxAttempts = 15  // 15 seconds timeout
-        var agentReady = false
-        
-        for attempt in 1...maxAttempts {
-            print("🔍 [AGENT_CHECK] Attempt \(attempt)/\(maxAttempts): Checking if agent is ready...")
-            
-            // Update UI with progress
-            await MainActor.run {
-                preparingMessage = "Setting up AI host... (\(attempt)/\(maxAttempts))"
-            }
-            
-            // Check if agent is ready via API
-            agentReady = await checkAgentStatus(roomId: matchData.roomId)
-            
-            if agentReady {
-                print("✅ [AGENT_CHECK] Agent confirmed ready! Proceeding to navigation...")
-                break
-            }
-            
-            // Wait 1 second before next check
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-        }
-        
-        // Navigate to chat regardless of agent status (with timeout fallback)
-        await MainActor.run {
-            if agentReady {
-                preparingMessage = "AI host ready! Joining room..."
-                print("🎉 [AGENT_CHECK] Agent ready - navigating to chat!")
-            } else {
-                preparingMessage = "Joining room... (AI host may join shortly)"
-                print("⚠️ [AGENT_CHECK] Agent readiness timeout - proceeding anyway")
-            }
-            
-            // Short delay for UI feedback, then navigate
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                self.showPreparingRoom = false
-                self.navigateToLiveChat = true
-                print("🚀 [NAVIGATION] Navigating to chat room!")
-            }
-        }
-    }
-    
-    private func checkAgentStatus(roomId: String) async -> Bool {
-        do {
-            // Call backend API to check if agent is ready using the proper path format
-            let endpoint = "/api/agents/status/\(roomId)"
-            let response: AgentStatusResponse = try await APIService.shared.request(
-                endpoint: endpoint,
-                method: "GET"
+            // Using the same UI as the main chat room for a seamless experience
+            HashtagScreen(
+                matchData: LiveMatchData(
+                    matchId: "", // Not a real match yet
+                    sessionId: "",
+                    roomId: waitingRoomInfo.room_name,
+                    livekitToken: waitingRoomInfo.user_token,
+                    participants: [], // Will be populated by LiveKit
+                    topics: [],
+                    hashtags: []
+                ),
+                isWaitingRoom: true // Differentiate between waiting and matched room
             )
-            
-            // Backend returns is_active (bool), need to check that field instead
-            let isReady = response.is_active
-            print("🔍 [AGENT_CHECK] Agent active: \(response.is_active), ready: \(isReady)")
-            
-            return isReady
-        } catch {
-            print("❌ [AGENT_CHECK] Error checking agent status: \(error)")
-            return false  // Assume not ready on error
         }
     }
 }
