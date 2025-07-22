@@ -205,13 +205,10 @@ class VortexAgent(Agent):
         self.room_context["conversation_state"] = "listening" if listening else "active"
         logger.info(f"[AGENT] Listening mode set to: {listening}")
     
-    def get_greeting_message(self) -> str:
-        """Get the prepared greeting message for entrypoint to deliver"""
-        if hasattr(self, '_greeting_message') and self._greeting_message:
-            return self._greeting_message
-        else:
-            # Fallback greeting if on_enter hasn't run yet
-            return "Hi everyone! I'm Vortex, your AI conversation assistant. I'm here to help facilitate your discussion and provide assistance when needed. Feel free to continue your conversation!"
+    def should_model_greet(self) -> bool:
+        """Check if model should greet based on current state"""
+        participant_count = len([info for info in self.participant_map.values() if not info.get("is_ai_host", False)])
+        return participant_count >= 2 and not self.has_greeted
     
     def mark_greeting_delivered(self):
         """Mark that the greeting has been delivered by entrypoint"""
@@ -221,91 +218,47 @@ class VortexAgent(Agent):
         logger.info("[AGENT] ✅ Greeting marked as delivered")
 
     def _get_agent_instructions(self) -> str:
-        """Get dynamic system instructions for Vortex agent with participant context"""
-        
-        # Get current participant information
+        """Get dynamic system instructions with state variables"""
+        # Get current state
+        participants = list(self.participant_map.keys())
         participant_names = [info["name"] for info in self.participant_map.values() if not info.get("is_ai_host", False)]
-        participant_count = len(participant_names)
+        hashtags = self.room_context.get("hashtags", [])
+        match_type = "timeout_explanation" if self.room_context.get("timeout_explanation", False) else "normal"
+        ready_to_greet = len(participant_names) >= 2 and not self.has_greeted
         
-        # Build participant context
-        if participant_count == 2:
-            participant_context = f"CONVERSATION CONTEXT: You are facilitating a conversation between TWO PEOPLE: {participant_names[0]} and {participant_names[1]}. When you respond, be aware that both participants can hear you and may want to engage."
-        elif participant_count == 1:
-            participant_context = f"CONVERSATION CONTEXT: You are currently with ONE PERSON: {participant_names[0]}. Another person may join soon."
-        elif participant_count > 2:
-            participant_context = f"CONVERSATION CONTEXT: You are facilitating a GROUP conversation with {participant_count} people: {', '.join(participant_names)}. Be inclusive of all participants."
-        else:
-            participant_context = "CONVERSATION CONTEXT: You are in a voice chat room. People will join and you should facilitate their conversation."
-            
-        topics_context = ""
-        if self.room_context.get("hashtags"):
-            hashtags = self.room_context["hashtags"][:3]  # Show up to 3 main topics
-            topics_context = f"\nSHARED INTERESTS: The participants were matched based on shared interests in: {', '.join(hashtags)}. You can reference these topics when appropriate."
-        
-        return f"""You are Vortex, an intelligent AI conversation assistant in a voice chat application.
+        # Build state context for prompt
+        state_context = f"""Context:
+- ready_to_greet: {str(ready_to_greet).lower()}
+- greeted: {str(self.has_greeted).lower()}  
+- participants: {participant_names}
+- match_type: {match_type}
+- hashtags: {hashtags[:3] if hashtags else []}"""
 
-{participant_context}{topics_context}
+        return f"""You are Vortex, an AI voice host.
 
-IMPORTANT: You operate in PASSIVE LISTENING mode by default. You should only speak when:
-1. Someone directly calls you ("Hey Vortex", "Hi Vortex", etc.)  
-2. Someone uses inappropriate language that needs gentle correction
-3. Someone asks for help or suggestions
-4. The conversation has been quiet for too long (you'll be notified)
+{state_context}
 
-When you DO respond:
-- Be warm, friendly, and genuinely helpful
-- Keep responses concise (1-3 sentences typically)
-- Address both participants when there are multiple people
-- Ask open-ended questions to encourage discussion between participants  
-- Share relevant insights when appropriate
-- Use natural, conversational language
-- Focus on facilitating rather than dominating the conversation
+Hard Rules:
+1. If ready_to_greet is false OR greeted is true -> say NOTHING unless users explicitly mention "Vortex" or there's profanity.
 
-Your role is to:
-✅ LISTEN: Quietly monitor conversations and learn from the flow
-✅ ASSIST: Help when specifically called upon or when intervention is needed
-✅ FACILITATE: Suggest topics or ask questions when requested, encouraging interaction between participants
-✅ MODERATE: Gently redirect inappropriate conversations  
-✅ SUPPORT: Create a comfortable environment for natural conversation between the participants
+2. If ready_to_greet is true AND greeted is false -> give ONE short greeting:
+   - If match_type == "timeout_explanation": "Hi! I randomly matched you two since no one else was available right now. Say 'Hey Vortex' if you need me."
+   - Else if hashtags not empty: "Hi! I see you both like {hashtags}. Say 'Hey Vortex' if you need me."  
+   - Else: "Hi! You were matched based on shared interests. Say 'Hey Vortex' if you need me."
+   Then STOP speaking and stay silent.
 
-Remember: Less is often more. Let participants have their conversations naturally unless they specifically need your help. When there are multiple people, encourage them to talk with each other, not just with you."""
+3. When users explicitly call "Vortex" (hey vortex, @vortex, etc):
+   - Be brief (1-3 sentences), help them talk to each other
+   - Never monologue or dominate the conversation
+
+4. For profanity: Brief redirection like "Let's keep things positive!"
+
+Never start topics unasked. Never auto-start small talk. Let people have natural conversations."""
 
     async def on_enter(self) -> None:
         """Called when agent becomes active in the session"""
         try:
-            logger.info("[AGENT] 🎯 Vortex agent entering room - checking for existing users")
-            
-            # Room context is already set during agent creation
-            room_name = self.room_context.get("room_name", "AI Chat Room")
-            logger.info(f"[AGENT] Room context available: {room_name}")
-            
-            # Set up greeting message
-            if self.room_context.get("timeout_explanation", False):
-                # Timeout match explanation
-                self._greeting_message = (
-                    "Hi there! I'm Vortex, your AI conversation assistant. "
-                    f"{self.room_context.get('topics_context', 'Since no one was immediately interested in the same topics, I randomly connected you two.')} "
-                    "I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join the conversation, suggest topics, or help in any way!"
-                )
-            else:
-                # Regular match with shared interests
-                topics_context = self.room_context.get('topics_context', 'You were matched based on shared interests.')
-                hashtags = self.room_context.get('hashtags', [])
-                
-                if hashtags:
-                    self._greeting_message = (
-                        f"Hi everyone! I'm Vortex, your AI conversation assistant. "
-                        f"I see you both are interested in {', '.join(hashtags[:3])}{'...' if len(hashtags) > 3 else ''}! "
-                        f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to suggest topics, answer questions, or help with your conversation. Enjoy chatting!"
-                    )
-                else:
-                    self._greeting_message = (
-                        f"Hi everyone! I'm Vortex, your AI conversation assistant. "
-                        f"{topics_context} "
-                        f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join in, suggest topics, or help with your conversation!"
-                    )
-            
-            logger.info(f"[AGENT] ✅ Greeting prepared: {self._greeting_message[:100]}...")
+            logger.info("[AGENT] 🎯 Vortex agent entering room")
             
             # Set initial state
             self.listening_mode = True  # Start in listening mode
@@ -344,28 +297,31 @@ Remember: Less is often more. Let participants have their conversations naturall
             else:
                 logger.warning("[AGENT] ⚠️ Could not access room participants - will rely on join events")
             
-            # Start periodic silence monitoring task
-            logger.info("[AGENT] 🔄 Starting silence monitoring background task...")
-            self._silence_task = asyncio.create_task(self._monitor_silence_background())
+            # DISABLED: Silence monitoring task (conflicts with strict passive mode)
+            # To re-enable, uncomment the next 2 lines:
+            # logger.info("[AGENT] 🔄 Starting silence monitoring background task...")
+            # self._silence_task = asyncio.create_task(self._monitor_silence_background())
+            self._silence_task = None
+            logger.info("[AGENT] 🤐 Silence monitoring DISABLED - agent will only respond when directly called")
             
         except Exception as e:
             logger.error(f"[AGENT] ❌ ERROR in on_enter: {e}")
-            import traceback
-            logger.error(f"[AGENT] Traceback: {traceback.format_exc()}")
-            # Set fallback greeting
-            self._greeting_message = "Hi! I'm Vortex, your AI assistant. Say 'Hey Vortex' anytime you need help!"
+            # Set basic state even on error
+            self.listening_mode = True
+            self.has_been_introduced = False
             self.has_greeted = False
-            logger.info("[AGENT] ✅ Fallback greeting prepared")
 
     async def on_exit(self) -> None:
         """Called when agent is leaving the session"""
         try:
             logger.info("[AGENT] Vortex agent exiting room")
             
-            # Cancel background tasks
+            # Cancel background tasks (if any)
             if self._silence_task:
                 self._silence_task.cancel()
                 logger.info("[AGENT] ✅ Silence monitoring task cancelled")
+            else:
+                logger.debug("[AGENT] No background tasks to cancel (silence monitoring was disabled)")
             
             await self.session.say(
                 "Thanks for the great conversation everyone! Hope to chat with you again soon.",
@@ -374,84 +330,117 @@ Remember: Less is often more. Let participants have their conversations naturall
         except Exception as e:
             logger.error(f"[AGENT ERROR] Error during exit: {e}")
 
+
+    
+    def _log_user_msg(self, user_input: str, new_message: ChatMessage):
+        """Log user message for conversation tracking"""
+        participant_info = self._get_participant_info(new_message)
+        
+        logger.info(f"[AGENT] 🎙️ User message from {participant_info['name']}: '{user_input[:50]}...'")
+        
+        # Log conversation
+        self.conversation_log.append({
+            "timestamp": datetime.now().isoformat(),
+            "participant_name": participant_info['name'],
+            "participant_identity": participant_info['identity'],
+            "message": user_input,
+            "is_ai_host": participant_info.get('is_ai_host', False)
+        })
+        self.last_user_message_time = datetime.now()
+        self.room_context["total_exchanges"] += 1
+        
+        # Update participant message count
+        participant_identity = participant_info['identity']
+        if participant_identity in self.participant_map:
+            self.participant_map[participant_identity]["message_count"] += 1
+
     async def on_user_turn_completed(self, turn_ctx: ChatContext, new_message: ChatMessage) -> None:
-        """Process user input with smart intervention logic"""
+        """Process user input - pure prompt driven, let model auto-respond"""
         try:
-            # Extract user message content and participant info
             user_input = new_message.text_content()
             participant_info = self._get_participant_info(new_message)
             
-            logger.info(f"[AGENT] 🎙️ User message from {participant_info['name']}: '{user_input[:50]}...'")
-            
-            # Log conversation
-            self.conversation_log.append({
-                "timestamp": datetime.now().isoformat(),
-                "participant_name": participant_info['name'],
-                "participant_identity": participant_info['identity'],
-                "message": user_input,
-                "is_ai_host": participant_info.get('is_ai_host', False)
-            })
-            self.last_user_message_time = datetime.now()
-            self.room_context["total_exchanges"] += 1
-            
-            # Update participant message count
-            participant_identity = participant_info['identity']
-            if participant_identity in self.participant_map:
-                self.participant_map[participant_identity]["message_count"] += 1
+            # Always log the message
+            self._log_user_msg(user_input, new_message)
             
             # Skip AI host messages
             if participant_info.get("is_ai_host", False):
+                logger.debug("[AGENT] 🤖 Skipping AI host message")
                 return
             
-            # Single intervention check
-            intervention_type = await self._should_intervene(user_input)
+            logger.info(f"[AGENT] 💬 User message: '{user_input[:50]}...' - letting model decide response")
             
-            if not intervention_type:
-                # PASSIVE LISTENING: Stay silent
-                logger.info("[AGENT] 🤐 PASSIVE - staying silent")
-                return
+            # Check if this might be a greeting trigger (state change needed)
+            current_participant_count = len([info for info in self.participant_map.values() if not info.get("is_ai_host", False)])
             
-            # 只在白名单里才说 - 严格控制介入条件
-            allowed_interventions = {"direct_call", "profanity"}
-            if intervention_type not in allowed_interventions:
-                logger.info(f"[AGENT] 🚫 Trigger '{intervention_type}' ignored (not in allowed list: {allowed_interventions})")
-                return
+            if current_participant_count >= 2 and not self.has_greeted:
+                logger.info(f"[AGENT] 🎉 Two participants detected - model should greet on next response")
+                # Update model instructions with new state
+                await self._update_model_instructions()
             
-            # ACTIVE MODE: Handle allowed interventions only
-            logger.info(f"[AGENT] 🎯 ACTIVE - {intervention_type}")
-            self.listening_mode = False
-            self.room_context["conversation_state"] = "active"
-            
-            # Handle different intervention types with manual responses
-            if intervention_type == "direct_call":
-                # User called "hey vortex" - context-aware response
-                participant_names = [info["name"] for info in self.participant_map.values() if not info.get("is_ai_host", False)]
-                caller_name = participant_info['name']
-                
-                if len(participant_names) == 2:
-                    # Two people - acknowledge both
-                    other_name = [name for name in participant_names if name != caller_name][0]
-                    response_msg = f"Hi {caller_name} and {other_name}! I'm here to help with your conversation. What can I do for you both?"
-                elif len(participant_names) == 1:
-                    # One person - but expecting another
-                    response_msg = f"Hi {caller_name}! I'm here to help. What can I do for you? Feel free to continue when your conversation partner joins!"
-                else:
-                    # Multiple people or fallback
-                    response_msg = f"Hi everyone! I'm here to help facilitate your conversation. What can I do for you?"
-                
-                await self.session.say(response_msg, allow_interruptions=True)
-                # Schedule return to listening mode after response
-                asyncio.create_task(self._return_to_listening_mode(delay=5.0))
-            elif intervention_type == "profanity":
-                # Handle inappropriate language
-                response_msg = f"Hey {participant_info['name']}, let's keep our conversation positive and respectful. What would you like to talk about instead?"
-                await self.session.say(response_msg, allow_interruptions=True)
-                # Schedule return to listening mode after response
-                asyncio.create_task(self._return_to_listening_mode(delay=5.0))
-            # 删除了 else 分支 - 不再对其他类型强制响应
+            # Let the model handle the response based on current instructions
+            # No blocking, no manual intervention - pure prompt control
             
         except Exception as e:
             logger.error(f"[AGENT ERROR] ❌ Error in on_user_turn_completed: {e}")
+    
+    async def _update_model_instructions(self):
+        """Update the model's instructions with current state"""
+        try:
+            new_instructions = self._get_agent_instructions()
+            logger.info("[AGENT] 🔄 Updating model instructions with new state")
+            logger.debug(f"[AGENT] New instructions preview: {new_instructions[:200]}...")
+            
+            # Update the realtime model's instructions
+            if hasattr(self.session, 'llm') and hasattr(self.session.llm, 'update_session'):
+                await self.session.llm.update_session(instructions=new_instructions)
+                logger.info("[AGENT] ✅ Model instructions updated successfully")
+            else:
+                logger.warning("[AGENT] ⚠️ Could not update model instructions - no update_session method")
+                
+        except Exception as e:
+            logger.error(f"[AGENT ERROR] ❌ Failed to update model instructions: {e}")
+    
+    async def on_llm_response_completed(self, response: str):
+        """Called after model generates a response - check if we need to update state"""
+        try:
+            # If model just gave a greeting, mark as greeted
+            greeting_indicators = ["hi!", "hello", "matched", "say 'hey vortex'"]
+            if any(indicator in response.lower() for indicator in greeting_indicators) and not self.has_greeted:
+                logger.info("[AGENT] 🎉 Detected greeting in response - marking as greeted")
+                self.has_greeted = True 
+                self.has_been_introduced = True
+                # Update instructions to reflect new state
+                await self._update_model_instructions()
+                
+        except Exception as e:
+            logger.error(f"[AGENT ERROR] ❌ Error in on_llm_response_completed: {e}")
+    
+    def notify_participant_joined(self, participant_identity: str, participant_info: Optional[Dict] = None):
+        """Notify agent about new participant - update state"""
+        logger.info(f"[AGENT] 👤 Participant joined: {participant_identity}")
+        
+        if participant_info is None:
+            participant_info = {}
+            
+        self.participant_map[participant_identity] = {
+            "identity": participant_identity,
+            "name": participant_info.get("name", self._get_display_name(participant_identity)),
+            "is_ai_host": False,
+            "join_time": datetime.now(),
+            "message_count": 0
+        }
+        
+        # Check if we should update instructions (ready to greet?)
+        participant_count = len([info for info in self.participant_map.values() if not info.get("is_ai_host", False)])
+        if participant_count >= 2 and not self.has_greeted:
+            logger.info(f"[AGENT] 🎉 {participant_count} participants now - ready to greet")
+            # Instructions will be updated on next message
+    
+    def notify_participant_left(self, participant_identity: str):
+        """Notify agent about participant leaving"""
+        logger.info(f"[AGENT] 👋 Participant left: {participant_identity}")
+        self.participant_map.pop(participant_identity, None)
 
     # Participant join/leave handling moved to entrypoint level
 
@@ -566,73 +555,7 @@ Remember: Less is often more. Let participants have their conversations naturall
             logger.error(f"[AGENT ERROR] ❌ Error getting display name for {identity}: {e}")
             return "Someone"
 
-    async def _should_intervene(self, user_input: str) -> str:
-        """
-        Determine if the agent should actively respond based on intervention triggers
-        
-        Agent will intervene when:
-        1. "Hey Vortex" is mentioned (with robust regex matching)
-        2. Profanity/bad language is detected
-        3. Help requests are made
-        4. Room is being too quiet
-        
-        Args:
-            user_input: User's message content
-            
-        Returns:
-            Intervention type string or None if should stay passive
-        """
-        try:
-            user_input_lower = user_input.lower().strip()
-            logger.info(f"[AGENT] 🔍 Checking intervention triggers for: '{user_input_lower}'")
-            
-            # 1. Direct call to Vortex - ROBUST REGEX MATCHING
-            # Handle variations: "hey vortex", "hi, vortex", "hello vortex!", "hey-vortex", etc.
-            vortex_patterns = [
-                r'\b(hey|hi|hello)\s*[,\-\s]*vortex\b',  # "hey vortex", "hi, vortex", "hello-vortex"
-                r'\bvortex\b.*\?',                        # "vortex, can you help?"
-                r'@vortex\b',                             # "@vortex"
-                r'\bvortex\s*(help|please|can|could)',    # "vortex help", "vortex can you"
-            ]
-            
-            for pattern in vortex_patterns:
-                if re.search(pattern, user_input_lower):
-                    logger.info(f"[AGENT] ✅ Direct call detected with pattern: '{pattern}'")
-                    return "direct_call"
-            
-            # 2. Profanity detection with better word boundary checking
-            words = re.findall(r'\b\w+\b', user_input_lower)
-            profanity_found = []
-            for word in words:
-                # Stem common variations (fucking -> fuck, etc.)
-                base_word = word.rstrip('ing').rstrip('ed').rstrip('s')
-                if word in self.profanity_words or base_word in self.profanity_words:
-                    profanity_found.append(word)
-            
-            if profanity_found:
-                logger.info(f"[AGENT] ⚠️ Profanity detected: {profanity_found}")
-                return "profanity"
-            
-            # 3. Help/suggestion requests - RESTRICTED: must mention vortex explicitly
-            help_patterns = [
-                r'\bvortex\b.*\b(help|assist|suggest|recommend)\b',
-                r'\b(help|assist|suggest|recommend)\b.*\bvortex\b',
-                r'\bvortex\b.*\bwhat\s+(should|can|could)\s+(we|I)\b',
-                r'\bvortex\b.*\b(ideas?|topics?)\b'
-            ]
-            
-            for pattern in help_patterns:
-                if re.search(pattern, user_input_lower):
-                    logger.info(f"[AGENT] 🆘 Vortex-specific help request detected with pattern: '{pattern}'")
-                    return "help_request"
-            
-            # Stay passive for normal conversation
-            logger.info(f"[AGENT] 🤐 No intervention needed - staying passive")
-            return None
-            
-        except Exception as e:
-            logger.error(f"[AGENT ERROR] ❌ Error checking intervention triggers: {e}")
-            return None
+    # Removed complex intervention logic - now using pure prompt control
 
     # Greeting logic moved to entrypoint level
 
@@ -1152,19 +1075,19 @@ def create_vortex_agent_session(
             vad = None  # 让 Realtime 自己处理
             logger.info("[SESSION DEBUG] ⚠️ No local VAD - using Realtime built-in turn detection")
         
-        # 一体化 Realtime（STT+LLM+TTS）
+        # 一体化 Realtime（STT+LLM+TTS）- Pure prompt driven
         rt_llm = realtime.RealtimeModel(
             model="gpt-4o-realtime-preview",
             voice="verse",
             temperature=0.7,
-            modalities=["audio", "text"],  # 默认音频+文本
-            instructions=vortex_agent._get_agent_instructions(),  # Pass participant-aware instructions
+            modalities=["audio", "text"],
+            instructions=vortex_agent._get_agent_instructions(),  # Dynamic state-aware instructions
             turn_detection=TurnDetection(
-                type="server_vad",          # 或 "semantic_vad"
+                type="server_vad",
                 threshold=0.5,
                 prefix_padding_ms=300,
                 silence_duration_ms=500,
-                create_response=False,      # Still disabled for manual control
+                create_response=True,       # Let model auto-respond based on prompt rules
                 interrupt_response=True,
             ),
         )
