@@ -176,15 +176,6 @@ struct SidebarContent: View {
                 )
                 
                 SidebarMenuItem(
-                    icon: "waveform.path",
-                    title: "Voice Match",
-                    action: {
-                        print("Voice Match selected")
-                        // Can trigger voice matching feature
-                    }
-                )
-                
-                SidebarMenuItem(
                     icon: "person.2.fill",
                     title: "Friends",
                     action: {

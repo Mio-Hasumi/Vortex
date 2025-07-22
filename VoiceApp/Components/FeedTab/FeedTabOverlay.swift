@@ -19,6 +19,7 @@ struct FeedTabOverlay: View {
     @State private var dragOffset: CGFloat = 0
     @State private var isExpanded: Bool = false
     @State private var isDragging: Bool = false
+    @State private var showProfile = false
     
     // Configuration structure
     struct FeedConfiguration {
@@ -96,7 +97,9 @@ struct FeedTabOverlay: View {
                                     
                                     // Avatar button (optional)
                                     if configuration.showProfile {
-                                        Button(action: {}) {
+                                        Button(action: {
+                                            showProfile = true
+                                        }) {
                                             Circle()
                                                 .fill(Color.white.opacity(0.25))
                                                 .frame(width: 44, height: 44)
@@ -211,6 +214,9 @@ struct FeedTabOverlay: View {
             }
         }
         .ignoresSafeArea()
+        .sheet(isPresented: $showProfile) {
+            ProfileView()
+        }
     }
 }
 
