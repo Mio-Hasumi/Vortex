@@ -36,7 +36,7 @@ enum RajdhaniWeight {
     }
 }
 
-// 预定义的常用字体样式
+// Predefined common font styles
 extension Font {
     static let rajdhaniTitle = Font.rajdhani(.bold, size: 40)
     static let rajdhaniLargeTitle = Font.rajdhani(.semiBold, size: 32)

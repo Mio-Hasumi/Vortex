@@ -25,7 +25,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "DC6A40ED2E2A1FC600DF801C"
-               BuildableName = "VoiceApp.app"
+               BuildableName = "VortexChat.app"
                BlueprintName = "VoiceApp"
                ReferencedContainer = "container:VoiceApp.xcodeproj">
             </BuildableReference>
@@ -78,7 +78,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "DC6A40ED2E2A1FC600DF801C"
-            BuildableName = "VoiceApp.app"
+            BuildableName = "VortexChat.app"
             BlueprintName = "VoiceApp"
             ReferencedContainer = "container:VoiceApp.xcodeproj">
          </BuildableReference>
@@ -95,7 +95,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "DC6A40ED2E2A1FC600DF801C"
-            BuildableName = "VoiceApp.app"
+            BuildableName = "VortexChat.app"
             BlueprintName = "VoiceApp"
             ReferencedContainer = "container:VoiceApp.xcodeproj">
          </BuildableReference>
@@ -106,6 +106,25 @@
    </AnalyzeAction>
    <ArchiveAction
       buildConfiguration = "Release"
+      customArchiveName = "VortexChat"
       revealArchiveInOrganizer = "YES">
+      <PostActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Run Script"
+               scriptText = "# Type a script or drag a script file from your workspace to insert its path.&#10;#!/bin/bash&#10;set -e&#10;&#10;# Archive &#x5b8c;&#x6210;&#x540e; .xcarchive &#x8def;&#x5f84;&#10;ARCHIVE_PATH=&quot;${ARCHIVE_PATH}&quot;&#10;APP_NAME=&quot;${PRODUCT_NAME}.app&quot;&#10;&#10;# dSYMs &#x4f1a;&#x653e;&#x5728; .xcarchive/dSYMs&#10;DSYM_DIR=&quot;$ARCHIVE_PATH/dSYMs&quot;&#10;&#10;# &#x4f60;&#x7684; App bundle &#x91cc;&#x6240;&#x6709;&#x5d4c;&#x5165;&#x7684; framework&#10;FRAMEWORKS_DIR=&quot;$ARCHIVE_PATH/Products/Applications/$APP_NAME/Frameworks&quot;&#10;&#10;echo &quot;&#x1f4a0; &#x4e3a;&#x6bcf;&#x4e2a; framework &#x8865;&#x9f50; dSYM&#x2026;&quot;&#10;&#10;for F in &quot;$FRAMEWORKS_DIR&quot;/*.framework; do&#10;  FRAMEWORK_NAME=$(basename &quot;$F&quot;)&#10;  BIN_PATH=&quot;$F/$FRAMEWORK_NAME&quot;&#10;  OUTPUT=&quot;$DSYM_DIR/$FRAMEWORK_NAME.dSYM&quot;&#10;&#10;  if [ -e &quot;$BIN_PATH&quot; ]; then&#10;    echo &quot;  &#x2022; &#x751f;&#x6210; $FRAMEWORK_NAME.dSYM&quot;&#10;    dsymutil &quot;$BIN_PATH&quot; -o &quot;$OUTPUT&quot;&#10;  else&#10;    echo &quot;  &#x26a0;&#xfe0f; &#x8df3;&#x8fc7; $FRAMEWORK_NAME&#xff08;&#x627e;&#x4e0d;&#x5230;&#x4e8c;&#x8fdb;&#x5236;&#xff09;&quot;&#10;  fi&#10;done&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "DC6A40ED2E2A1FC600DF801C"
+                     BuildableName = "VortexChat.app"
+                     BlueprintName = "VoiceApp"
+                     ReferencedContainer = "container:VoiceApp.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
    </ArchiveAction>
 </Scheme>

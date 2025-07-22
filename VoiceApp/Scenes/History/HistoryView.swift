@@ -147,7 +147,7 @@ struct HistoryItemRow: View {
             
             // Action Button
             Button(action: {
-                // TODO: 处理历史项目的操作
+                // TODO: Handle history item operations
             }) {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 16))
