@@ -81,15 +81,27 @@ class VortexAgent(Agent):
         # Greeting message
         self._greeting_message = "Hi everyone! I'm Vortex, your AI conversation assistant. I'm here to help facilitate your discussion and provide assistance when needed. Feel free to continue your conversation!"
         
-
+        
         
         # NOW we can safely call super().__init__ with dynamic instructions
+        system_instructions = self._get_agent_instructions()
+        logger.info(f"[INSTRUCTIONS] 🎯 Initializing VortexAgent with instructions ({len(system_instructions)} chars)")
+        logger.debug(f"[INSTRUCTIONS] 📝 Full instructions being passed:\n{system_instructions}")
+        
         super().__init__(
-            instructions=self._get_agent_instructions(),
+            instructions=system_instructions,
             chat_ctx=chat_ctx or ChatContext()
         )
         
         logger.info("✅ VortexAgent initialized with conversation hosting capabilities")
+        logger.info(f"[INSTRUCTIONS] ✅ Agent instructions set successfully")
+
+    def debug_instructions(self) -> str:
+        """Debug method to check current instructions"""
+        current_instructions = self._get_agent_instructions()
+        logger.info(f"[DEBUG] 📋 Current instructions ({len(current_instructions)} chars):")
+        logger.info(f"[DEBUG] 📝 Instructions content:\n{current_instructions}")
+        return current_instructions
 
     def update_room_context(
         self, 
@@ -184,6 +196,8 @@ class VortexAgent(Agent):
 - participants: {participant_names}
 - match_type: {match_type}
 - hashtags: {hashtags[:3] if hashtags else []}"""
+        
+        logger.info(f"[INSTRUCTIONS] 📋 Generating instructions with context: participants={len(participant_names)}, match_type={match_type}, hashtags={len(hashtags)}")
 
         return f"""You are Vortex, an AI conversation assistant.
 
@@ -192,12 +206,15 @@ class VortexAgent(Agent):
 Behavior:
 1. Stay SILENT unless users explicitly mention "Vortex" (e.g., "Hey Vortex", "@Vortex").
 2. When addressed directly:
+   - ALWAYS start with English for your first greeting/response
    - Be brief (1-3 sentences)
    - Help people talk to each other
    - Ask questions to facilitate discussion
    - Never dominate the conversation
 3. Keep responses natural and friendly.
 4. For inappropriate content: Gently redirect ("Let's keep things positive!").
+
+IMPORTANT: Your very first response should always be in English, even if participants speak other languages. After the initial greeting, you may adapt to their preferred language.
 
 Your role is to facilitate, not lead conversations. Stay quiet and let people connect naturally."""
 
@@ -271,19 +288,19 @@ Your role is to facilitate, not lead conversations. Stay quiet and let people co
         """Process user input - only respond when explicitly addressed"""
         try:
             user_input = new_message.text_content()
-            participant_info = self._get_participant_info(new_message)
-            
+        participant_info = self._get_participant_info(new_message)
+        
             # Simple logging
-            logger.info(f"[AGENT] 🎙️ User message from {participant_info['name']}: '{user_input[:50]}...'")
-            
+        logger.info(f"[AGENT] 🎙️ User message from {participant_info['name']}: '{user_input[:50]}...'")
+        
             # Update conversation log
-            self.conversation_log.append({
-                "timestamp": datetime.now().isoformat(),
-                "participant_name": participant_info['name'],
-                "participant_identity": participant_info['identity'],
-                "message": user_input,
-                "is_ai_host": participant_info.get('is_ai_host', False)
-            })
+        self.conversation_log.append({
+            "timestamp": datetime.now().isoformat(),
+            "participant_name": participant_info['name'],
+            "participant_identity": participant_info['identity'],
+            "message": user_input,
+            "is_ai_host": participant_info.get('is_ai_host', False)
+        })
             
             # Skip AI host messages
             if participant_info.get("is_ai_host", False):
@@ -295,6 +312,7 @@ Your role is to facilitate, not lead conversations. Stay quiet and let people co
             # Check if message is addressed to Vortex
             if not self._addressed_to_me(user_input):
                 logger.info("[AGENT] 🤫 Message not addressed to me - staying silent")
+                logger.debug(f"[INSTRUCTIONS] 📋 Following instructions to stay silent unless addressed")
                 # 阻止默认回复（不同版本写法不同）
                 try:
                     turn_ctx.prevent_default()
@@ -306,14 +324,16 @@ Your role is to facilitate, not lead conversations. Stay quiet and let people co
                 return
             
             logger.info("[AGENT] 🗣️ Message addressed to me - responding")
+            logger.debug(f"[INSTRUCTIONS] 📋 Following instructions to respond when addressed directly")
             
-            # Provide a helpful response
+            # Provide a helpful response (always in English first)
             participant_names = [info["name"] for info in self.participant_map.values() if not info.get("is_ai_host", False)]
             if len(participant_names) >= 2:
                 response = f"Hi! I see {', '.join(participant_names)} here. What can I help you discuss?"
             else:
-                response = "Hi! What can I help you with?"
-                
+                response = "Hi there! What can I help you with?"
+            
+            logger.info(f"[INSTRUCTIONS] 🌍 Responding in English first as instructed: '{response[:50]}...'")
             await self.session.say(response)
             
         except Exception as e:
@@ -439,30 +459,6 @@ Your role is to facilitate, not lead conversations. Stay quiet and let people co
     # Removed complex intervention logic - now using pure prompt control
 
     # Greeting logic moved to entrypoint level
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-            
-
 
 
 def create_vortex_agent_session(
