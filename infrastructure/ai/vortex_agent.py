@@ -481,7 +481,9 @@ def create_vortex_agent_session(
         room_context: Context about the room and participants
         
     Returns:
-        Tuple of (AgentSession, VortexAgent) ready for session.start()
+        Tuple of (AgentSession, VortexAgent). Use as:
+        session, agent = create_vortex_agent_session(...)
+        await session.start(room=ctx.room, agent=agent)
     """
     
     try:
@@ -542,7 +544,6 @@ def create_vortex_agent_session(
         )
         
         session = AgentSession(
-            agent=vortex_agent,      # CRITICAL: Pass the agent instance
             llm=rt_llm,
             tts=tts_model,           # For manual session.say() calls
             vad=vad,                 # None 时用 Realtime 内置
