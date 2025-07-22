@@ -141,6 +141,7 @@ struct HashtagScreen: View {
             }
         }
         .onAppear {
+            print("📱 [CHAT] View appeared - connecting to LiveKit")
             // Connect to LiveKit when view appears
             Task {
                 await liveKitService.connect(
@@ -151,8 +152,13 @@ struct HashtagScreen: View {
             }
         }
         .onDisappear {
-            // Clean up when leaving
-            liveKitService.disconnect()
+            print("📱 [CHAT] View disappeared - cleaning up LiveKit connection")
+            // Only disconnect if we've actually connected
+            if liveKitService.hasConnected {
+                liveKitService.disconnect()
+            } else {
+                print("⚠️ [CHAT] View disappeared before connection was established - skipping disconnect")
+            }
         }
         .navigationBarHidden(true)
         .alert("End Call", isPresented: $showHangUpConfirmation) {
@@ -246,6 +252,8 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
     // Audio session for LiveKit
     private var audioSession: AVAudioSession?
     private var isSimulatingConnection = false
+    private(set) var hasConnected = false  // Track if we've successfully connected
+    private var isDisconnecting = false  // Prevent multiple disconnects
     
     init() {
         setupAudioSession()
@@ -271,6 +279,8 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
         await MainActor.run {
             self.participants = participants
             self.connectionState = "Connecting..."
+            self.hasConnected = false
+            self.isDisconnecting = false
         }
         
         // REAL LIVEKIT IMPLEMENTATION:
@@ -294,16 +304,22 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
             // Set up event handlers
             setupRoomEventHandlers()
             
-            self.isConnected = true
-            self.connectionState = "Connected"
-            self.localParticipant = self.room?.localParticipant
+            await MainActor.run {
+                self.isConnected = true
+                self.connectionState = "Connected"
+                self.localParticipant = self.room?.localParticipant
+                self.hasConnected = true  // Mark as successfully connected
+            }
             
             print("✅ [LiveKit] Successfully connected to room!")
             
         } catch {
             print("❌ [LiveKit] Failed to connect: \(error)")
-            self.connectionState = "Connection failed"
-            self.isConnected = false
+            await MainActor.run {
+                self.connectionState = "Connection failed"
+                self.isConnected = false
+                self.hasConnected = false
+            }
         }
         
         print("✅ [LiveKit] Connected to live audio call")
@@ -333,11 +349,25 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
     }
     
     func disconnect() {
-        print("🔌 [LiveKit] Disconnecting from live call")
+        print("🔌 [LiveKit] Disconnect requested - hasConnected: \(hasConnected), isDisconnecting: \(isDisconnecting)")
+        
+        // Prevent multiple disconnects
+        guard !isDisconnecting else {
+            print("⚠️ [LiveKit] Already disconnecting, ignoring duplicate request")
+            return
+        }
+        
+        isDisconnecting = true
         
         // REAL LIVEKIT DISCONNECT:
         Task { @MainActor in
-            await room?.disconnect()
+            if let room = room {
+                print("🔌 [LiveKit] Disconnecting from room...")
+                await room.disconnect()
+            } else {
+                print("⚠️ [LiveKit] No room to disconnect from")
+            }
+            
             self.room = nil
             self.localParticipant = nil
             self.isConnected = false
@@ -345,9 +375,11 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
             self.isMuted = false
             self.participants = []
             self.isSimulatingConnection = false
+            self.hasConnected = false
+            self.isDisconnecting = false
+            
+            print("✅ [LiveKit] Disconnected successfully")
         }
-        
-        print("✅ [LiveKit] Disconnected successfully")
     }
     
     func toggleMute() {
@@ -367,21 +399,30 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
 extension LiveKitCallService: RoomDelegate {
     // Implement required delegate methods for handling room events
     nonisolated func room(_ room: Room, didUpdateConnectionState connectionState: ConnectionState, from oldValue: ConnectionState) {
+        print("🔄 [LiveKit] Connection state changed: \(oldValue) -> \(connectionState)")
+        
         Task { @MainActor in
             switch connectionState {
             case .connected:
+                print("✅ [LiveKit] Room delegate: Connected")
                 self.connectionState = "Connected"
                 self.isConnected = true
+                self.hasConnected = true
             case .connecting:
+                print("🔄 [LiveKit] Room delegate: Connecting...")
                 self.connectionState = "Connecting..."
                 self.isConnected = false
             case .disconnected:
+                print("❌ [LiveKit] Room delegate: Disconnected")
                 self.connectionState = "Disconnected"
                 self.isConnected = false
+                // Don't reset hasConnected here as it might be a temporary disconnection
             case .reconnecting:
+                print("🔄 [LiveKit] Room delegate: Reconnecting...")
                 self.connectionState = "Reconnecting..."
                 self.isConnected = false
             default:
+                print("❓ [LiveKit] Room delegate: Unknown state")
                 self.connectionState = "Unknown"
             }
         }
