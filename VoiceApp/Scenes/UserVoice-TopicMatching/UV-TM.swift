@@ -82,7 +82,14 @@ struct UserVoiceTopicMatchingView: View {
             // 底部麦克风按钮
             VStack {
                 Spacer()
-                
+                // Add subtle searching indicator if still waiting for match
+                if !navigateToLiveChat, let firstTopic = matchResult.topics.first {
+                    Text("Searching for someone to talk about #\(firstTopic) with you...")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.7))
+                        .padding(.bottom, 8)
+                        .transition(.opacity)
+                }
                 Button(action: {
                     // 切换静音状态
                     aiVoiceService.toggleMute()
