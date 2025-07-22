@@ -43,6 +43,9 @@ struct UserVoiceTopicMatchingView: View {
     // AI service, handles all WebSocket and audio logic
     @StateObject private var aiVoiceService = AIVoiceService.shared
     
+    // Topic facts service for displaying interesting facts while waiting
+    @StateObject private var topicFactsService = TopicFactsService.shared
+    
     // Navigation state for when match is found
     @State private var navigateToLiveChat = false
     @State private var matchData: LiveMatchData?
@@ -97,11 +100,33 @@ struct UserVoiceTopicMatchingView: View {
                         }
                         .padding()
                     } else {
-                        Text(aiVoiceService.currentResponse)
-                            .font(.custom("Rajdhani", size: 28))
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.center)
-                            .padding()
+                        VStack(spacing: 20) {
+                            // AI response
+                            Text(aiVoiceService.currentResponse)
+                                .font(.custom("Rajdhani", size: 28))
+                                .foregroundColor(.white)
+                                .multilineTextAlignment(.center)
+                            
+                            // Topic facts display
+                            if !topicFactsService.currentFact.isEmpty {
+                                VStack(spacing: 8) {
+                                    if topicFactsService.isGeneratingFact {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(0.8)
+                                    }
+                                    
+                                    Text(topicFactsService.currentFact)
+                                        .font(.custom("Rajdhani", size: 18))
+                                        .foregroundColor(.white.opacity(0.8))
+                                        .multilineTextAlignment(.center)
+                                        .transition(.opacity.combined(with: .scale))
+                                        .animation(.easeInOut(duration: 0.5), value: topicFactsService.currentFact)
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                        }
+                        .padding()
                     }
                 }
                 
@@ -146,8 +171,16 @@ struct UserVoiceTopicMatchingView: View {
             Task {
                 await aiVoiceService.initializeAIConversation(with: matchResult)
             }
+            
+            // Start topic facts service with the first topic
+            if let firstTopic = matchResult.topics.first {
+                topicFactsService.startFactsForTopic(firstTopic)
+            }
         }
         .onDisappear {
+            // Stop topic facts service
+            topicFactsService.stopFacts()
+            
             // Only cleanup if we're not navigating to a successful match
             print("🚪 [EXIT] View disappearing - checking if we should cleanup")
             
@@ -437,7 +470,7 @@ You are Vortex, a friendly AI conversation companion in a voice chat app. The us
 Their original message was: "\(matchResult.transcription)"
 
 Guidelines:
-- Greet naturally with "Hi! I'm Vortex, nice to meet you!"
+- Greet naturally with "Hi! I'm Vortex, nice to meet you! Tell me more about \(matchResult.topics.first ?? "your interests")"
 - You're a conversation partner who enjoys these topics
 - Keep responses brief and engaging (1-2 sentences max)
 - Ask thoughtful follow-up questions
@@ -1109,9 +1142,13 @@ Start the conversation now with your greeting and a question about their interes
             print("✅ [AI_AUDIO] Session started")
             sessionStarted = true
             
-            // Set a simple static greeting and start listening
+            // Set a simple static greeting with topic and start listening
             DispatchQueue.main.async {
-                self.currentResponse = "Hi! I'm Vortex. What would you like to talk about?"
+                if let firstTopic = self.matchContext?.topics.first {
+                    self.currentResponse = "Hi! I'm Vortex, nice to meet you! Tell me more about \(firstTopic)."
+                } else {
+                    self.currentResponse = "Hi! I'm Vortex, nice to meet you! What would you like to talk about?"
+                }
             }
             
             Task {
