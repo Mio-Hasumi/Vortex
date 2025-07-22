@@ -26,8 +26,7 @@ from livekit.agents import (
     ChatContext, 
     ChatMessage,
     function_tool, 
-    RunContext,
-    get_job_context
+    RunContext
 )
 from livekit.agents.llm import LLMError
 from livekit.plugins import openai  # Using OpenAI Realtime API for all voice features
@@ -198,10 +197,9 @@ Remember: Less is often more. Let users have their conversations naturally unles
         try:
             logger.info("[AGENT] Vortex agent entering room - will greet users first")
             
-            # Update room context
-            job_ctx = get_job_context()
-            self.room_context["room_name"] = job_ctx.room.name
-            logger.info(f"[AGENT] Room context updated: {job_ctx.room.name}")
+            # Room context is already set during agent creation, no need for job context
+            room_name = self.room_context.get("room_name", "AI Chat Room")
+            logger.info(f"[AGENT] Room context available: {room_name}")
             
             # Give users a moment to settle in
             logger.info("[AGENT] Waiting 3 seconds for users to settle...")
@@ -256,13 +254,11 @@ Remember: Less is often more. Let users have their conversations naturally unles
             logger.error(f"[AGENT] ❌ ERROR in on_enter: {e}")
             import traceback
             logger.error(f"[AGENT] Traceback: {traceback.format_exc()}")
-            # Try a simple fallback greeting
-            try:
-                if hasattr(self, 'session') and self.session:
-                    await self.session.say("Hi! I'm Vortex, your AI assistant. Say 'Hey Vortex' anytime you need help!", allow_interruptions=True)
-                    logger.info("[AGENT] ✅ Fallback greeting said successfully!")
-            except Exception as fallback_e:
-                logger.error(f"[AGENT] ❌ Even fallback greeting failed: {fallback_e}")
+            # Set the greeting as pending for delivery on first user message
+            logger.info("[AGENT] Setting simple fallback greeting as pending")
+            self._pending_greeting = "Hi! I'm Vortex, your AI assistant. Say 'Hey Vortex' anytime you need help!"
+            self.listening_mode = False  # Will be set to true after greeting delivery
+            logger.info("[AGENT] ✅ Fallback greeting queued successfully!")
 
     async def on_exit(self) -> None:
         """Called when agent is leaving the session"""
@@ -384,13 +380,17 @@ Remember: Less is often more. Let users have their conversations naturally unles
             participant_identity = getattr(message, 'participant_identity', None) or getattr(message, 'identity', None)
             
             if not participant_identity:
-                # Fallback: try to get from job context
+                # Fallback: try alternative message attributes
                 try:
-                    job_ctx = get_job_context()
-                    if hasattr(job_ctx, 'participant') and hasattr(job_ctx.participant, 'identity'):
-                        participant_identity = job_ctx.participant.identity
-                except:
-                    pass
+                    # Try different possible attributes for participant identity
+                    for attr in ['sender_identity', 'user_identity', 'from_identity', 'speaker_identity']:
+                        if hasattr(message, attr):
+                            participant_identity = getattr(message, attr)
+                            if participant_identity:
+                                logger.info(f"[AGENT] Found participant identity via {attr}: {participant_identity}")
+                                break
+                except Exception as e:
+                    logger.warning(f"[AGENT] Error trying alternative participant attributes: {e}")
             
             if not participant_identity:
                 # Last resort: generate unknown participant ID
