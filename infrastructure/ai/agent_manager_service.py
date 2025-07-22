@@ -89,7 +89,6 @@ class AgentManagerService:
                 can_publish=True,  # Agent needs to speak
                 can_subscribe=True,  # Agent needs to hear participants
                 can_publish_data=True,  # Agent can send data messages
-                is_recorder=False,
                 ttl=86400  # 24 hours
             )
             logger.info(f"🚀 AGENT DEPLOY DEBUG: Agent token generated successfully (length: {len(agent_token) if agent_token else 'None'})")
