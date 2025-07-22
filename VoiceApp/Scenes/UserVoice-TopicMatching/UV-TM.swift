@@ -23,6 +23,15 @@ struct MatchParticipant {
     let userId: String
     let displayName: String
     let isCurrentUser: Bool
+    let isAIHost: Bool
+    
+    // Convenience initializer for backward compatibility
+    init(userId: String, displayName: String, isCurrentUser: Bool, isAIHost: Bool = false) {
+        self.userId = userId
+        self.displayName = displayName
+        self.isCurrentUser = isCurrentUser
+        self.isAIHost = isAIHost
+    }
 }
 
 // Simplified view, keeping only core functionality

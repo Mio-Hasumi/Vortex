@@ -115,6 +115,39 @@ async def create_room(
         # Save to repository
         saved_room = await room_repo.save(room)
         
+        # NEW: Automatically deploy VortexAgent to the room
+        try:
+            from infrastructure.container import container
+            agent_manager = container.get_agent_manager_service()
+            
+            if agent_manager:
+                logger.info(f"🤖 Deploying VortexAgent to new room: {saved_room.name}")
+                
+                # Extract topics for the agent context
+                room_topics = [request.topic] if request.topic else ["general discussion"]
+                
+                # Deploy the agent
+                deployment_result = await agent_manager.deploy_agent_to_room(
+                    room=saved_room,
+                    room_topics=room_topics,
+                    custom_settings={
+                        "auto_greet": True,
+                        "personality": "friendly",
+                        "engagement_level": 8
+                    }
+                )
+                
+                if deployment_result.get("success"):
+                    logger.info(f"✅ VortexAgent deployed successfully to room: {saved_room.name}")
+                else:
+                    logger.warning(f"⚠️ VortexAgent deployment failed for room: {saved_room.name} - {deployment_result.get('error')}")
+            else:
+                logger.warning("⚠️ Agent manager service not available - no AI host will be deployed")
+                
+        except Exception as agent_error:
+            logger.error(f"❌ Error deploying VortexAgent: {agent_error}")
+            # Don't fail room creation if agent deployment fails
+        
         return RoomResponse(
             id=str(saved_room.id),
             name=saved_room.name,
@@ -124,7 +157,8 @@ async def create_room(
             status=saved_room.status.name.lower(),
             created_at=saved_room.created_at.isoformat(),
             livekit_room_name=saved_room.livekit_room_name,
-            livekit_token=room_repo.generate_livekit_token(saved_room.id, current_user_id)
+            livekit_token=room_repo.generate_livekit_token(saved_room.id, current_user_id),
+            ai_host_enabled=True  # Indicate AI host is enabled
         )
     except Exception as e:
         raise HTTPException(
