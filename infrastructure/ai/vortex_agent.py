@@ -18,7 +18,7 @@ import logging
 import re
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
-from uuid import UUID
+
 
 from livekit.agents import (
     Agent, 
@@ -1069,7 +1069,22 @@ def create_vortex_agent_session(
             logger.info("[SESSION DEBUG] ✅ Room context updated")
         
         # Create AgentSession with OpenAI Realtime API (end-to-end low latency)
-        from livekit.plugins import openai, silero
+        from livekit.plugins import openai
+        
+        # 可选 VAD 配置 (带回退机制)
+        vad = None
+        try:
+            from livekit.plugins import silero
+            vad = silero.VAD.load()
+            logger.info("[SESSION DEBUG] ✅ Using Silero VAD")
+        except ImportError:
+            try:
+                from livekit.agents.vad.webrtc import WebRTCVAD
+                vad = WebRTCVAD()
+                logger.info("[SESSION DEBUG] ✅ Using WebRTC VAD")
+            except Exception:
+                vad = None  # 让 Realtime 自己处理
+                logger.info("[SESSION DEBUG] ⚠️ No local VAD - using Realtime built-in VAD")
         
         # 一体化 Realtime（STT+LLM+TTS）
         rt_llm = openai.Realtime(
@@ -1081,7 +1096,7 @@ def create_vortex_agent_session(
         
         session = AgentSession(
             llm=rt_llm,
-            vad=silero.VAD.load()
+            vad=vad
         )
         
         logger.info("[SESSION DEBUG] ✅ AgentSession created with OpenAI Realtime API")
