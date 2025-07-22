@@ -204,6 +204,21 @@ class VortexAgent(Agent):
         self.listening_mode = listening
         self.room_context["conversation_state"] = "listening" if listening else "active"
         logger.info(f"[AGENT] Listening mode set to: {listening}")
+    
+    def get_greeting_message(self) -> str:
+        """Get the prepared greeting message for entrypoint to deliver"""
+        if hasattr(self, '_greeting_message') and self._greeting_message:
+            return self._greeting_message
+        else:
+            # Fallback greeting if on_enter hasn't run yet
+            return "Hi everyone! I'm Vortex, your AI conversation assistant. I'm here to help facilitate your discussion and provide assistance when needed. Feel free to continue your conversation!"
+    
+    def mark_greeting_delivered(self):
+        """Mark that the greeting has been delivered by entrypoint"""
+        self.has_greeted = True
+        self.has_been_introduced = True
+        self.last_user_message_time = datetime.now()
+        logger.info("[AGENT] ✅ Greeting marked as delivered")
 
     def _get_agent_instructions(self) -> str:
         """Get the system instructions for Vortex agent"""
@@ -273,6 +288,8 @@ Remember: Less is often more. Let users have their conversations naturally unles
             self.listening_mode = True  # Start in listening mode
             self.has_been_introduced = False  # Will be set after greeting
             self.has_greeted = False  # Reset greeting flag
+            
+            logger.info("[AGENT] ✅ Ready for greeting delivery by entrypoint")
             
             # CRITICAL: Check for existing participants in room
             if hasattr(self.session, 'room') and hasattr(self.session.room, 'remote_participants'):
@@ -354,6 +371,11 @@ Remember: Less is often more. Let users have their conversations naturally unles
             self.last_user_message_time = datetime.now()
             self.room_context["total_exchanges"] += 1
             
+            # Update participant message count
+            participant_identity = participant_info['identity']
+            if participant_identity in self.participant_map:
+                self.participant_map[participant_identity]["message_count"] += 1
+            
             # Skip AI host messages
             if participant_info.get("is_ai_host", False):
                 return
@@ -366,25 +388,27 @@ Remember: Less is often more. Let users have their conversations naturally unles
                 logger.info("[AGENT] 🤐 PASSIVE - staying silent")
                 return
             
-            # ACTIVE MODE: Respond
-            logger.info(f"[AGENT] 🎯 ACTIVE - {intervention_type}")
+            # ACTIVE MODE: Manually handle the response
+            logger.info(f"[AGENT] 🎯 ACTIVE - {intervention_type} - handling manually")
             self.listening_mode = False
             self.room_context["conversation_state"] = "active"
             
-            # Add appropriate context for LLM
-            if intervention_type == "profanity":
-                turn_ctx.add_message(
-                    role="system",
-                    content=f"{participant_info['name']} used inappropriate language. Gently redirect the conversation positively."
-                )
+            # Handle different intervention types with manual responses
+            if intervention_type == "direct_call":
+                # User called "hey vortex" - introduce myself
+                await self.introduce_myself(context=None, reason="user_called", caller_name=participant_info['name'])
+            elif intervention_type == "profanity":
+                # Handle inappropriate language
+                response_msg = f"Hey {participant_info['name']}, let's keep our conversation positive and respectful. What would you like to talk about instead?"
+                await self.session.say(response_msg, allow_interruptions=True)
+                # Schedule return to listening mode after response
+                asyncio.create_task(self._return_to_listening_mode(delay=5.0))
             else:
-                turn_ctx.add_message(
-                    role="system", 
-                    content=f"{participant_info['name']} called you. Respond naturally to: '{user_input}'"
-                )
-            
-            # Schedule return to listening mode after response
-            asyncio.create_task(self._return_to_listening_mode(delay=5.0))
+                # Other intervention types - provide a general helpful response
+                response_msg = f"Hi {participant_info['name']}! I heard you mention something. How can I help with your conversation?"
+                await self.session.say(response_msg, allow_interruptions=True)
+                # Schedule return to listening mode after response
+                asyncio.create_task(self._return_to_listening_mode(delay=5.0))
             
         except Exception as e:
             logger.error(f"[AGENT ERROR] ❌ Error in on_user_turn_completed: {e}")
@@ -642,7 +666,7 @@ Remember: Less is often more. Let users have their conversations naturally unles
             self.room_context["conversation_state"] = "active"
             logger.info("[SILENCE] 🗣️ Switching to active mode for intervention")
             
-            # Deliver silence intervention message
+            # Deliver silence intervention message (auto_response=False means no conflicts)
             await self.session.say(silence_message, allow_interruptions=True)
             
             # Reset the timer
@@ -761,8 +785,12 @@ Remember: Less is often more. Let users have their conversations naturally unles
                             f"I can help with topic suggestions, answer questions, or just facilitate your conversation. How can I help?"
                         )
             
-            # Deliver introduction
+            # Deliver introduction (auto_response=False means no conflicts)
             await self.session.say(greeting, allow_interruptions=True)
+            
+            # Mark as introduced
+            self.has_been_introduced = True
+            self.last_user_message_time = datetime.now()
             
             # Schedule return to listening mode after a delay
             asyncio.create_task(self._return_to_listening_mode(delay=5.0))
@@ -780,8 +808,11 @@ Remember: Less is often more. Let users have their conversations naturally unles
             fallback_greeting = f"Hi {caller_name}! " if caller_name else "Hi! "
             fallback_greeting += "I'm Vortex, your AI conversation assistant. I'm here to help with your conversation - just let me know what you'd like to talk about!"
             
-            # Deliver fallback and schedule return to listening
+            # Deliver fallback greeting
             await self.session.say(fallback_greeting, allow_interruptions=True)
+            self.has_been_introduced = True
+            self.last_user_message_time = datetime.now()
+            
             asyncio.create_task(self._return_to_listening_mode(delay=5.0))
             
             return f"Fallback introduction provided due to error: {str(e)}"
@@ -828,7 +859,7 @@ Remember: Less is often more. Let users have their conversations naturally unles
                 topic_suggestion = topic_response.get("response_text", 
                     "Here's an interesting question: What's something new you've learned recently that surprised you?")
                 
-                # Deliver suggestion
+                # Deliver topic suggestion
                 await self.session.say(topic_suggestion, allow_interruptions=True)
                 
                 # Schedule return to listening mode
@@ -847,7 +878,7 @@ Remember: Less is often more. Let users have their conversations naturally unles
             
             suggested_topic = fallback_topics.get(topic_category, fallback_topics["general"])
             
-            # Deliver fallback suggestion
+            # Deliver fallback topic suggestion
             await self.session.say(suggested_topic, allow_interruptions=True)
             
             # Schedule return to listening mode
@@ -1000,13 +1031,13 @@ Remember: Less is often more. Let users have their conversations naturally unles
         try:
             await asyncio.sleep(delay)
             
-            # Only switch back if we haven't been re-activated
-            if self.room_context["conversation_state"] == "active":
+            # Return to listening mode unless we're currently speaking
+            if not self.listening_mode:
                 self.listening_mode = True
                 self.room_context["conversation_state"] = "listening"
                 logger.info(f"[MODE] 🎧 Returned to listening mode after {delay}s")
             else:
-                logger.info("[MODE] 🤔 Skipped return to listening - already in different state")
+                logger.info("[MODE] 🤔 Already in listening mode")
                 
         except Exception as e:
             logger.error(f"[MODE ERROR] ❌ Error returning to listening mode: {e}")
@@ -1101,7 +1132,7 @@ def create_vortex_agent_session(
         session = AgentSession(
             llm=rt_llm,
             vad=vad,             # None 时用 Realtime 内置
-            auto_response=True   # 让 Realtime 自动响应，配合 intervention 逻辑控制
+            auto_response=False  # 完全手动控制，只有调用 session.say() 时才说话
         )
         
         logger.info("[SESSION DEBUG] ✅ AgentSession created with OpenAI Realtime API")
