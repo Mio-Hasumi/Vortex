@@ -762,15 +762,7 @@ Remember: Less is often more. Let users have their conversations naturally unles
             logger.error(f"❌ Error transitioning conversation: {e}")
             return f"That's interesting! Let's also talk about {to_topic}."
 
-    def update_room_context(self, participants: List[str] = None, topics: List[str] = None):
-        """Update the room context with current participants and topics"""
-        if participants:
-            self.room_context["participants"] = participants
-            logger.info(f"👥 Updated room participants: {len(participants)} total")
-            
-        if topics:
-            self.room_context["topics"] = topics
-            logger.info(f"🏷️ Updated room topics: {topics}")
+
 
     async def handle_silence(self, silence_duration: float):
         """Handle periods of silence in the conversation"""
