@@ -194,51 +194,75 @@ Remember: Less is often more. Let users have their conversations naturally unles
 
     async def on_enter(self) -> None:
         """Called when agent becomes active in the session"""
-        logger.info("[AGENT] Vortex agent entering room - will greet users first")
-        
-        # Update room context
-        job_ctx = get_job_context()
-        self.room_context["room_name"] = job_ctx.room.name
-        
-        # Give users a moment to settle in
-        await asyncio.sleep(3)
-        
-        # ACTIVE introduction first to explain usage
-        if self.room_context.get("timeout_explanation", False):
-            # Timeout match explanation
-            greeting = (
-                "Hi there! I'm Vortex, your AI conversation assistant. "
-                f"{self.room_context.get('topics_context', 'Since no one was immediately interested in the same topics, I randomly connected you two.')} "
-                "I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join the conversation, suggest topics, or help in any way!"
-            )
-        else:
-            # Regular match with shared interests
-            topics_context = self.room_context.get('topics_context', 'You were matched based on shared interests.')
-            hashtags = self.room_context.get('hashtags', [])
+        try:
+            logger.info("[AGENT] Vortex agent entering room - will greet users first")
             
-            if hashtags:
+            # Update room context
+            job_ctx = get_job_context()
+            self.room_context["room_name"] = job_ctx.room.name
+            logger.info(f"[AGENT] Room context updated: {job_ctx.room.name}")
+            
+            # Give users a moment to settle in
+            logger.info("[AGENT] Waiting 3 seconds for users to settle...")
+            await asyncio.sleep(3)
+            
+            # ACTIVE introduction first to explain usage
+            if self.room_context.get("timeout_explanation", False):
+                # Timeout match explanation
                 greeting = (
-                    f"Hi everyone! I'm Vortex, your AI conversation assistant. "
-                    f"I see you both are interested in {', '.join(hashtags[:3])}{'...' if len(hashtags) > 3 else ''}! "
-                    f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to suggest topics, answer questions, or help with your conversation. Enjoy chatting!"
+                    "Hi there! I'm Vortex, your AI conversation assistant. "
+                    f"{self.room_context.get('topics_context', 'Since no one was immediately interested in the same topics, I randomly connected you two.')} "
+                    "I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join the conversation, suggest topics, or help in any way!"
                 )
             else:
-                greeting = (
-                    f"Hi everyone! I'm Vortex, your AI conversation assistant. "
-                    f"{topics_context} "
-                    f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join in, suggest topics, or help with your conversation!"
-                )
-        
-        # Active greeting
-        await self.session.say(greeting, allow_interruptions=True)
-        
-        # AFTER greeting, switch to passive listening mode
-        self.listening_mode = True
-        self.last_user_message_time = datetime.now()
-        self.room_context["conversation_state"] = "listening"
-        self.has_been_introduced = True
-        
-        logger.info("[AGENT] Vortex introduction complete - now in passive listening mode")
+                # Regular match with shared interests
+                topics_context = self.room_context.get('topics_context', 'You were matched based on shared interests.')
+                hashtags = self.room_context.get('hashtags', [])
+                
+                if hashtags:
+                    greeting = (
+                        f"Hi everyone! I'm Vortex, your AI conversation assistant. "
+                        f"I see you both are interested in {', '.join(hashtags[:3])}{'...' if len(hashtags) > 3 else ''}! "
+                        f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to suggest topics, answer questions, or help with your conversation. Enjoy chatting!"
+                    )
+                else:
+                    greeting = (
+                        f"Hi everyone! I'm Vortex, your AI conversation assistant. "
+                        f"{topics_context} "
+                        f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join in, suggest topics, or help with your conversation!"
+                    )
+            
+            logger.info(f"[AGENT] About to say greeting: {greeting[:100]}...")
+            
+            # Check if session exists
+            if not hasattr(self, 'session') or self.session is None:
+                logger.error("[AGENT] ❌ ERROR: self.session is None! Cannot speak.")
+                return
+            
+            # Active greeting
+            logger.info("[AGENT] Calling session.say()...")
+            await self.session.say(greeting, allow_interruptions=True)
+            logger.info("[AGENT] ✅ Greeting said successfully!")
+            
+            # AFTER greeting, switch to passive listening mode
+            self.listening_mode = True
+            self.last_user_message_time = datetime.now()
+            self.room_context["conversation_state"] = "listening"
+            self.has_been_introduced = True
+            
+            logger.info("[AGENT] Vortex introduction complete - now in passive listening mode")
+            
+        except Exception as e:
+            logger.error(f"[AGENT] ❌ ERROR in on_enter: {e}")
+            import traceback
+            logger.error(f"[AGENT] Traceback: {traceback.format_exc()}")
+            # Try a simple fallback greeting
+            try:
+                if hasattr(self, 'session') and self.session:
+                    await self.session.say("Hi! I'm Vortex, your AI assistant. Say 'Hey Vortex' anytime you need help!", allow_interruptions=True)
+                    logger.info("[AGENT] ✅ Fallback greeting said successfully!")
+            except Exception as fallback_e:
+                logger.error(f"[AGENT] ❌ Even fallback greeting failed: {fallback_e}")
 
     async def on_exit(self) -> None:
         """Called when agent is leaving the session"""
@@ -253,6 +277,7 @@ Remember: Less is often more. Let users have their conversations naturally unles
         try:
             # Extract user message content and participant info
             user_input = new_message.text_content()
+            logger.info(f"[AGENT] ✅ on_user_turn_completed called! User said: '{user_input}'")
             participant_info = self._get_participant_info(new_message)
             
             # Update participant message count
@@ -432,12 +457,13 @@ Remember: Less is often more. Let users have their conversations naturally unles
         """
         try:
             user_input_lower = user_input.lower()
+            logger.info(f"[AGENT] Checking intervention triggers for: '{user_input_lower}'")
             
             # 1. Direct call to Vortex
             vortex_triggers = ['hey vortex', 'hi vortex', 'hello vortex', 'vortex', '@vortex']
             for trigger in vortex_triggers:
                 if trigger in user_input_lower:
-                    logger.info(f"[AGENT] Intervention triggered: Direct call detected ('{trigger}')")
+                    logger.info(f"[AGENT] ✅ Intervention triggered: Direct call detected ('{trigger}')")
                     return "direct_call"
             
             # 2. Profanity detection
@@ -455,6 +481,7 @@ Remember: Less is often more. Let users have their conversations naturally unles
                     return "help_request"
             
             # Stay passive for normal conversation
+            logger.info(f"[AGENT] No intervention needed for: '{user_input_lower}' - staying passive")
             return None
             
         except Exception as e:
@@ -840,6 +867,7 @@ def create_vortex_agent_session(
         http_session = aiohttp.ClientSession()
         
         session = AgentSession(
+            agent=vortex_agent,  # Pass the VortexAgent instance!
             llm=openai.realtime.RealtimeModel(
                 model="gpt-4o-realtime-preview",  # Latest Realtime model
                 voice="shimmer",  # Natural, friendly voice
@@ -857,6 +885,10 @@ def create_vortex_agent_session(
             )
         )
         logger.info("[SESSION DEBUG] ✅ AgentSession created successfully")
+        
+        # Set the session reference in the agent so it can use self.session.say()
+        vortex_agent.session = session
+        logger.info("[SESSION DEBUG] ✅ Agent-Session linkage established")
         
         logger.info("[SESSION DEBUG] ✅ VortexAgent session creation completed successfully")
         return session, vortex_agent
