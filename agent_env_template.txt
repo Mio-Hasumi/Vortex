@@ -1,0 +1,61 @@
+# VortexAgent Environment Configuration Template  
+# Copy this to your .env file and fill in your API keys
+# 
+# SIMPLIFIED SETUP: With OpenAI Realtime API, you only need 2 API keys!
+
+# LiveKit Configuration (Required)
+LIVEKIT_URL=wss://voodooo-5oh49lvx.livekit.cloud
+LIVEKIT_API_KEY=your_livekit_api_key_here
+LIVEKIT_API_SECRET=your_livekit_api_secret_here
+
+# OpenAI Realtime API (Required - ALL-IN-ONE Solution)
+# This single API key provides STT + LLM + TTS + VAD
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_BASE_URL=https://api.openai.com/v1
+
+# ============================================================================
+# OPTIONAL: Advanced Configuration (Most users can ignore this section)
+# ============================================================================
+
+# The following are ONLY needed if you want to use separate STT/TTS providers
+# instead of OpenAI's integrated Realtime API:
+
+# Alternative STT Providers (Optional)
+# DEEPGRAM_API_KEY=your_deepgram_api_key_here
+# ASSEMBLYAI_API_KEY=your_assemblyai_api_key_here
+
+# Alternative TTS Providers (Optional)
+# ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+# CARTESIA_API_KEY=your_cartesia_api_key_here
+
+# Agent Configuration
+AGENT_LOG_LEVEL=INFO
+AGENT_PERSONALITY=friendly
+AGENT_ENGAGEMENT_LEVEL=8
+AGENT_INTERVENTION_THRESHOLD=10
+
+# Audio Configuration
+AUDIO_SAMPLE_RATE=16000
+AUDIO_CHANNELS=1
+AUDIO_FORMAT=pcm16
+
+# Turn Detection Configuration
+TURN_DETECTION_MODEL=multilingual
+TURN_DETECTION_THRESHOLD=0.5
+MIN_ENDPOINTING_DELAY=0.5
+MAX_ENDPOINTING_DELAY=6.0
+MIN_INTERRUPTION_DURATION=0.5
+
+# Performance Configuration
+PREEMPTIVE_GENERATION=true
+ALLOW_INTERRUPTIONS=true
+ENABLE_BACKGROUND_NOISE_REDUCTION=true
+
+# Development Configuration
+AGENT_DEBUG=false
+VERBOSE_LOGGING=false
+
+# Optional: Custom model configurations
+# OPENAI_MODEL=gpt-4o
+# DEEPGRAM_MODEL=nova-2
+# ELEVENLABS_MODEL=eleven_monolingual_v1 

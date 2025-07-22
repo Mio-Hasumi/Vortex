@@ -19,6 +19,7 @@ struct HashtagScreen: View {
     @State private var showHangUpConfirmation = false
     @State private var isIntentionallyLeaving = false
     @State private var participantLeftMessage: String? = nil
+    @State private var aiHostWelcomeMessage: String? = nil
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -123,10 +124,27 @@ struct HashtagScreen: View {
                 .padding(.bottom, 80)
             }
             
-            // Connection status indicator
+            // Connection status and AI host indicator
             VStack {
                 HStack {
                     Spacer()
+                    
+                    // AI Host indicator
+                    if liveKitService.participants.contains(where: { $0.isAIHost }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "brain.head.profile")
+                                .font(.caption)
+                                .foregroundColor(.purple)
+                            Text("AI Host Active")
+                                .font(.caption2)
+                                .foregroundColor(.purple)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.purple.opacity(0.2)))
+                    }
+                    
+                    // Connection status
                     HStack {
                         Circle()
                             .fill(liveKitService.isConnected ? .green : .red)
@@ -160,6 +178,33 @@ struct HashtagScreen: View {
                     Spacer()
                 }
             }
+            
+            // AI Host welcome notification
+            if let message = aiHostWelcomeMessage {
+                VStack {
+                    HStack {
+                        Spacer()
+                        HStack(spacing: 8) {
+                            Image(systemName: "brain.head.profile")
+                                .font(.caption)
+                                .foregroundColor(.purple)
+                            Text(message)
+                                .font(.caption)
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(LinearGradient(
+                            gradient: Gradient(colors: [.purple, .blue]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )))
+                        .transition(.opacity)
+                    }
+                    .padding(.top, 100) // Offset below participant left message
+                    Spacer()
+                }
+            }
         }
         .onAppear {
             print("📱 [CHAT] View appeared - connecting to LiveKit")
@@ -174,6 +219,20 @@ struct HashtagScreen: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                     withAnimation(.easeOut(duration: 0.5)) {
                         participantLeftMessage = nil
+                    }
+                }
+            }
+            
+            // Set up AI host welcome callback
+            liveKitService.onAIHostWelcome = { welcomeMessage in
+                withAnimation(.easeIn(duration: 0.3)) {
+                    aiHostWelcomeMessage = welcomeMessage
+                }
+                
+                // Hide the welcome message after 5 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                    withAnimation(.easeOut(duration: 0.5)) {
+                        aiHostWelcomeMessage = nil
                     }
                 }
             }
@@ -268,21 +327,79 @@ private struct ParticipantView: View {
     
     var body: some View {
         VStack {
-            // Use default profile image for now, could be enhanced with actual user avatars
-            let profileImage = participant.isCurrentUser ? "profile1" : "profile\(min(Int.random(in: 1...3), 3))"
+            // Choose profile image based on participant type
+            let profileImage: String
+            if participant.isAIHost {
+                // Use orb image for AI host
+                profileImage = "orb"
+            } else if participant.isCurrentUser {
+                profileImage = "profile1"
+            } else {
+                profileImage = "profile\(min(Int.random(in: 1...3), 3))"
+            }
             
-            CirclePic(asset: profileImage)
-                .overlay(
-                    // Audio indicator
-                    Circle()
-                        .stroke(isConnected ? .green : .gray, lineWidth: 3)
-                        .scaleEffect(isConnected ? 1.1 : 1.0)
-                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: isConnected)
-                )
+            // AI Host gets special treatment with orb image
+            if participant.isAIHost {
+                Image("orb")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 120, height: 120)
+                    .clipShape(Circle())
+                    .shadow(radius: 3)
+                    .overlay(
+                        // Special AI indicator - pulsing purple ring
+                        Circle()
+                            .stroke(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [.purple, .blue]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 4
+                            )
+                            .scaleEffect(isConnected ? 1.2 : 1.0)
+                            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: isConnected)
+                    )
+                    .overlay(
+                        // AI badge
+                        VStack {
+                            Spacer()
+                            HStack {
+                                Spacer()
+                                Text("AI")
+                                    .font(.caption2)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(
+                                        Capsule()
+                                            .fill(LinearGradient(
+                                                gradient: Gradient(colors: [.purple, .blue]),
+                                                startPoint: .leading,
+                                                endPoint: .trailing
+                                            ))
+                                    )
+                                    .offset(x: -10, y: -10)
+                            }
+                        }
+                    )
+            } else {
+                // Regular participant view
+                CirclePic(asset: profileImage)
+                    .overlay(
+                        // Audio indicator
+                        Circle()
+                            .stroke(isConnected ? .green : .gray, lineWidth: 3)
+                            .scaleEffect(isConnected ? 1.1 : 1.0)
+                            .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: isConnected)
+                    )
+            }
             
             Text(participant.displayName)
                 .font(.custom("Rajdhani", size: 14))
-                .foregroundColor(.white)
+                .foregroundColor(participant.isAIHost ? .purple : .white)
+                .fontWeight(participant.isAIHost ? .bold : .regular)
                 .padding(.top, 5)
         }
     }
@@ -457,8 +574,15 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
     // Callback for participant left notifications
     var onParticipantLeft: ((String) -> Void)?
     
+    // Callback for AI host welcome
+    var onAIHostWelcome: ((String) -> Void)?
+    
     private func showParticipantLeftNotification(_ displayName: String) {
         onParticipantLeft?(displayName)
+    }
+    
+    private func showAIHostWelcome() {
+        onAIHostWelcome?("Vortex has joined as your conversation host!")
     }
 }
 
@@ -489,15 +613,31 @@ extension LiveKitCallService: RoomDelegate {
             }
             
             if !alreadyExists {
+                // Check if this is an AI host participant
+                let isAIHost = participantId.hasPrefix("host_") || cleanParticipantId.hasPrefix("host_")
+                
                 // Use the clean ID (without "user_" prefix) for consistency with match data
+                let displayName: String
+                if isAIHost {
+                    displayName = "Vortex" // AI host name
+                } else {
+                    displayName = "User \(String(cleanParticipantId.prefix(8)))" // Use first 8 chars of clean ID
+                }
+                
                 let newParticipant = MatchParticipant(
                     userId: cleanParticipantId,
-                    displayName: "User \(String(cleanParticipantId.prefix(8)))", // Use first 8 chars of clean ID
-                    isCurrentUser: false
+                    displayName: displayName,
+                    isCurrentUser: false,
+                    isAIHost: isAIHost
                 )
                 
                 self.participants.append(newParticipant)
                 print("➕ [LiveKit] Added new participant to UI: \(newParticipant.displayName) (clean ID: '\(cleanParticipantId)')")
+                
+                // Show welcome message for AI host
+                if newParticipant.isAIHost {
+                    self.showAIHostWelcome()
+                }
             } else {
                 print("⚠️ [LiveKit] Participant already exists in UI, skipping duplicate")
             }
@@ -600,7 +740,8 @@ extension LiveKitCallService: RoomDelegate {
         livekitToken: "mock_token",
         participants: [
             MatchParticipant(userId: "user1", displayName: "You", isCurrentUser: true),
-            MatchParticipant(userId: "user2", displayName: "Alex", isCurrentUser: false)
+            MatchParticipant(userId: "user2", displayName: "Alex", isCurrentUser: false),
+            MatchParticipant(userId: "host_vortex", displayName: "Vortex", isCurrentUser: false, isAIHost: true)
         ],
         topics: ["Artificial Intelligence", "Technology"],
         hashtags: ["#AI", "#Tech"]

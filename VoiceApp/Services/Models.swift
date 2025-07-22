@@ -84,6 +84,7 @@ struct RoomResponse: Codable {
     let created_at: String
     let livekit_room_name: String
     let livekit_token: String
+    let ai_host_enabled: Bool?  // NEW: Indicates if VortexAgent is enabled
 }
 
 // MARK: - Topic Models
@@ -185,4 +186,36 @@ struct AnyCodable: Codable {
             throw EncodingError.invalidValue(value, context)
         }
     }
+}
+
+// MARK: - VortexAgent Management Models (NEW - Optional advanced features)
+struct AgentStatusResponse: Codable {
+    let room_id: String
+    let room_name: String
+    let agent_identity: String
+    let is_active: Bool
+    let deployment_time: String
+    let participants_count: Int
+    let ai_features: [String]
+}
+
+struct AgentSettingsRequest: Codable {
+    let personality: String?         // "friendly", "professional", "casual"
+    let engagement_level: Int?       // 1-10 scale
+    let greeting_enabled: Bool?
+    let fact_checking_enabled: Bool?
+    let topic_suggestions_enabled: Bool?
+}
+
+struct AgentSettingsResponse: Codable {
+    let success: Bool
+    let message: String
+    let updated_settings: [String: AnyCodable]
+}
+
+struct AgentStatsResponse: Codable {
+    let total_agents: Int
+    let active_agents: Int
+    let rooms_with_agents: [String]
+    let timestamp: String
 } 

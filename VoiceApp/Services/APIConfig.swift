@@ -50,6 +50,12 @@ enum APIConfig {
         static let aiExtractTopics = "/api/ai-host/extract-topics"
         static let aiExtractTopicsFromVoice = "/api/ai-host/extract-topics-from-voice"
         static let aiUploadAudio = "/api/ai-host/upload-audio"
+        
+        // VortexAgent Management (NEW - Optional advanced features)
+        static let agentStatus = "/api/agents/status"
+        static let agentSettings = "/api/agents/settings"
+        static let agentStats = "/api/agents/stats"
+        static let removeAgent = "/api/agents"
     }
     
     enum WebSocket {
@@ -95,6 +101,19 @@ enum APIConfig {
     
     static func recordingSummaryPath(_ recordingId: String) -> String {
         return "/api/recordings/\(recordingId)/summary"
+    }
+    
+    // MARK: - VortexAgent Helper Methods (NEW)
+    static func agentStatusPath(_ roomId: String) -> String {
+        return "/api/agents/status/\(roomId)"
+    }
+    
+    static func agentSettingsPath(_ roomId: String) -> String {
+        return "/api/agents/settings/\(roomId)"
+    }
+    
+    static func removeAgentPath(_ roomId: String) -> String {
+        return "/api/agents/\(roomId)"
     }
     
     static func confirmMatchPath(_ matchId: String) -> String {

@@ -25,6 +25,7 @@ from infrastructure.repositories.recording_repository import RecordingRepository
 # AI Services
 from infrastructure.ai.openai_service import OpenAIService
 from infrastructure.ai.ai_host_service import AIHostService
+from infrastructure.ai.agent_manager_service import AgentManagerService
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,13 @@ class Container:
                 redis_service=self._instances['redis_service']
             )
             
+            # Agent Manager Service (NEW: manages VortexAgent deployment)
+            self._instances['agent_manager_service'] = AgentManagerService(
+                livekit_service=self._instances['livekit_service'],
+                openai_service=self._instances.get('openai_service'),
+                ai_host_service=self._instances.get('ai_host_service')
+            )
+            
             logger.info("✅ AI services initialized successfully")
             
         except Exception as e:
@@ -195,6 +203,10 @@ class Container:
     def get_ai_host_service(self) -> Optional[AIHostService]:
         """Get AI host service for conversation management"""
         return self._instances.get('ai_host_service')
+    
+    def get_agent_manager_service(self) -> Optional[AgentManagerService]:
+        """Get agent manager service for VortexAgent deployment"""
+        return self._instances.get('agent_manager_service')
 
     # Lifecycle management methods
     async def start_websocket_services(self):
