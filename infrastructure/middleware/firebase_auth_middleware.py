@@ -27,7 +27,14 @@ security = HTTPBearer()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 TEST_TOKEN = "test_token_test_user_id"
-TEST_USER = User(id=UUID("123e4567-e89b-12d3-a456-426614174000"), firebase_uid="test_user_id", email="test@example.com", is_active=True)
+TEST_USER = User(
+    id=UUID("123e4567-e89b-12d3-a456-426614174000"),
+    firebase_uid="test_user_id",
+    email="test@example.com",
+    display_name="Test User",
+    password_hash="test_password_hash",
+    is_active=True
+)
 
 
 class FirebaseAuthMiddleware:
