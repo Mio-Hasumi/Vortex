@@ -16,7 +16,6 @@ from datetime import datetime
 
 from livekit.agents import Agent, ChatContext, function_tool, RunContext
 
-from infrastructure.container import container
 from infrastructure.repositories.matching_repository import MatchingRepository
 from .openai_service import OpenAIService
 
@@ -62,6 +61,7 @@ class WaitingRoomAgent(Agent):
         Call this function ONLY when the user has confirmed they are ready to be matched with a conversation partner.
         """
         try:
+            from infrastructure.container import container
             # Extract conversation history to analyze for topics
             conversation_text = "\n".join(
                 f"{msg.role}: {msg.text_content()}"
