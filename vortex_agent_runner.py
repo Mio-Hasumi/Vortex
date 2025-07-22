@@ -211,8 +211,8 @@ async def entrypoint(ctx: JobContext):
             logger.info(f"[GREETING] 📢 Delivering personalized greeting to {len(humans_in_room)} participants")
             logger.info(f"[GREETING] Message: {greeting_msg[:100]}...")
             
-            # Deliver greeting via session.say() (bypasses LLM)
-            await session.say(greeting_msg, allow_interruptions=True)
+            # Deliver greeting via session.say() (bypasses LLM, cannot be interrupted)
+            await session.say(greeting_msg, allow_interruptions=False)
             
             # Mark greeting as delivered and set to listening mode
             vortex_agent.mark_greeting_delivered()
