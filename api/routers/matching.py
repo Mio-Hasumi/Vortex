@@ -541,46 +541,33 @@ async def websocket_matching(websocket: WebSocket):
         # Get user_id from query parameters if available
         user_id_param = websocket.query_params.get("user_id")
         
-        logger.info(f"🔌🔌🔌 [MATCHING_WS] ===== NEW CONNECTION ATTEMPT =====")
-        logger.info(f"🔌 [MATCHING_WS] Query params: {dict(websocket.query_params)}")
-        logger.info(f"🔌 [MATCHING_WS] User ID param: {user_id_param}")
-        logger.info(f"🔌 [MATCHING_WS] Headers: {dict(websocket.headers)}")
-        
+        # Reduced logging - only log when user_id is provided
         if not user_id_param:
-            logger.error(f"❌ [MATCHING_WS] Missing user_id parameter!")
-            # Accept connection to send error message
+            # Accept and close quietly for invalid connections
             await websocket.accept()
             await websocket.send_text(json.dumps({
                 "type": "error",
                 "message": f"user_id query parameter required (e.g., ws://{os.getenv('RAILWAY_PUBLIC_DOMAIN', 'localhost:8000')}/api/matching/ws?user_id=your-uuid)"
             }))
             await websocket.close(code=1008)
-            logger.error(f"❌ [MATCHING_WS] Connection closed due to missing user_id")
             return
         
         try:
             user_id = UUID(user_id_param)
-            logger.info(f"✅ [MATCHING_WS] Valid user UUID: {user_id}")
         except ValueError:
-            logger.error(f"❌ [MATCHING_WS] Invalid UUID format: {user_id_param}")
             await websocket.accept()
             await websocket.send_text(json.dumps({
                 "type": "error",
                 "message": "Invalid user_id format. Must be a valid UUID"
             }))
             await websocket.close(code=1008)
-            logger.error(f"❌ [MATCHING_WS] Connection closed due to invalid UUID")
             return
         
-        logger.info(f"🔌 [MATCHING_WS] About to register connection for user: {user_id}")
+        # Only log successful connections
+        logger.info(f"🔌 [MATCHING_WS] New connection: {user_id}")
         
         # Register connection with WebSocket manager (this will accept the connection)
         connection_id = await websocket_manager.connect(websocket, user_id, "matching")
-        
-        logger.info(f"✅✅✅ [MATCHING_WS] Connection registered successfully!")
-        logger.info(f"   🆔 Connection ID: {connection_id}")
-        logger.info(f"   👤 User ID: {user_id}")
-        logger.info(f"   🔗 Connection type: matching")
         
         # Send welcome message immediately
         welcome_message = {
@@ -592,29 +579,25 @@ async def websocket_matching(websocket: WebSocket):
         }
         
         await websocket.send_text(json.dumps(welcome_message))
-        logger.info(f"👋 [MATCHING_WS] Welcome message sent to {user_id}")
         
         # Main message handling loop
-        logger.info(f"🔄 [MATCHING_WS] Starting message handling loop...")
-        
         try:
             async for message in websocket.iter_text():
                 try:
-                    logger.debug(f"📥 [MATCHING_WS] Received message from {user_id}: {message}")
-                    
                     data = json.loads(message)
                     message_type = data.get("type", "unknown")
                     
-                    logger.debug(f"📋 [MATCHING_WS] Processing message type: {message_type}")
+                    # Only log non-ping messages
+                    if message_type != "ping":
+                        logger.debug(f"📥 [MATCHING_WS] {user_id}: {message_type}")
                     
                     if message_type == "ping":
-                        # Heartbeat
+                        # Heartbeat - send pong quietly
                         pong_message = {
                             "type": "pong",
                             "timestamp": datetime.utcnow().isoformat()
                         }
                         await websocket.send_text(json.dumps(pong_message))
-                        logger.debug(f"💓 [MATCHING_WS] Sent pong to {user_id}")
                     
                     elif message_type == "auth":
                         # Authentication (if needed)
@@ -624,37 +607,32 @@ async def websocket_matching(websocket: WebSocket):
                             "timestamp": datetime.utcnow().isoformat()
                         }
                         await websocket.send_text(json.dumps(auth_response))
-                        logger.info(f"🔐 [MATCHING_WS] Authentication confirmed for {user_id}")
+                        logger.debug(f"🔐 [MATCHING_WS] Auth confirmed: {user_id}")
                     
                     else:
-                        logger.warning(f"❓ [MATCHING_WS] Unknown message type: {message_type}")
+                        logger.debug(f"❓ [MATCHING_WS] Unknown message from {user_id}: {message_type}")
                         
                 except json.JSONDecodeError:
-                    logger.warning(f"⚠️ [MATCHING_WS] Invalid JSON from {user_id}: {message}")
+                    logger.debug(f"⚠️ [MATCHING_WS] Invalid JSON from {user_id}")
                 except Exception as e:
-                    logger.error(f"❌ [MATCHING_WS] Error processing message from {user_id}: {e}")
+                    logger.debug(f"❌ [MATCHING_WS] Message error from {user_id}: {e}")
                     
         except WebSocketDisconnect:
-            logger.info(f"👋👋👋 [MATCHING_WS] WebSocket disconnect (normal): {user_id}")
+            # Normal disconnection - log quietly
+            logger.debug(f"👋 [MATCHING_WS] User disconnected: {user_id}")
         except Exception as e:
-            logger.error(f"❌ [MATCHING_WS] Unexpected error in message loop: {e}")
-            logger.exception("Full exception details:")
-        
+            logger.debug(f"❌ [MATCHING_WS] Connection error for {user_id}: {e}")
+        finally:
+            # Cleanup quietly
+            if 'connection_id' in locals():
+                await websocket_manager.disconnect(connection_id)
+                
     except Exception as e:
-        logger.error(f"❌❌❌ [MATCHING_WS] Fatal error in WebSocket handler: {e}")
-        logger.exception("Full exception details:")
-        
+        # Only log unexpected errors
+        logger.error(f"❌ [MATCHING_WS] Unexpected error: {e}")
     finally:
-        # Cleanup
-        if 'connection_id' in locals():
-            logger.info(f"🧹 [MATCHING_WS] Cleaning up connection: {connection_id}")
-            await websocket_manager.disconnect(connection_id)
-        else:
-            logger.warning(f"⚠️ [MATCHING_WS] No connection_id to cleanup")
-            
-        logger.info(f"🔌🔌🔌 [MATCHING_WS] ===== CONNECTION CLOSED =====")
-        logger.info(f"🔌 [MATCHING_WS] User: {user_id_param if 'user_id_param' in locals() else 'unknown'}")
-        logger.info(f"🔌 [MATCHING_WS] Connection duration: [WebSocket closed]")
+        # Minimal cleanup logging
+        logger.debug("🔌 [MATCHING_WS] Connection cleanup completed")
 
 # General WebSocket endpoint
 @router.websocket("/ws/general")  
