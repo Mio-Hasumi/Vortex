@@ -31,7 +31,7 @@ struct UserVoiceTopicMatchingView: View {
     @Environment(\.dismiss) private var dismiss
     
     // AI service, handles all WebSocket and audio logic
-    @StateObject private var aiVoiceService = AIVoiceService()
+    @StateObject private var aiVoiceService = AIVoiceService.shared
     
     // Navigation state for when match is found
     @State private var navigateToLiveChat = false
@@ -116,22 +116,43 @@ struct UserVoiceTopicMatchingView: View {
             }
         }
         .onDisappear {
-            // Ensure cleanup when view disappears
-            print("🚪 [EXIT] View disappearing - cleaning up AI voice service")
-            aiVoiceService.cleanup()
-            // CRITICAL FIX: Reset navigation state to prevent self-matching
-            VoiceMatchingService.shared.resetNavigation()
+            // Only cleanup if we're not navigating to a successful match
+            print("🚪 [EXIT] View disappearing - checking if we should cleanup")
+            
+            if navigateToLiveChat && matchData != nil {
+                print("✅ [EXIT] Navigating to live chat - preserving AI service indefinitely")
+                // Don't cleanup the AI service when navigating to a successful match
+                // Let the chat room handle cleanup when the user actually leaves the chat
+                print("🔒 [EXIT] AI service will persist until chat room is manually exited")
+            } else {
+                print("🧹 [EXIT] No active navigation - cleaning up AI voice service")
+                aiVoiceService.cleanup()
+            }
+            
+            // CRITICAL FIX: Only reset navigation state if we're not navigating to a successful match
+            if !navigateToLiveChat || matchData == nil {
+                print("🔄 [EXIT] Resetting navigation state")
+                VoiceMatchingService.shared.resetNavigation()
+            } else {
+                print("🔒 [EXIT] Preserving navigation state during successful match navigation")
+            }
         }
         .navigationBarHidden(true)
         // Navigation to live chat when match is found
         .background(
             NavigationLink(
-                destination: matchData.map { data in
-                    print("🚀🚀🚀 [NAVIGATION] NavigationLink destination being created!")
-                    print("   🆔 Destination Match ID: \(data.matchId)")
-                    print("   🏠 Destination Room ID: \(data.roomId)")
-                    print("   👥 Destination Participants: \(data.participants.count)")
-                    return HashtagScreen(matchData: data)
+                destination: Group {
+                    if let data = matchData {
+                        HashtagScreen(matchData: data)
+                            .onAppear {
+                                print("🚀 [NAVIGATION] HashtagScreen appeared")
+                                print("   🆔 Match ID: \(data.matchId)")
+                                print("   🏠 Room ID: \(data.roomId)")
+                                print("   👥 Participants: \(data.participants.count)")
+                            }
+                    } else {
+                        EmptyView()
+                    }
                 },
                 isActive: $navigateToLiveChat
             ) {
@@ -149,8 +170,11 @@ struct UserVoiceTopicMatchingView: View {
                     await aiVoiceService.stopAIConversation()
                     await MainActor.run {
                         self.matchData = matchData
-                        self.navigateToLiveChat = true
-                        print("✅ [NAVIGATION] Direct navigation to chat initiated")
+                        // Add a small delay to ensure proper navigation
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            self.navigateToLiveChat = true
+                            print("✅ [NAVIGATION] Direct navigation to chat initiated")
+                        }
                     }
                 }
             }
@@ -160,6 +184,7 @@ struct UserVoiceTopicMatchingView: View {
 
 // MARK: - AI Voice Service - GPT-4o Realtime WebSocket
 class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlayerDelegate {
+    static let shared = AIVoiceService()
     @Published var isConnected = false
     @Published var isListening = false
     @Published var isMuted = false
@@ -213,12 +238,31 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     private var audioAccumulator = Data() // Accumulate all audio chunks for a single complete response
     private var isPlayingAudio = false
     
-    override init() {
+    private override init() {
         // Get authentication token
         authToken = AuthService.shared.firebaseToken
         super.init()
         setupAudioSession()
         setupAudioEngine()
+        
+        // Listen for cleanup notifications from chat room
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDelayedCleanup),
+            name: NSNotification.Name("CleanupAIServices"),
+            object: nil
+        )
+    }
+    
+    @objc private func handleDelayedCleanup() {
+        print("🧹 [AIVoice] Received delayed cleanup notification from chat room")
+        // Only cleanup if we're not currently in an active match
+        if matchFound == nil && !hasActiveMatch {
+            print("🧹 [AIVoice] No active match - proceeding with cleanup")
+            cleanup()
+        } else {
+            print("⚠️ [AIVoice] Active match detected - skipping cleanup")
+        }
     }
     
     private func setupAudioSession() {
@@ -261,8 +305,8 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         
         print("🎵 [AIVoice] Target format for OpenAI: 24kHz, PCM16, mono")
         
-        // Install tap using hardware's native format
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, time in
+        // Install tap using hardware's native format - use 0 for automatic buffer size
+        inputNode.installTap(onBus: 0, bufferSize: 0, format: inputFormat) { [weak self] buffer, time in
             self?.processAudioBuffer(buffer, originalFormat: inputFormat, targetFormat: targetFormat)
         }
         
@@ -351,14 +395,20 @@ Start the conversation now with your greeting and a question about their interes
             return 
         }
         
+        // Use actual frame count from buffer, not hardcoded values
+        let actualFrameCount = buffer.frameLength
+        guard actualFrameCount > 0 else {
+            return // Skip empty buffers
+        }
+        
         // Create audio converter
         guard let converter = AVAudioConverter(from: originalFormat, to: targetFormat) else {
             print("❌ [AIVoice] Failed to create audio converter")
             return
         }
         
-        // Create output buffer
-        let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * targetFormat.sampleRate / originalFormat.sampleRate)
+        // Create output buffer with proper capacity calculation
+        let outputFrameCapacity = AVAudioFrameCount(Double(actualFrameCount) * targetFormat.sampleRate / originalFormat.sampleRate)
         guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCapacity) else {
             print("❌ [AIVoice] Failed to create output buffer")
             return
@@ -525,6 +575,9 @@ Start the conversation now with your greeting and a question about their interes
     private func cleanupSynchronously() {
         print("🧹 [AIVoice] Starting synchronous cleanup")
         
+        // Remove notification observer
+        NotificationCenter.default.removeObserver(self)
+        
         // Stop audio engine immediately
         if let audioEngine = audioEngine, audioEngine.isRunning {
             audioEngine.stop()
@@ -541,12 +594,18 @@ Start the conversation now with your greeting and a question about their interes
         audioAccumulator = Data()
         isPlayingAudio = false
         
-        // Disconnect WebSockets immediately
+        // Disconnect AI Audio WebSocket but preserve Matching WebSocket if we have an active match
         webSocketService?.disconnect()
         webSocketService = nil
         
-        matchingWebSocketService?.disconnect()
-        matchingWebSocketService = nil
+        // Only disconnect matching WebSocket if we don't have an active match
+        if !hasActiveMatch && matchFound == nil {
+            print("🔌 [AIVoice] No active match - disconnecting matching WebSocket")
+            matchingWebSocketService?.disconnect()
+            matchingWebSocketService = nil
+        } else {
+            print("🔒 [AIVoice] Active match detected - preserving matching WebSocket connection")
+        }
         
         // Reset all state (don't use @Published properties in deinit)
         isConnected = false
@@ -571,6 +630,26 @@ Start the conversation now with your greeting and a question about their interes
     // Public cleanup method for view dismissal
     func cleanup() {
         cleanupSynchronously()
+    }
+    
+    // Reset method for singleton - reinitialize state
+    func reset() {
+        print("🔄 [AIVoice] Resetting shared AI service instance")
+        cleanup()
+        
+        // Reinitialize key components
+        setupAudioSession()
+        setupAudioEngine()
+        
+        // Reset all published properties
+        DispatchQueue.main.async {
+            self.isConnected = false
+            self.isListening = false
+            self.isMuted = false
+            self.currentResponse = ""
+            self.isAISpeaking = false
+            self.matchFound = nil
+        }
     }
     
     // MARK: - 🔧 Fixed unified audio playback system
