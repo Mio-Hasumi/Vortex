@@ -6,7 +6,7 @@ import GoogleSignIn
 class AuthService: ObservableObject {
     static let shared = AuthService()
     
-    // 直接发布登录状态 - 顶级 @Published 属性
+    // Directly publish login status - top-level @Published property
     @Published var isAuthenticated = false
     @Published var userId: String?
     @Published var displayName: String?

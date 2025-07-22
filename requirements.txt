@@ -2,7 +2,7 @@
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
-# 让 openai[realtime] 能安装
+# To allow openai[realtime] installation
 websockets>=13.0,<16.0
 
 # HTTP requests and validation - LOCKED to avoid conflicts

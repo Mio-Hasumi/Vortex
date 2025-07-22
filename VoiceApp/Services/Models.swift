@@ -44,7 +44,7 @@ struct AIMatchResponse: Codable {
     let status: String
 }
 
-// 使用 AnyCodable 来处理动态 JSON 数据
+// Use AnyCodable to handle dynamic JSON data
 struct MatchConfirmationResponse: Codable {
     let match_id: String
     let status: String

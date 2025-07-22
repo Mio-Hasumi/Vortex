@@ -122,7 +122,7 @@ struct EditProfileView: View {
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
-                        // TODO: 实现保存逻辑
+                        // TODO: Implement save logic
                         dismiss()
                     }
                     .foregroundColor(.blue)
