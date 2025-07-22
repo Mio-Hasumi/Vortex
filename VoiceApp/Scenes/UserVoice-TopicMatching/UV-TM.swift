@@ -60,15 +60,6 @@ struct UserVoiceTopicMatchingView: View {
                 
                 Spacer()
                 
-                // Add subtle searching indicator if still waiting for match
-                if !navigateToLiveChat, let firstTopic = matchResult.topics.first {
-                    Text("Searching for someone to talk about #\(firstTopic) with you...")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(Color.white.opacity(0.7))
-                        .padding(.bottom, 8)
-                        .transition(.opacity)
-                }
-                
                 // AI text response display area
                 ScrollView {
                     Text(aiVoiceService.currentResponse)
@@ -86,11 +77,17 @@ struct UserVoiceTopicMatchingView: View {
                 Spacer()
                 // Add subtle searching indicator if still waiting for match
                 if !navigateToLiveChat, let firstTopic = matchResult.topics.first {
-                    Text("Searching for someone to talk about #\(firstTopic) with you...")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(Color.white.opacity(0.7))
-                        .padding(.bottom, 8)
-                        .transition(.opacity)
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                        
+                        Text("Searching for someone to talk about #\(firstTopic) with you...")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color.white.opacity(0.7))
+                    }
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
                 }
                 Button(action: {
                     // Toggle mute state
