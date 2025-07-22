@@ -582,22 +582,23 @@ async def websocket_matching(websocket: WebSocket):
         
         # Main message handling loop
         try:
+            # Main message handling loop with improved error handling
             async for message in websocket.iter_text():
                 try:
                     data = json.loads(message)
                     message_type = data.get("type", "unknown")
                     
-                    # Only log non-ping messages
-                    if message_type != "ping":
-                        logger.debug(f"📥 [MATCHING_WS] {user_id}: {message_type}")
-                    
                     if message_type == "ping":
-                        # Heartbeat - send pong quietly
+                        # Client heartbeat - respond with pong
                         pong_message = {
                             "type": "pong",
                             "timestamp": datetime.utcnow().isoformat()
                         }
                         await websocket.send_text(json.dumps(pong_message))
+                    
+                    elif message_type == "pong":
+                        # Client responded to our ping - update last activity
+                        logger.debug(f"💓 [MATCHING_WS] Pong received from {user_id}")
                     
                     elif message_type == "auth":
                         # Authentication (if needed)
@@ -610,22 +611,28 @@ async def websocket_matching(websocket: WebSocket):
                         logger.debug(f"🔐 [MATCHING_WS] Auth confirmed: {user_id}")
                     
                     else:
-                        logger.debug(f"❓ [MATCHING_WS] Unknown message from {user_id}: {message_type}")
+                        # Log unknown messages for debugging
+                        logger.debug(f"❓ [MATCHING_WS] Unknown message from {user_id}: {message_type} - {data}")
                         
                 except json.JSONDecodeError:
-                    logger.debug(f"⚠️ [MATCHING_WS] Invalid JSON from {user_id}")
+                    logger.warning(f"⚠️ [MATCHING_WS] Invalid JSON from {user_id}: {message}")
                 except Exception as e:
-                    logger.debug(f"❌ [MATCHING_WS] Message error from {user_id}: {e}")
+                    logger.error(f"❌ [MATCHING_WS] Message processing error from {user_id}: {e}")
                     
         except WebSocketDisconnect:
-            # Normal disconnection - log quietly
-            logger.debug(f"👋 [MATCHING_WS] User disconnected: {user_id}")
+            # Normal disconnection
+            logger.info(f"👋 [MATCHING_WS] User {user_id} disconnected normally")
+        except ConnectionResetError:
+            logger.info(f"👋 [MATCHING_WS] Connection reset by user {user_id}")
         except Exception as e:
-            logger.debug(f"❌ [MATCHING_WS] Connection error for {user_id}: {e}")
+            logger.error(f"❌ [MATCHING_WS] Unexpected connection error for {user_id}: {type(e).__name__}: {e}")
         finally:
-            # Cleanup quietly
+            # Ensure cleanup
             if 'connection_id' in locals():
+                logger.debug(f"🧹 [MATCHING_WS] Cleaning up connection {connection_id}")
                 await websocket_manager.disconnect(connection_id)
+            else:
+                logger.debug(f"🧹 [MATCHING_WS] No connection_id to clean up for {user_id}")
                 
     except Exception as e:
         # Only log unexpected errors

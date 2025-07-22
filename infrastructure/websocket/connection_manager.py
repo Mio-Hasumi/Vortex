@@ -96,18 +96,35 @@ class ConnectionManager:
     
     async def disconnect(self, connection_id: str) -> None:
         """
-        Remove a WebSocket connection
+        Remove a WebSocket connection with improved cleanup
         
         Args:
             connection_id: Connection ID to remove
         """
         try:
             if connection_id not in self.connection_metadata:
+                logger.debug(f"👋 Connection {connection_id} already cleaned up")
                 return
             
             metadata = self.connection_metadata[connection_id]
             user_id_str = metadata["user_id"]
-            user_id = UUID(user_id_str)
+            connection_type = metadata.get("connection_type", "unknown")
+            
+            logger.debug(f"👋 Disconnecting {connection_type} connection {connection_id} for user {user_id_str}")
+            
+            try:
+                user_id = UUID(user_id_str)
+            except ValueError:
+                logger.error(f"❌ Invalid user_id format in connection metadata: {user_id_str}")
+                user_id = None
+            
+            # Close WebSocket connection gracefully if still open
+            if user_id_str in self.active_connections and connection_id in self.active_connections[user_id_str]:
+                websocket = self.active_connections[user_id_str][connection_id]
+                try:
+                    await websocket.close(code=1000, reason="Server disconnect")
+                except Exception:
+                    pass  # Connection might already be closed
             
             # Remove from active connections
             if user_id_str in self.active_connections:
@@ -116,18 +133,28 @@ class ConnectionManager:
                 # If no more connections for user, mark as offline
                 if not self.active_connections[user_id_str]:
                     del self.active_connections[user_id_str]
-                    self.redis.set_user_offline(user_id)
                     
-                    # Clean up user from matching queue if they were matching
-                    self.redis.remove_from_matching_queue(user_id)
+                    if user_id:
+                        self.redis.set_user_offline(user_id)
+                        # Clean up user from matching queue if they were matching
+                        self.redis.remove_from_matching_queue(user_id)
+                        logger.info(f"👋 User {user_id_str} marked offline (no more connections)")
             
             # Remove metadata
             self.connection_metadata.pop(connection_id, None)
             
-            logger.info(f"👋 WebSocket disconnected: {connection_id}")
+            logger.debug(f"👋 WebSocket cleanup completed: {connection_id}")
             
         except Exception as e:
             logger.error(f"❌ Error during WebSocket disconnect for {connection_id}: {e}")
+            # Force cleanup even on error
+            try:
+                self.connection_metadata.pop(connection_id, None)
+                # Try to remove from active connections
+                for user_connections in self.active_connections.values():
+                    user_connections.pop(connection_id, None)
+            except Exception:
+                pass
     
     async def send_to_user(self, user_id: UUID, message: Dict) -> bool:
         """
@@ -239,7 +266,7 @@ class ConnectionManager:
     
     async def _send_to_connection(self, connection_id: str, message: Dict) -> bool:
         """
-        Send message to a specific connection
+        Send message to a specific connection with improved error handling
         
         Args:
             connection_id: Connection ID
@@ -249,59 +276,99 @@ class ConnectionManager:
             True if sent successfully
         """
         if connection_id not in self.connection_metadata:
+            logger.debug(f"📤 Connection {connection_id} not found in metadata")
             return False
         
         metadata = self.connection_metadata[connection_id]
         user_id_str = metadata["user_id"]
         
         if user_id_str not in self.active_connections:
+            logger.debug(f"📤 User {user_id_str} not found in active connections")
             return False
         
         if connection_id not in self.active_connections[user_id_str]:
+            logger.debug(f"📤 Connection {connection_id} not found for user {user_id_str}")
             return False
         
         websocket = self.active_connections[user_id_str][connection_id]
+        message_type = message.get("type", "unknown")
         
         try:
             await websocket.send_text(json.dumps(message))
+            
+            # Only log non-ping messages to reduce noise
+            if message_type != "ping":
+                logger.debug(f"📤 Sent {message_type} to {connection_id}")
+            
             return True
+            
         except WebSocketDisconnect:
-            await self.disconnect(connection_id)
+            logger.info(f"📤 WebSocket disconnected for {connection_id} while sending {message_type}")
+            # Don't call disconnect() here to avoid recursive calls
+            return False
+        except ConnectionResetError:
+            logger.info(f"📤 Connection reset for {connection_id} while sending {message_type}")
             return False
         except Exception as e:
-            logger.error(f"❌ Error sending to connection {connection_id}: {e}")
-            await self.disconnect(connection_id)
+            # Only log non-connection errors as warnings/errors
+            if "ConnectionClosed" in str(e) or "ConnectionClosedError" in str(type(e).__name__):
+                logger.debug(f"📤 Connection closed for {connection_id} while sending {message_type}: {e}")
+            else:
+                logger.error(f"❌ Unexpected error sending {message_type} to connection {connection_id}: {e}")
             return False
     
     async def _monitor_connection(self, connection_id: str) -> None:
         """
-        Monitor a WebSocket connection for health
+        Monitor a WebSocket connection for health with improved heartbeat mechanism
         
         Args:
             connection_id: Connection ID to monitor
         """
+        logger.debug(f"🔍 Starting connection monitoring for {connection_id}")
+        ping_failures = 0
+        max_ping_failures = 3
+        
         try:
             # Send periodic pings to keep connection alive
             while connection_id in self.connection_metadata:
-                await asyncio.sleep(30)  # Ping every 30 seconds
+                await asyncio.sleep(45)  # Ping every 45 seconds (less aggressive)
+                
+                # Check if connection still exists
+                if connection_id not in self.connection_metadata:
+                    logger.debug(f"🔍 Connection {connection_id} no longer exists, stopping monitoring")
+                    break
                 
                 # Send ping
                 ping_message = {
                     "type": "ping",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "sequence": ping_failures
                 }
                 
+                logger.debug(f"📡 Sending ping to {connection_id}")
+                
                 if not await self._send_to_connection(connection_id, ping_message):
-                    # Connection failed, clean up
-                    break
+                    ping_failures += 1
+                    logger.warning(f"📡 Ping failed for {connection_id} (attempt {ping_failures}/{max_ping_failures})")
                     
+                    if ping_failures >= max_ping_failures:
+                        logger.warning(f"📡 Max ping failures reached for {connection_id}, cleaning up")
+                        break
+                else:
+                    # Reset failure count on success
+                    if ping_failures > 0:
+                        logger.debug(f"📡 Ping successful for {connection_id}, reset failure count")
+                        ping_failures = 0
+                        
         except asyncio.CancelledError:
             logger.debug(f"🔍 Connection monitoring cancelled for {connection_id}")
         except Exception as e:
             logger.error(f"❌ Error monitoring connection {connection_id}: {e}")
         finally:
-            # Ensure cleanup
-            await self.disconnect(connection_id)
+            # Only cleanup if connection is still tracked
+            if connection_id in self.connection_metadata:
+                logger.debug(f"🧹 Cleaning up monitored connection {connection_id}")
+                await self.disconnect(connection_id)
     
     async def cleanup(self) -> None:
         """Cleanup all connections and tasks"""
