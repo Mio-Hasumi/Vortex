@@ -319,10 +319,28 @@ class EventBroadcaster:
         try:
             logger.info("🔍 Starting matching queue monitoring")
             
+            last_queue_size = 0  # Track queue size changes
+            
             while self._is_running:
                 try:
                     # Get current queue
                     queue_items = self.redis.peek_matching_queue(count=50)
+                    current_queue_size = len(queue_items)
+                    
+                    # Only log queue changes, not every iteration
+                    if current_queue_size != last_queue_size:
+                        logger.info(f"📊 [QUEUE] Size changed: {last_queue_size} → {current_queue_size}")
+                        
+                        if current_queue_size > 0:
+                            logger.info("📋 [QUEUE] Current users:")
+                            for i, item in enumerate(queue_items):
+                                if isinstance(item, dict):
+                                    user_id = item.get('user_id', 'unknown')
+                                    match_type = item.get('match_type', 'unknown')
+                                    hashtags = item.get('hashtags', [])
+                                    logger.info(f"   {i+1}. {user_id[:8]}...: {match_type}, hashtags={len(hashtags)}")
+                        
+                        last_queue_size = current_queue_size
                     
                     # Send position updates to users in queue
                     for position, item in enumerate(queue_items, 1):
@@ -440,21 +458,27 @@ class EventBroadcaster:
             for item in queue_items:
                 if not isinstance(item, dict):
                     continue
-                    
+                
                 match_type = item.get('match_type', 'traditional')
+                user_id = item.get('user_id', 'unknown')
+                    
                 if match_type == 'ai_driven':
                     ai_driven_users.append(item)
                 else:
                     topic_based_users.append(item)
+
+            # Only log when there are users to process
+            if len(ai_driven_users) > 1:
+                logger.info(f"🤖 [MATCHING] Processing {len(ai_driven_users)} AI users for hashtag matching")
+                await self._process_ai_hashtag_matching(ai_driven_users)
             
-            # Process AI-driven hashtag matching (NEW)
-            await self._process_ai_hashtag_matching(ai_driven_users)
-            
-            # Process traditional topic matching (EXISTING)  
-            await self._process_traditional_topic_matching(topic_based_users)
+            if len(topic_based_users) > 1:
+                logger.info(f"📝 [MATCHING] Processing {len(topic_based_users)} users for topic matching")
+                await self._process_traditional_topic_matching(topic_based_users)
                         
         except Exception as e:
             logger.error(f"❌ Error checking for matches: {e}")
+            logger.exception("Full exception details:")
 
     async def _process_ai_hashtag_matching(self, ai_users: List[Dict]) -> None:
         """
@@ -469,28 +493,34 @@ class EventBroadcaster:
             for user in ai_users:
                 try:
                     user_id = UUID(user.get('user_id'))
+                    user_hashtags = user.get('hashtags', [])
+                    
                     is_connected = await self.connection_manager.is_user_connected(user_id)
+                    
                     if is_connected:
                         connected_users.append(user)
+                        logger.info(f"✅ [MATCHING] {user_id.hex[:8]}... connected with {len(user_hashtags)} hashtags")
                     else:
-                        logger.debug(f"🔌 [MATCHING] User {user_id} not connected, skipping for now")
-                except (ValueError, TypeError):
+                        logger.debug(f"🔌 [MATCHING] {user_id.hex[:8]}... not connected, skipping")
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"⚠️ [MATCHING] Invalid user data: {e}")
                     continue
             
-            logger.info(f"🔌 [MATCHING] Found {len(connected_users)} connected AI users out of {len(ai_users)} total")
+            logger.info(f"🔌 [MATCHING] {len(connected_users)}/{len(ai_users)} users ready for matching")
             
             if len(connected_users) < 2:
-                logger.info(f"⏳ [MATCHING] Need at least 2 connected users, waiting...")
                 return
                 
             # Group users by hashtag similarity
             processed_users = set()
             
             for i, user1 in enumerate(connected_users):
-                if user1.get('user_id') in processed_users:
+                user1_id = user1.get('user_id')
+                if user1_id in processed_users:
                     continue
                     
                 user1_hashtags = set(user1.get('hashtags', []))
+                
                 if not user1_hashtags:
                     continue
                     
@@ -499,10 +529,13 @@ class EventBroadcaster:
                 
                 # Find best matching user
                 for j, user2 in enumerate(connected_users[i+1:], i+1):
-                    if user2.get('user_id') in processed_users:
+                    user2_id = user2.get('user_id')
+                    
+                    if user2_id in processed_users:
                         continue
                         
                     user2_hashtags = set(user2.get('hashtags', []))
+                    
                     if not user2_hashtags:
                         continue
                     
@@ -511,20 +544,22 @@ class EventBroadcaster:
                     union = user1_hashtags.union(user2_hashtags)
                     similarity = len(intersection) / len(union) if union else 0
                     
-                    # Require at least 20% similarity for a match
-                    if similarity >= 0.2 and similarity > best_similarity:
+                    # Require at least 10% similarity for a match (reduced from 20% for easier testing)
+                    if similarity >= 0.1 and similarity > best_similarity:
                         best_similarity = similarity
                         best_match = user2
-                
+                        logger.info(f"🎯 [MATCHING] Similarity {user1_id[:8]}...↔{user2_id[:8]}...: {similarity:.2f} (shared: {intersection})")
+
                 # Create match if good similarity found
-                if best_match and best_similarity >= 0.2:
-                    logger.info(f"🎯 [MATCHING] Creating AI match: {user1['user_id']} + {best_match['user_id']} (similarity: {best_similarity:.2f})")
+                if best_match and best_similarity >= 0.1:
+                    logger.info(f"🎉 [MATCHING] CREATING MATCH: {user1['user_id'][:8]}... + {best_match['user_id'][:8]}... (similarity: {best_similarity:.2f})")
                     await self._create_ai_match_with_room(user1, best_match, best_similarity)
                     processed_users.add(user1.get('user_id'))
                     processed_users.add(best_match.get('user_id'))
                         
         except Exception as e:
             logger.error(f"❌ Error in AI hashtag matching: {e}")
+            logger.exception("Full exception details:")
 
     async def _process_traditional_topic_matching(self, topic_users: List[Dict]) -> None:
         """

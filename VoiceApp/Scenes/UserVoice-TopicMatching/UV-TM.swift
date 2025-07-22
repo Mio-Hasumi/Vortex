@@ -846,6 +846,11 @@ Start the conversation now with your greeting and a question about their interes
                 // Heartbeat message - just acknowledge
                 print("💓 [MATCHING] Heartbeat received")
                 
+            case "queue_stats":
+                let totalUsers = message["total_users_in_queue"] as? Int ?? 0
+                let avgWaitTime = message["average_wait_time"] as? Int ?? 0
+                print("📊 [MATCHING] Queue stats - Total users: \(totalUsers), Avg wait: \(avgWaitTime)s")
+                
             case "error":
                 let errorMsg = message["message"] as? String ?? "unknown"
                 print("❌❌❌ [MATCHING] WebSocket Error: \(errorMsg)")
