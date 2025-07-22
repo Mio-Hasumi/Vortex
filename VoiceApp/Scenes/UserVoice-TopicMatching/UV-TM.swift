@@ -7,6 +7,7 @@
 import SwiftUI
 import Combine
 import AVFoundation
+import FirebaseAuth
 
 // Data model for live match information
 struct LiveMatchData {
@@ -388,13 +389,27 @@ Start the conversation now with your greeting and a question about their interes
             print("🎵 [AI_AUDIO] Connecting to AI audio stream WebSocket")
             
             // Connect to matching notification endpoint (requires user ID)
-            if let userId = AuthService.shared.userId {
+            // DEBUG: Check all possible sources for user ID
+            let authServiceUserId = AuthService.shared.userId
+            let firebaseUserId = Auth.auth().currentUser?.uid
+            
+            print("🔍 [MATCHING DEBUG] AuthService.shared.userId: \(authServiceUserId ?? "nil")")
+            print("🔍 [MATCHING DEBUG] Auth.auth().currentUser?.uid: \(firebaseUserId ?? "nil")")
+            print("🔍 [MATCHING DEBUG] AuthService.shared.isAuthenticated: \(AuthService.shared.isAuthenticated)")
+            
+            // Try to get user ID from multiple sources
+            let userId = authServiceUserId ?? firebaseUserId
+            
+            if let userId = userId {
                 let matchingEndpoint = "\(APIConfig.WebSocket.matching)?user_id=\(userId)"
                 matchingWebSocketService?.connect(to: matchingEndpoint, with: token)
-                print("🎯 [MATCHING] Connecting to matching WebSocket with user ID: \(userId)")
-                print("🎯 [MATCHING] Full endpoint: \(matchingEndpoint)")
+                print("🎯 [MATCHING] ✅ Connecting to matching WebSocket with user ID: \(userId)")
+                print("🎯 [MATCHING] ✅ Full endpoint: \(matchingEndpoint)")
             } else {
-                print("❌ [MATCHING] No user ID available for matching WebSocket - CRITICAL ERROR!")
+                print("❌ [MATCHING] CRITICAL ERROR: No user ID available from any source!")
+                print("❌ [MATCHING] AuthService userId: \(authServiceUserId ?? "nil")")
+                print("❌ [MATCHING] Firebase userId: \(firebaseUserId ?? "nil")")
+                print("❌ [MATCHING] Cannot connect to matching WebSocket without user_id!")
             }
         }
     }
