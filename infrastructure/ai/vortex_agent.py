@@ -221,19 +221,42 @@ class VortexAgent(Agent):
         logger.info("[AGENT] ✅ Greeting marked as delivered")
 
     def _get_agent_instructions(self) -> str:
-        """Get the system instructions for Vortex agent"""
-        return """You are Vortex, an intelligent AI conversation assistant in a voice chat application. 
+        """Get dynamic system instructions for Vortex agent with participant context"""
+        
+        # Get current participant information
+        participant_names = [info["name"] for info in self.participant_map.values() if not info.get("is_ai_host", False)]
+        participant_count = len(participant_names)
+        
+        # Build participant context
+        if participant_count == 2:
+            participant_context = f"CONVERSATION CONTEXT: You are facilitating a conversation between TWO PEOPLE: {participant_names[0]} and {participant_names[1]}. When you respond, be aware that both participants can hear you and may want to engage."
+        elif participant_count == 1:
+            participant_context = f"CONVERSATION CONTEXT: You are currently with ONE PERSON: {participant_names[0]}. Another person may join soon."
+        elif participant_count > 2:
+            participant_context = f"CONVERSATION CONTEXT: You are facilitating a GROUP conversation with {participant_count} people: {', '.join(participant_names)}. Be inclusive of all participants."
+        else:
+            participant_context = "CONVERSATION CONTEXT: You are in a voice chat room. People will join and you should facilitate their conversation."
+            
+        topics_context = ""
+        if self.room_context.get("hashtags"):
+            hashtags = self.room_context["hashtags"][:3]  # Show up to 3 main topics
+            topics_context = f"\nSHARED INTERESTS: The participants were matched based on shared interests in: {', '.join(hashtags)}. You can reference these topics when appropriate."
+        
+        return f"""You are Vortex, an intelligent AI conversation assistant in a voice chat application.
+
+{participant_context}{topics_context}
 
 IMPORTANT: You operate in PASSIVE LISTENING mode by default. You should only speak when:
-1. Someone directly calls you ("Hey Vortex", "Hi Vortex", etc.)
+1. Someone directly calls you ("Hey Vortex", "Hi Vortex", etc.)  
 2. Someone uses inappropriate language that needs gentle correction
 3. Someone asks for help or suggestions
 4. The conversation has been quiet for too long (you'll be notified)
 
 When you DO respond:
 - Be warm, friendly, and genuinely helpful
-- Keep responses concise (1-3 sentences typically) 
-- Ask open-ended questions to encourage discussion
+- Keep responses concise (1-3 sentences typically)
+- Address both participants when there are multiple people
+- Ask open-ended questions to encourage discussion between participants  
 - Share relevant insights when appropriate
 - Use natural, conversational language
 - Focus on facilitating rather than dominating the conversation
@@ -241,11 +264,11 @@ When you DO respond:
 Your role is to:
 ✅ LISTEN: Quietly monitor conversations and learn from the flow
 ✅ ASSIST: Help when specifically called upon or when intervention is needed
-✅ FACILITATE: Suggest topics or ask questions when requested
-✅ MODERATE: Gently redirect inappropriate conversations
-✅ SUPPORT: Create a comfortable environment for natural conversation
+✅ FACILITATE: Suggest topics or ask questions when requested, encouraging interaction between participants
+✅ MODERATE: Gently redirect inappropriate conversations  
+✅ SUPPORT: Create a comfortable environment for natural conversation between the participants
 
-Remember: Less is often more. Let users have their conversations naturally unless they specifically need your help."""
+Remember: Less is often more. Let participants have their conversations naturally unless they specifically need your help. When there are multiple people, encourage them to talk with each other, not just with you."""
 
     async def on_enter(self) -> None:
         """Called when agent becomes active in the session"""
@@ -401,8 +424,21 @@ Remember: Less is often more. Let users have their conversations naturally unles
             
             # Handle different intervention types with manual responses
             if intervention_type == "direct_call":
-                # User called "hey vortex" - simple response
-                response_msg = f"Hi {participant_info['name']}! I'm here to help. What can I do for you?"
+                # User called "hey vortex" - context-aware response
+                participant_names = [info["name"] for info in self.participant_map.values() if not info.get("is_ai_host", False)]
+                caller_name = participant_info['name']
+                
+                if len(participant_names) == 2:
+                    # Two people - acknowledge both
+                    other_name = [name for name in participant_names if name != caller_name][0]
+                    response_msg = f"Hi {caller_name} and {other_name}! I'm here to help with your conversation. What can I do for you both?"
+                elif len(participant_names) == 1:
+                    # One person - but expecting another
+                    response_msg = f"Hi {caller_name}! I'm here to help. What can I do for you? Feel free to continue when your conversation partner joins!"
+                else:
+                    # Multiple people or fallback
+                    response_msg = f"Hi everyone! I'm here to help facilitate your conversation. What can I do for you?"
+                
                 await self.session.say(response_msg, allow_interruptions=True)
                 # Schedule return to listening mode after response
                 asyncio.create_task(self._return_to_listening_mode(delay=5.0))
@@ -1122,16 +1158,16 @@ def create_vortex_agent_session(
             voice="verse",
             temperature=0.7,
             modalities=["audio", "text"],  # 默认音频+文本
+            instructions=vortex_agent._get_agent_instructions(),  # Pass participant-aware instructions
             turn_detection=TurnDetection(
                 type="server_vad",          # 或 "semantic_vad"
                 threshold=0.5,
                 prefix_padding_ms=300,
                 silence_duration_ms=500,
-                create_response=False,
+                create_response=False,      # Still disabled for manual control
                 interrupt_response=True,
             ),
         )
-        # 系统提示仍由 Agent 自己的 instructions 提供，不要重复塞到 Realtime
         
         # Add TTS model for session.say() calls (separate from Realtime API)
         tts_model = openai.TTS(
