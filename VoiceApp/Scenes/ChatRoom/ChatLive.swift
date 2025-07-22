@@ -13,8 +13,6 @@ import LiveKitComponents
 
 struct HashtagScreen: View {
     let matchData: LiveMatchData
-    var isWaitingRoom: Bool = false
-    
     @Environment(\.dismiss) private var dismiss
     
     @StateObject private var liveKitService = LiveKitCallService()
@@ -60,7 +58,6 @@ struct HashtagScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
 
             
-            Text(isWaitingRoom ? "Talk to Vortex to find a match..." : "#" + (matchData.topics.first ?? "General"))
                 .font(.custom("Rajdhani", size: 40))
                 .foregroundColor(.white)
                 .padding(.bottom, 150)
@@ -132,19 +129,8 @@ struct HashtagScreen: View {
                 HStack {
                     Spacer()
                     
-                    if isWaitingRoom {
-                        HStack(spacing: 6) {
-                            Image(systemName: "brain.head.profile")
-                                .font(.caption)
-                                .foregroundColor(.purple)
-                            Text("Waiting Room Agent Active")
-                                .font(.caption2)
-                                .foregroundColor(.purple)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(Color.purple.opacity(0.2)))
-                    } else if liveKitService.participants.contains(where: { $0.isAIHost }) {
+                    // AI Host indicator
+                    if liveKitService.participants.contains(where: { $0.isAIHost }) {
                         HStack(spacing: 6) {
                             Image(systemName: "brain.head.profile")
                                 .font(.caption)
@@ -308,7 +294,7 @@ struct HashtagScreen: View {
                     dismiss()
                 }
         } message: {
-            Text(isWaitingRoom ? "Are you sure you want to leave the waiting room?" : "Are you sure you want to end this call? You'll be returned to the home screen.")
+            Text("Are you sure you want to end this call? You'll be returned to the home screen.")
         }
     }
 }

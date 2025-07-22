@@ -50,7 +50,6 @@ enum APIConfig {
         static let aiExtractTopics = "/api/ai-host/extract-topics"
         static let aiExtractTopicsFromVoice = "/api/ai-host/extract-topics-from-voice"
         static let aiUploadAudio = "/api/ai-host/upload-audio"
-        static let startWaitingRoom = "/api/matching/start-waiting-room"
         
         // VortexAgent Management (NEW - Optional advanced features)
         static let agentStatus = "/api/agents/status"

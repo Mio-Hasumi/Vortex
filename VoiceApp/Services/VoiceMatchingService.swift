@@ -22,7 +22,6 @@ class VoiceMatchingService: ObservableObject {
     @Published var estimatedWaitTime: Int = 0
     @Published var shouldNavigateToWaitingRoom = false  // Added: Control navigation
     @Published var lastMatchResult: MatchResult?        // Added: Store match result
-    @Published var waitingRoomInfo: WaitingRoomResponse?
     
     private var audioRecorder: AVAudioRecorder?
     private var recordingURL: URL?
@@ -117,27 +116,119 @@ class VoiceMatchingService: ObservableObject {
     }
     
     private func startMatching(audioData: Data) async {
+        print("🔍 [VoiceService] Entering startMatching with \(audioData.count) bytes")
+        
         await MainActor.run {
             isMatching = true
-            matchStatus = "Finding a conversation partner..."
+            matchStatus = "Analyzing your voice..."
+            print("🔵 [VoiceService] UI state updated - isMatching: true")
         }
-
+        
         do {
-            let _: WaitingRoomResponse = try await APIService.shared.request(
-                endpoint: APIConfig.Endpoints.startWaitingRoom,
-                method: "POST",
-                body: WaitingRoomRequest()
+            print("📤 [VoiceService] Uploading audio to backend...")
+            
+            // Upload audio file and get speech recognition results
+            let uploadedData = try await APIService.shared.upload(
+                endpoint: APIConfig.Endpoints.aiUploadAudio,
+                audioData: audioData
             )
-
-            // For now, we just trigger navigation. The actual connection will be handled by the view.
-            await MainActor.run {
-                shouldNavigateToWaitingRoom = true
+            
+            print("✅ [VoiceService] Audio upload successful, response size: \(uploadedData.count) bytes")
+            
+            // Parse upload response to get topics and hashtags
+            struct UploadResponse: Codable {
+                let transcription: String
+                let language: String
+                let duration: Double
+                let confidence: Double
+                let words: [WordInfo]?
+                let extracted_topics: [String]?
+                let generated_hashtags: [String]?
             }
-
-        } catch {
+            
+            struct WordInfo: Codable {
+                let word: String
+                let start: Double
+                let end: Double
+            }
+            
+            let uploadResponse = try JSONDecoder().decode(UploadResponse.self, from: uploadedData)
+            
+            print("🎯 [VoiceService] Voice processing results:")
+            print("   📝 Transcription: \(uploadResponse.transcription)")
+            print("   🏷️ Topics: \(uploadResponse.extracted_topics ?? [])")
+            print("   #️⃣ Hashtags: \(uploadResponse.generated_hashtags ?? [])")
+            
+            // Use topics and hashtags obtained from speech recognition for matching
+            let extractedTopics = uploadResponse.extracted_topics ?? ["General topic"]
+            let generatedHashtags = uploadResponse.generated_hashtags ?? ["#general", "#chat"]
+            
+            // Create match request, passing the complete speech processing results as a string
+            let voiceResult = [
+                "transcription": uploadResponse.transcription,
+                "extracted_topics": extractedTopics,
+                "generated_hashtags": generatedHashtags
+            ] as [String : Any]
+            
+            let voiceResultJSON = try JSONSerialization.data(withJSONObject: voiceResult)
+            let voiceResultString = String(data: voiceResultJSON, encoding: .utf8) ?? ""
+            
+            let matchRequest = AIMatchRequest(
+                user_voice_input: voiceResultString,  // Pass the complete speech processing results
+                audio_file_url: nil,   // File has already been uploaded
+                max_participants: 2,    // Default 1-on-1 match
+                language_preference: "en-US"
+            )
+            
+            print("🤖 [VoiceService] Sending AI match request with extracted topics...")
+            
+            let requestData = try JSONEncoder().encode(matchRequest)
+            let matchResponse: AIMatchResponse = try await APIService.shared.request(
+                endpoint: APIConfig.Endpoints.aiMatch,
+                method: "POST",
+                body: requestData
+            )
+            
+            print("🎯 [VoiceService] Match response received:")
+            print("   - Topics: \(matchResponse.extracted_topics)")
+            print("   - Hashtags: \(matchResponse.generated_hashtags)")
+            print("   - Confidence: \(matchResponse.match_confidence)")
+            print("   - Wait time: \(matchResponse.estimated_wait_time)")
+            
             await MainActor.run {
-                matchStatus = "Could not start the waiting room. Please try again."
+                // Use topics obtained from speech recognition, not topics from match response
+                matchedTopics = extractedTopics
+                estimatedWaitTime = matchResponse.estimated_wait_time
+                matchStatus = "Found the following topics:\n" + extractedTopics.joined(separator: "\n")
                 isMatching = false
+                print("✅ [VoiceService] Match completed - isMatching: false")
+                print("🏷️ [VoiceService] Topics found: \(matchedTopics)")
+                
+                // Create match result
+                lastMatchResult = MatchResult(
+                    transcription: uploadResponse.transcription,
+                    topics: extractedTopics,
+                    hashtags: generatedHashtags,
+                    matchId: matchResponse.match_id,
+                    sessionId: matchResponse.session_id,
+                    confidence: matchResponse.match_confidence,
+                    waitTime: matchResponse.estimated_wait_time
+                )
+                
+                // Trigger navigation to waiting room
+                shouldNavigateToWaitingRoom = true
+                print("🚪 [VoiceService] Navigating to waiting room.")
+            }
+            
+        } catch {
+            print("❌ [VoiceService] Matching failed with error: \(error)")
+            print("   Error type: \(type(of: error))")
+            print("   Error description: \(error.localizedDescription)")
+            
+            await MainActor.run {
+                matchStatus = "Matching failed: \(error.localizedDescription)"
+                isMatching = false
+                print("🔴 [VoiceService] UI state updated after error - isMatching: false")
             }
         }
     }
@@ -162,11 +253,12 @@ class VoiceMatchingService: ObservableObject {
     
     // Reset navigation state (called when returning from waiting room)
     func resetNavigation() {
-        DispatchQueue.main.async {
-            self.shouldNavigateToWaitingRoom = false
-            self.lastMatchResult = nil
-            self.waitingRoomInfo = nil
-        }
+        shouldNavigateToWaitingRoom = false
+        lastMatchResult = nil
+        matchStatus = nil
+        matchedTopics = []
+        estimatedWaitTime = 0
+        print("🔄 [VoiceService] Navigation state reset")
     }
 }
 

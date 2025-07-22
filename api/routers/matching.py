@@ -49,13 +49,6 @@ def get_event_broadcaster():
     """Get event broadcaster instance"""
     return container.get_event_broadcaster()
 
-def get_livekit_service():
-    return container.get_livekit_service()
-
-def get_agent_manager_service():
-    return container.get_agent_manager_service()
-
-
 router = APIRouter()
 
 # Request/Response Models
@@ -110,14 +103,6 @@ class MatchConfirmationResponse(BaseModel):
     matched_at: Optional[str] = None
     message: Optional[str] = None
     estimated_wait_time: Optional[int] = None
-
-class WaitingRoomRequest(BaseModel):
-    pass
-
-class WaitingRoomResponse(BaseModel):
-    room_name: str
-    user_token: str
-    agent_identity: str
 
 # Helper functions
 def get_topic_name_for_match(match, topic_repo) -> str:
@@ -178,49 +163,6 @@ async def request_match(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
-
-@router.post("/start-waiting-room", response_model=WaitingRoomResponse)
-async def start_waiting_room(
-    request: WaitingRoomRequest,
-    current_user: User = Depends(get_current_user),
-    agent_manager: AgentManagerService = Depends(get_agent_manager_service),
-    livekit_service: LiveKitService = Depends(get_livekit_service)
-):
-    """
-    Creates a temporary LiveKit room and deploys a WaitingRoomAgent
-    for a 1-on-1 pre-match conversation with the user.
-    """
-    try:
-        user_id = str(current_user.id)
-        room_name = f"waiting_room_{user_id}_{int(datetime.utcnow().timestamp())}"
-
-        # Deploy agent to the temporary room
-        user_info = {"id": user_id, "display_name": current_user.display_name}
-        deployment_result = await agent_manager.deploy_waiting_room_agent(
-            room_name=room_name,
-            user_info=user_info
-        )
-
-        if not deployment_result.get("success"):
-            raise HTTPException(status_code=500, detail="Failed to deploy waiting room agent.")
-
-        # Generate a token for the user to join the room
-        user_token = livekit_service.generate_token(
-            room_name=room_name,
-            identity=f"user_{user_id}",
-            can_publish=True,
-            can_subscribe=True
-        )
-
-        return WaitingRoomResponse(
-            room_name=room_name,
-            user_token=user_token,
-            agent_identity=deployment_result["agent_identity"]
-        )
-    except Exception as e:
-        logger.error(f"❌ Failed to start waiting room for user {current_user.id}: {e}")
-        raise HTTPException(status_code=500, detail=f"An error occurred while starting the waiting room: {str(e)}")
-
 
 @router.post("/cancel")
 async def cancel_match(
