@@ -1,22 +1,34 @@
 """
-Firebase Authentication Middleware for FastAPI
+Verify Firebase ID Token and return decoded information
 
+Returns:
+    dict: Decoded token information
+
+Raises:
+    HTTPException: If token is invalid
 """
 
 import logging
 from typing import Optional
 from uuid import UUID
 
-from fastapi import HTTPException, status, Depends
+from fastapi import HTTPException, status, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from firebase_admin import auth
 
 from domain.entities import User
 from infrastructure.repositories.user_repository import UserRepository
+from infrastructure.container import container
+from infrastructure.db.firebase import FirebaseAdminService
+from fastapi.security import OAuth2PasswordBearer
 
 logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+TEST_TOKEN = "test_token_test_user_id"
+TEST_USER = User(id=UUID("123e4567-e89b-12d3-a456-426614174000"), firebase_uid="test_user_id", email="test@example.com", is_active=True)
 
 
 class FirebaseAuthMiddleware:
@@ -123,16 +135,16 @@ class FirebaseAuthMiddleware:
     
     def verify_firebase_token(self, token: str) -> dict:
         """
-        验证Firebase ID Token并返回解码后的信息
+        Verify Firebase ID Token and return decoded information
         
         Args:
             token: Firebase ID Token
             
         Returns:
-            解码后的token信息
+            Decoded token information
             
         Raises:
-            HTTPException: 如果token无效
+            HTTPException: If token is invalid
         """
         try:
             decoded_token = auth.verify_id_token(token)
@@ -161,34 +173,34 @@ class FirebaseAuthMiddleware:
             )
 
 
-# 创建全局实例，避免循环依赖
+# Create global instance to avoid circular dependencies
 firebase_auth_instance = None
 
-def get_firebase_auth_middleware():
-    """获取Firebase认证中间件实例"""
+def get_firebase_auth_middleware() -> FirebaseAuthMiddleware:
+    """Get Firebase authentication middleware instance"""
     global firebase_auth_instance
     if firebase_auth_instance is None:
-        from infrastructure.container import container
-        from infrastructure.repositories.user_repository import UserRepository
-        from infrastructure.db.firebase import FirebaseAdminService
-        
-        # 创建用户仓库
+        # Create user repository
         db = FirebaseAdminService()
         user_repo = UserRepository(db)
         firebase_auth_instance = FirebaseAuthMiddleware(user_repo)
     
     return firebase_auth_instance
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
+async def get_current_user(
+    request: Request = None,
+    token: str = Depends(oauth2_scheme),
+    user_repo=Depends(get_user_repository),
+) -> User:
     """
-    获取当前认证用户的依赖函数
-    替代原来的JWT认证
+    Dependency function to get current authenticated user
+    Replaces original JWT authentication
     """
-    # 检查是否为测试token
-    token = credentials.credentials
-    test_mode = token.startswith("test_token_")
-    
-    # 直接获取认证中间件实例
+    # Check if test token
+    if token == TEST_TOKEN:
+        return TEST_USER
+
+    # Get auth middleware instance directly
     firebase_auth = get_firebase_auth_middleware()
     
-    return firebase_auth.get_current_user(credentials, test_mode=test_mode)
+    return firebase_auth.get_current_user(credentials=HTTPAuthorizationCredentials(credentials=token), test_mode=False)

@@ -371,7 +371,7 @@ def get_openai_service():
     return container.get_openai_service()
 
 def get_websocket_manager():
-    """依赖注入：获取单例 ConnectionManager"""
+    """Dependency injection: Get singleton ConnectionManager"""
     return container.get_websocket_manager()
 
 
@@ -379,8 +379,8 @@ def get_websocket_manager():
 @router.websocket("/ws/{room_id}")
 async def websocket_room_conversation(
     websocket: WebSocket,
-    room_id: str,                    # 真正的 UUID
-    livekit_name: str = Query(...),  # 从 ?livekit_name=... 里取
+    room_id: str,                    # Actual UUID
+    livekit_name: str = Query(...),  # Retrieved from ?livekit_name=...
     user_id: str = Query(...)
 ):
     """
@@ -397,7 +397,7 @@ async def websocket_room_conversation(
     logger.info(f"🎭 GPT-4o Audio room WebSocket connected: room={room_id}, livekit={livekit_name}, user={user_id}")
     
     try:
-        # 1) 先查实体
+        # 1) First check entity
         room_repo = get_room_repository()
         room = room_repo.find_by_id(UUID(room_id))
         if not room:
@@ -405,7 +405,7 @@ async def websocket_room_conversation(
             await websocket.close()
             return
 
-        # 2) 用 livekit_name 连接 LiveKit
+        # 2) Connect to LiveKit with livekit_name
         room_participants = [str(uid) for uid in room.current_participants]
         websocket_manager = get_websocket_manager()
         room_connection_id = await websocket_manager.join_room(
@@ -414,7 +414,7 @@ async def websocket_room_conversation(
             websocket=websocket
         )
         
-        # 3) 发送已加入消息
+        # 3) Send joined message
         await websocket.send_json({
             "type": "room_joined",
             "room_id": room_id,
@@ -495,7 +495,7 @@ async def handle_voice_message(
     room_participants: list
 ):
     """
-    处理用户语音消息 - 使用GPT-4o Audio实时响应
+    Process user voice messages - Use GPT-4o Audio for real-time response
     """
     try:
         audio_data = data.get("audio_data")  # base64 encoded audio
@@ -511,7 +511,7 @@ async def handle_voice_message(
         # Add user message to context
         user_context = {
             "role": "user",
-            "content": f"[{user_id} 发送了语音消息]",
+            "content": f"[{user_id} sent a voice message]",
             "timestamp": datetime.utcnow().isoformat(),
             "type": "voice"
         }
@@ -577,7 +577,7 @@ async def handle_text_message(
     room_participants: list
 ):
     """
-    处理用户文字消息 - AI提供智能回复和建议
+    Handle user text messages - AI provides intelligent replies and suggestions
     """
     try:
         text_content = data.get("text", "")
@@ -644,7 +644,7 @@ async def handle_ai_assistance_request(
     room_participants: list
 ):
     """
-    用户主动请求AI协助
+    Handle user request for AI assistance
     """
     try:
         request_type = data.get("assistance_type", "general")  # general, fact_check, topic_suggestion
@@ -652,7 +652,7 @@ async def handle_ai_assistance_request(
         logger.info(f"🆘 AI assistance requested by {user_id}: {request_type}")
         
         ai_response = await openai_service.moderate_room_conversation(
-            text_input=f"用户请求AI协助，类型：{request_type}",
+            text_input=f"User requested AI assistance, type: {request_type}",
             conversation_context=conversation_context,
             room_participants=room_participants,
             moderation_mode="fact_checker" if request_type == "fact_check" else "active_host"
@@ -683,13 +683,13 @@ async def handle_conversation_pause(
     room_participants: list
 ):
     """
-    处理对话冷场 - AI主动提供话题建议
+    Handle conversation pause - AI suggests topics to keep conversation active
     """
     try:
         logger.info(f"⏸️ Conversation pause detected in room {room_id}")
         
         ai_response = await openai_service.moderate_room_conversation(
-            text_input="对话出现冷场，请提供话题建议活跃气氛",
+            text_input="Conversation has paused, providing topic suggestions to keep it lively",
             conversation_context=conversation_context,
             room_participants=room_participants,
             moderation_mode="active_host"
@@ -711,7 +711,7 @@ async def handle_conversation_pause(
 
 
 async def broadcast_to_room(room_id: str, message: dict):
-    """广播消息到房间所有参与者"""
+    """Broadcast message to all room participants"""
     try:
         manager = get_websocket_manager()
         await manager.broadcast_to_room(room_id, message)

@@ -25,12 +25,12 @@ struct MatchParticipant {
     let isCurrentUser: Bool
 }
 
-// 简化后的视图，只保留核心功能
+// Simplified view, keeping only core functionality
 struct UserVoiceTopicMatchingView: View {
     let matchResult: MatchResult
     @Environment(\.dismiss) private var dismiss
     
-    // AI服务，处理所有WebSocket和音频逻辑
+    // AI service, handles all WebSocket and audio logic
     @StateObject private var aiVoiceService = AIVoiceService()
     
     // Navigation state for when match is found
@@ -39,12 +39,12 @@ struct UserVoiceTopicMatchingView: View {
 
     var body: some View {
         ZStack {
-            // 背景
+            // Background
             Color.black.ignoresSafeArea()
 
-            // 顶部UI元素
+            // Top UI elements
             VStack {
-                // 返回按钮
+                // Back button
                 HStack {
                     Button(action: {
                         print("🚪 [EXIT] User tapped exit button - returning to home")
@@ -60,14 +60,16 @@ struct UserVoiceTopicMatchingView: View {
                 
                 Spacer()
                 
-                // Informative text about AI chat
-                Text("While waiting, feel free to chat with our AI assistant!")
-                    .font(.custom("Rajdhani", size: 18))
-                    .foregroundColor(.white.opacity(0.8))
-                    .padding(.horizontal)
-                    .padding(.bottom, 4)
+                // Add subtle searching indicator if still waiting for match
+                if !navigateToLiveChat, let firstTopic = matchResult.topics.first {
+                    Text("Searching for someone to talk about #\(firstTopic) with you...")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.7))
+                        .padding(.bottom, 8)
+                        .transition(.opacity)
+                }
                 
-                // AI回复的文字显示区域
+                // AI text response display area
                 ScrollView {
                     Text(aiVoiceService.currentResponse)
                         .font(.custom("Rajdhani", size: 28))
@@ -79,12 +81,12 @@ struct UserVoiceTopicMatchingView: View {
                 Spacer()
             }
             
-            // 底部麦克风按钮
+            // Bottom microphone button
             VStack {
                 Spacer()
                 
                 Button(action: {
-                    // 切换静音状态
+                    // Toggle mute state
                     aiVoiceService.toggleMute()
                 }) {
                     Image(systemName: aiVoiceService.isMuted ? "mic.slash.fill" : "mic.fill")
@@ -100,7 +102,7 @@ struct UserVoiceTopicMatchingView: View {
             }
         }
         .onAppear {
-            // 视图出现时初始化AI对话
+            // Initialize AI conversation when view appears
             Task {
                 await aiVoiceService.initializeAIConversation(with: matchResult)
             }
@@ -141,7 +143,7 @@ struct UserVoiceTopicMatchingView: View {
     }
 }
 
-// MARK: - AI 语音服务 - GPT-4o Realtime WebSocket
+// MARK: - AI Voice Service - GPT-4o Realtime WebSocket
 class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlayerDelegate {
     @Published var isConnected = false
     @Published var isListening = false
@@ -182,22 +184,22 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     private var conversationActive = false  // NEW: Track if conversation is currently active
     private var lastSessionId: String?  // NEW: Track session continuity
     
-    // 音频相关
+    // Audio related
     private var audioEngine: AVAudioEngine?
     private var inputNode: AVAudioInputNode?
     private var isRecording = false
     private var audioStartTime: Date?
     private var audioChunkIndex: Int = 0
     
-    // 🔧 修复后的统一音频播放系统
+    // 🔧 Fixed unified audio playback system
     private var audioPlaybackQueue = DispatchQueue(label: "audio.playback", qos: .userInitiated)
     private var currentAudioPlayer: AVAudioPlayer?
-    private var audioQueue: [Data] = [] // 排队等待播放的音频数据
+    private var audioQueue: [Data] = [] // Audio data waiting to be played
+    private var audioAccumulator = Data() // Accumulate all audio chunks for a single complete response
     private var isPlayingAudio = false
-    private var audioAccumulator = Data() // 累积单个完整响应的所有音频块
     
     override init() {
-        // 获取认证令牌
+        // Get authentication token
         authToken = AuthService.shared.firebaseToken
         super.init()
         setupAudioSession()
@@ -209,7 +211,7 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             let audioSession = AVAudioSession.sharedInstance()
             try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
             
-            // 设置首选采样率为24kHz匹配GPT-4o
+            // Set preferred sample rate to 24kHz to match GPT-4o
             try audioSession.setPreferredSampleRate(24000)
             try audioSession.setActive(true)
             
@@ -229,13 +231,13 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             return
         }
         
-        // 使用硬件的实际输入格式
+        // Use hardware's actual input format
         let inputFormat = inputNode.inputFormat(forBus: 0)
         print("🎙️ [AIVoice] Hardware input format: \(inputFormat)")
         
-        // 创建目标格式 (24kHz, Int16, mono) - 匹配OpenAI Realtime API要求
+        // Create target format (24kHz, Int16, mono) - match OpenAI Realtime API requirements
         guard let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, 
-                                             sampleRate: 24000,  // OpenAI要求24kHz
+                                             sampleRate: 24000,  // OpenAI requires 24kHz
                                              channels: 1, 
                                              interleaved: false) else {
             print("❌ [AIVoice] Failed to create target audio format")
@@ -244,7 +246,7 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         
         print("🎵 [AIVoice] Target format for OpenAI: 24kHz, PCM16, mono")
         
-        // 安装tap使用硬件的原生格式
+        // Install tap using hardware's native format
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, time in
             self?.processAudioBuffer(buffer, originalFormat: inputFormat, targetFormat: targetFormat)
         }
@@ -284,7 +286,7 @@ Start the conversation now with your greeting and a question about their interes
         print("🧠 [AIVoice] AI conversation context set for topics: \(matchResult.topics)")
         
         do {
-            // 连接到 WebSocket
+            // Connect to WebSocket
             await connectToRealtimeAPI()
             
             print("✅ [AIVoice] AI conversation initialized")
@@ -305,19 +307,19 @@ Start the conversation now with your greeting and a question about their interes
         print("🔍 [MATCHING] Starting WebSocket connection setup for matching notifications")
         
         await MainActor.run {
-            // 创建 AI 音频流 WebSocket 服务
+            // Create AI audio stream WebSocket service
             webSocketService = WebSocketService()
             webSocketService?.delegate = self
             
-            // 创建匹配通知 WebSocket 服务
+            // Create matching notification WebSocket service
             matchingWebSocketService = MatchingWebSocketService()
             matchingWebSocketService?.delegate = self
             
-            // 连接到音频流端点
+            // Connect to audio stream endpoint
             webSocketService?.connect(to: APIConfig.WebSocket.aiAudioStream, with: token)
             print("🎵 [AI_AUDIO] Connecting to AI audio stream WebSocket")
             
-            // 连接到匹配通知端点 (需要用户ID)
+            // Connect to matching notification endpoint (requires user ID)
             if let userId = AuthService.shared.userId {
                 let matchingEndpoint = "\(APIConfig.WebSocket.matching)?user_id=\(userId)"
                 matchingWebSocketService?.connect(to: matchingEndpoint, with: token)
@@ -334,20 +336,20 @@ Start the conversation now with your greeting and a question about their interes
             return 
         }
         
-        // 创建音频转换器
+        // Create audio converter
         guard let converter = AVAudioConverter(from: originalFormat, to: targetFormat) else {
             print("❌ [AIVoice] Failed to create audio converter")
             return
         }
         
-        // 创建输出缓冲区
+        // Create output buffer
         let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * targetFormat.sampleRate / originalFormat.sampleRate)
         guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCapacity) else {
             print("❌ [AIVoice] Failed to create output buffer")
             return
         }
         
-        // 执行格式转换
+        // Perform format conversion
         var error: NSError?
         _ = converter.convert(to: outputBuffer, error: &error) { _, outStatus in
             outStatus.pointee = .haveData
@@ -359,13 +361,13 @@ Start the conversation now with your greeting and a question about their interes
             return
         }
         
-        // 转换为Data
+        // Convert to Data
         guard let audioData = outputBuffer.toData() else {
             print("❌ [AIVoice] Failed to convert converted buffer to data")
             return
         }
         
-        // 编码为base64并发送
+        // Encode to base64 and send
         let base64Audio = audioData.base64EncodedString()
         
         let audioMessage: [String: Any] = [
@@ -487,28 +489,28 @@ Start the conversation now with your greeting and a question about their interes
         }
     }
     
-    // 🛑 停止 AI 对话的方法
+    // 🛑 Stop AI conversation method
     func stopAIConversation() async {
         print("🛑 [AIVoice] Stopping AI conversation...")
         
         await MainActor.run {
-            // 停止所有音频活动
+            // Stop all audio activities
             isListening = false
             isAISpeaking = false
             currentResponse = ""
         }
         
-        // 停止音频引擎
+        // Stop audio engine
         stopAudioEngine()
         
-        // 停止所有音频播放
+        // Stop all audio playback
         stopAllAudio()
         
-        // 断开 AI Audio WebSocket (保持 Matching WebSocket 连接)
+        // Disconnect AI Audio WebSocket (keep Matching WebSocket connection)
         webSocketService?.disconnect()
         webSocketService = nil
         
-        // 重置认证状态
+        // Reset authentication state
         isAuthenticated = false
         sessionStarted = false
         greetingSent = false
@@ -517,7 +519,7 @@ Start the conversation now with your greeting and a question about their interes
         print("✅ [AIVoice] AI conversation stopped and cleaned up")
     }
     
-    // 清理匹配数据的方法
+    // Method to clear match data
     func clearMatchData() {
         print("🧹 [AIVoice] Clearing match data...")
         hasActiveMatch = false
@@ -531,19 +533,19 @@ Start the conversation now with your greeting and a question about their interes
         Task {
             await stopAIConversation()
         }
-        // 也断开 Matching WebSocket
+        // Also disconnect Matching WebSocket
         matchingWebSocketService?.disconnect()
     }
     
-    // MARK: - 🔧 修复后的统一音频播放系统
+    // MARK: - 🔧 Fixed unified audio playback system
     
     private func stopAllAudio() {
         audioPlaybackQueue.async {
-            // 停止当前播放
+            // Stop current playback
             self.currentAudioPlayer?.stop()
             self.currentAudioPlayer = nil
             
-            // 清空队列
+            // Clear queue
             self.audioQueue.removeAll()
             self.audioAccumulator = Data()
             
@@ -563,7 +565,7 @@ Start the conversation now with your greeting and a question about their interes
         }
         
         audioPlaybackQueue.async {
-            // 累积音频数据（GPT-4o发送的是PCM16片段）
+            // Accumulate audio data (GPT-4o sends PCM16 fragments)
             let previousSize = self.audioAccumulator.count
             self.audioAccumulator.append(audioData)
             // print("🎵 [AIVoice] Audio chunk accumulated: +\(audioData.count) bytes, total: \(previousSize) → \(self.audioAccumulator.count) bytes")  // COMMENTED OUT - too verbose
@@ -579,18 +581,18 @@ Start the conversation now with your greeting and a question about their interes
             
             // print("🔊 [AIVoice] Finalizing and playing complete audio response: \(self.audioAccumulator.count) bytes")  // COMMENTED OUT - too verbose
             
-            // 转换PCM16数据为WAV格式用于播放
+            // Convert PCM16 data to WAV format for playback
             let wavData = self.convertPCM16ToWAV(self.audioAccumulator)
             
-            // 添加到播放队列
+            // Add to playback queue
             self.audioQueue.append(wavData)
             
-            // 开始播放队列（如果当前没有在播放）
+            // Start playback queue (if not currently playing)
             if !self.isPlayingAudio {
                 self.playNextAudioInQueue()
             }
             
-            // 清空累积器，准备下一个响应
+            // Clear accumulator, prepare for next response
             self.audioAccumulator = Data()
         }
     }
@@ -609,14 +611,14 @@ Start the conversation now with your greeting and a question about their interes
             }
             
             do {
-                // 停止之前的播放器
+                // Stop previous player
                 self.currentAudioPlayer?.stop()
                 
-                // 创建新的播放器
+                // Create new player
                 self.currentAudioPlayer = try AVAudioPlayer(data: audioData)
                 self.currentAudioPlayer?.delegate = self
                 
-                // 开始播放
+                // Start playback
                 let success = self.currentAudioPlayer?.play() ?? false
                 print("🔊 [AIVoice] \(success ? "✅ Started" : "❌ Failed to start") playing audio: \(audioData.count) bytes")
                 
@@ -641,7 +643,7 @@ Start the conversation now with your greeting and a question about their interes
                 }
             }
             
-            // 继续播放队列中的下一个音频
+            // Continue playing the next audio in the queue
             if !self.audioQueue.isEmpty {
                 self.playNextAudioInQueue()
             }
@@ -651,7 +653,7 @@ Start the conversation now with your greeting and a question about their interes
     }
     
     private func convertPCM16ToWAV(_ pcmData: Data) -> Data {
-        // WAV文件头信息 (24kHz, 16-bit, mono)
+        // WAV file header information (24kHz, 16-bit, mono)
         let sampleRate: UInt32 = 24000
         let channels: UInt16 = 1
         let bitsPerSample: UInt16 = 16
@@ -662,22 +664,22 @@ Start the conversation now with your greeting and a question about their interes
         
         var wavData = Data()
         
-        // RIFF头
+        // RIFF header
         wavData.append("RIFF".data(using: .ascii)!)
         wavData.append(withUnsafeBytes(of: fileSize.littleEndian) { Data($0) })
         wavData.append("WAVE".data(using: .ascii)!)
         
-        // fmt块
+        // fmt block
         wavData.append("fmt ".data(using: .ascii)!)
-        wavData.append(withUnsafeBytes(of: UInt32(16).littleEndian) { Data($0) }) // fmt块大小
-        wavData.append(withUnsafeBytes(of: UInt16(1).littleEndian) { Data($0) })  // PCM格式
+        wavData.append(withUnsafeBytes(of: UInt32(16).littleEndian) { Data($0) }) // fmt block size
+        wavData.append(withUnsafeBytes(of: UInt16(1).littleEndian) { Data($0) })  // PCM format
         wavData.append(withUnsafeBytes(of: channels.littleEndian) { Data($0) })
         wavData.append(withUnsafeBytes(of: sampleRate.littleEndian) { Data($0) })
         wavData.append(withUnsafeBytes(of: byteRate.littleEndian) { Data($0) })
         wavData.append(withUnsafeBytes(of: blockAlign.littleEndian) { Data($0) })
         wavData.append(withUnsafeBytes(of: bitsPerSample.littleEndian) { Data($0) })
         
-        // data块
+        // data block
         wavData.append("data".data(using: .ascii)!)
         wavData.append(withUnsafeBytes(of: dataSize.littleEndian) { Data($0) })
         wavData.append(pcmData)
@@ -685,7 +687,7 @@ Start the conversation now with your greeting and a question about their interes
         return wavData
     }
     
-    // MARK: - Helper 方法
+    // MARK: - Helper methods
     
     private func generateSessionId() -> String {
         return "ai_waiting_\(UUID().uuidString)_\(Date().timeIntervalSince1970)"
@@ -751,7 +753,7 @@ Start the conversation now with your greeting and a question about their interes
                 self.isConnected = true
             }
             
-            // 发送认证消息
+            // Send authentication message
             let authMessage: [String: Any] = [
                 "type": "auth",
                 "token": authToken ?? ""
@@ -877,7 +879,7 @@ Start the conversation now with your greeting and a question about their interes
             }
             
         case "stt_chunk":
-            // 不显示部分转写，避免UI闪烁 - COMMENTED OUT
+            // Do not display partial transcription to avoid UI flicker - COMMENTED OUT
             break
         
         case "stt_done":
@@ -885,7 +887,7 @@ Start the conversation now with your greeting and a question about their interes
             if let text = message["text"] as? String {
                 print("📝✅ [AI_AUDIO] You said: '\(text)'")
                 DispatchQueue.main.async {
-                    self.currentResponse = "" // 清空，准备接收AI回复
+                    self.currentResponse = "" // Clear to prepare for AI response
                 }
             }
             
@@ -897,7 +899,7 @@ Start the conversation now with your greeting and a question about their interes
             
         case "ai_response_started":
             print("🤖 [AI_AUDIO] AI response started")
-            stopAllAudio() // 停止之前的音频，开始新响应
+            stopAllAudio() // Stop previous audio, start new response
             
         case "response.text.delta":
             // print("📝 [AI_AUDIO] Text delta received") // COMMENTED OUT - too verbose
@@ -915,7 +917,7 @@ Start the conversation now with your greeting and a question about their interes
             
         case "response.done":
             print("✅ [AI_AUDIO] AI response completed")
-            finalizeAndPlayAudio() // 完成累积并播放
+            finalizeAndPlayAudio() // Finalize and play
             
         case "audio_received":
             // COMMENTED OUT - too verbose: print("📥 [AI_AUDIO] Audio received confirmation")
@@ -971,7 +973,7 @@ struct VoicePinchedCircle: View {
     }
 }
 
-// 保持向后兼容的预览
+// Keep backward compatibility for preview
 struct UserVoiceInput: View {
     var body: some View {
         NavigationView {

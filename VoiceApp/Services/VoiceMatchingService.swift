@@ -1,7 +1,7 @@
 import Foundation
 import AVFoundation
 
-// 匹配结果数据结构
+// Matching result data structure
 struct MatchResult {
     let transcription: String
     let topics: [String]
@@ -20,8 +20,8 @@ class VoiceMatchingService: ObservableObject {
     @Published var matchStatus: String?
     @Published var matchedTopics: [String] = []
     @Published var estimatedWaitTime: Int = 0
-    @Published var shouldNavigateToWaitingRoom = false  // 新增：控制导航
-    @Published var lastMatchResult: MatchResult?        // 新增：存储匹配结果
+    @Published var shouldNavigateToWaitingRoom = false  // Added: Control navigation
+    @Published var lastMatchResult: MatchResult?        // Added: Store match result
     
     private var audioRecorder: AVAudioRecorder?
     private var recordingURL: URL?
@@ -31,10 +31,10 @@ class VoiceMatchingService: ObservableObject {
     func startRecording() async throws {
         print("🎙️ [VoiceService] Starting recording request...")
         
-        // 请求麦克风权限
+        // Request microphone permission
         let audioSession = AVAudioSession.sharedInstance()
         
-        // requestRecordPermission 不是 async，需要手动桥接
+        // requestRecordPermission is not async, manual bridging is needed
         let granted = await withCheckedContinuation { continuation in
             audioSession.requestRecordPermission { allowed in
                 continuation.resume(returning: allowed)
@@ -47,17 +47,17 @@ class VoiceMatchingService: ObservableObject {
         
         print("✅ [VoiceService] Microphone permission granted")
         
-        // 配置录音会话
+        // Configure recording session
         try audioSession.setCategory(.playAndRecord, mode: .default)
         try audioSession.setActive(true)
         
-        // 创建临时文件URL
+        // Create temporary file URL
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         recordingURL = documentsPath.appendingPathComponent("voice_input.wav")
         
         print("📁 [VoiceService] Recording file path: \(recordingURL?.absoluteString ?? "nil")")
         
-        // 录音设置
+        // Recording settings
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatLinearPCM),
             AVSampleRateKey: 44100.0,
@@ -65,7 +65,7 @@ class VoiceMatchingService: ObservableObject {
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
         
-        // 创建录音器
+        // Create recorder
         audioRecorder = try AVAudioRecorder(url: recordingURL!, settings: settings)
         let success = audioRecorder?.record() ?? false
         
@@ -91,12 +91,12 @@ class VoiceMatchingService: ObservableObject {
             throw VoiceMatchingError.noRecording
         }
         
-        // 检查文件是否存在
+        // Check if file exists
         let fileExists = FileManager.default.fileExists(atPath: recordingURL.path)
         print("📄 [VoiceService] Recording file exists: \(fileExists)")
         
         if fileExists {
-            // 获取文件大小
+            // Get file size
             do {
                 let attributes = try FileManager.default.attributesOfItem(atPath: recordingURL.path)
                 let fileSize = attributes[.size] as? Int64 ?? 0
@@ -106,11 +106,11 @@ class VoiceMatchingService: ObservableObject {
             }
         }
         
-        // 获取录音数据
+        // Get audio data
         let audioData = try Data(contentsOf: recordingURL)
         print("🔊 [VoiceService] Audio data loaded: \(audioData.count) bytes")
         
-        // 开始匹配过程
+        // Start matching process
         print("🔍 [VoiceService] Starting matching process...")
         await startMatching(audioData: audioData)
     }
@@ -127,7 +127,7 @@ class VoiceMatchingService: ObservableObject {
         do {
             print("📤 [VoiceService] Uploading audio to backend...")
             
-            // 上传音频文件并获取语音识别结果
+            // Upload audio file and get speech recognition results
             let uploadedData = try await APIService.shared.upload(
                 endpoint: APIConfig.Endpoints.aiUploadAudio,
                 audioData: audioData
@@ -135,7 +135,7 @@ class VoiceMatchingService: ObservableObject {
             
             print("✅ [VoiceService] Audio upload successful, response size: \(uploadedData.count) bytes")
             
-            // 解析上传响应，获取主题和标签
+            // Parse upload response to get topics and hashtags
             struct UploadResponse: Codable {
                 let transcription: String
                 let language: String
@@ -159,11 +159,11 @@ class VoiceMatchingService: ObservableObject {
             print("   🏷️ Topics: \(uploadResponse.extracted_topics ?? [])")
             print("   #️⃣ Hashtags: \(uploadResponse.generated_hashtags ?? [])")
             
-            // 使用从语音识别获得的主题和标签进行匹配
+            // Use topics and hashtags obtained from speech recognition for matching
             let extractedTopics = uploadResponse.extracted_topics ?? ["General topic"]
             let generatedHashtags = uploadResponse.generated_hashtags ?? ["#general", "#chat"]
             
-            // 创建匹配请求，将语音处理结果作为字符串传递
+            // Create match request, passing the complete speech processing results as a string
             let voiceResult = [
                 "transcription": uploadResponse.transcription,
                 "extracted_topics": extractedTopics,
@@ -174,9 +174,9 @@ class VoiceMatchingService: ObservableObject {
             let voiceResultString = String(data: voiceResultJSON, encoding: .utf8) ?? ""
             
             let matchRequest = AIMatchRequest(
-                user_voice_input: voiceResultString,  // 传递完整的语音处理结果
-                audio_file_url: nil,   // 已经上传了文件
-                max_participants: 2,    // 默认1对1匹配
+                user_voice_input: voiceResultString,  // Pass the complete speech processing results
+                audio_file_url: nil,   // File has already been uploaded
+                max_participants: 2,    // Default 1-on-1 match
                 language_preference: "en-US"
             )
             
@@ -196,7 +196,7 @@ class VoiceMatchingService: ObservableObject {
             print("   - Wait time: \(matchResponse.estimated_wait_time)")
             
             await MainActor.run {
-                // 使用从语音识别获得的主题，而不是匹配响应中的主题
+                // Use topics obtained from speech recognition, not topics from match response
                 matchedTopics = extractedTopics
                 estimatedWaitTime = matchResponse.estimated_wait_time
                 matchStatus = "Found the following topics:\n" + extractedTopics.joined(separator: "\n")
@@ -204,7 +204,7 @@ class VoiceMatchingService: ObservableObject {
                 print("✅ [VoiceService] Match completed - isMatching: false")
                 print("🏷️ [VoiceService] Topics found: \(matchedTopics)")
                 
-                // 创建匹配结果
+                // Create match result
                 lastMatchResult = MatchResult(
                     transcription: uploadResponse.transcription,
                     topics: extractedTopics,
@@ -215,7 +215,7 @@ class VoiceMatchingService: ObservableObject {
                     waitTime: matchResponse.estimated_wait_time
                 )
                 
-                // 触发导航到等待房间
+                // Trigger navigation to waiting room
                 shouldNavigateToWaitingRoom = true
                 print("🚪 [VoiceService] Navigating to waiting room.")
             }
@@ -251,7 +251,7 @@ class VoiceMatchingService: ObservableObject {
         }
     }
     
-    // 重置导航状态（从等候室返回时调用）
+    // Reset navigation state (called when returning from waiting room)
     func resetNavigation() {
         shouldNavigateToWaitingRoom = false
         lastMatchResult = nil

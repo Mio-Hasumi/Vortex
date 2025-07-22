@@ -147,7 +147,7 @@ struct SidebarContent: View {
                         )
                     }
                     
-                    // User name - 显示真实用户名
+                    // User name - display real username
                     Text(authService.displayName ?? "User")
                         .font(.system(size: 24, weight: .semibold, design: .rounded))
                         .foregroundColor(.white)
@@ -170,7 +170,7 @@ struct SidebarContent: View {
                     title: "Home",
                     isSelected: true,
                     action: {
-                        // 当前就在 Home 页面，不需要额外操作
+                        // Already on Home page, no additional action needed
                         print("Home selected")
                     }
                 )
@@ -180,7 +180,7 @@ struct SidebarContent: View {
                     title: "Voice Match",
                     action: {
                         print("Voice Match selected")
-                        // 可以触发语音匹配功能
+                        // Can trigger voice matching feature
                     }
                 )
                 

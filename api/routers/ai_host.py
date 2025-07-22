@@ -1267,7 +1267,7 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
                 logger.info(f"📝 [Transcription] User said: '{transcription}'")
                 
                 await websocket.send_text(json.dumps({
-                    "type": "stt_done",  # 修复：改为前端期待的事件类型
+                    "type": "stt_done",  # Fix: Change to the event type expected by the frontend
                     "text": transcription,
                     "confidence": 0.95,
                     "timestamp": datetime.utcnow().isoformat()
@@ -1279,8 +1279,8 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
                 logger.info(f"📝 [AI Text] Delta: '{text_delta}'")
                 
                 await websocket.send_text(json.dumps({
-                    "type": "response.text.delta",  # 修复：使用正确的AI文本响应事件类型
-                    "delta": text_delta,  # 使用delta字段名匹配前端期待
+                    "type": "response.text.delta",  # Fix: Use the correct AI text response event type
+                    "delta": text_delta,  # Use delta field name to match frontend expectations
                     "timestamp": datetime.utcnow().isoformat()
                 }))
                 
@@ -1327,7 +1327,7 @@ async def handle_realtime_events(conn, websocket: WebSocket, openai_service):
                 # AI response completed
                 logger.info("✅ [AI] Response completed")
                 await websocket.send_text(json.dumps({
-                    "type": "response.done",  # 修复：改为前端期待的事件类型
+                    "type": "response.done",  # Fix: Change to the event type expected by the frontend
                     "timestamp": datetime.utcnow().isoformat()
                 }))
                 
