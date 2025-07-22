@@ -44,6 +44,9 @@ struct HomeView: View {
                     print("🏠 [HomeView] Recording started, updating UI")
                     // Stop current typing animation
                     stopTyping()
+                    // Clear text segments to hide scrolling text
+                    textSegments.removeAll()
+                    currentTypingText = ""
                     // Start recording state pulse animation
                     startCursorBlinking()
                 }
@@ -233,50 +236,55 @@ struct HomeView: View {
                                             .id("blank-spacer")
                                     }
                                     
-                                    // Show completed text segments
-                                    ForEach(Array(textSegments.enumerated()), id: \.offset) { index, segment in
-                                        Text(segment)
-                                            .font(.system(size: 48, weight: .light))
-                                            .foregroundColor(.white)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .lineLimit(nil)
-                                            .multilineTextAlignment(.leading)
-                                            .id("segment-\(index)")
+                                    // Show completed text segments only when not recording or matching
+                                    if !voiceService.isRecording && !voiceService.isMatching {
+                                        ForEach(Array(textSegments.enumerated()), id: \.offset) { index, segment in
+                                            Text(segment)
+                                                .font(.system(size: 48, weight: .light))
+                                                .foregroundColor(.white)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .lineLimit(nil)
+                                                .multilineTextAlignment(.leading)
+                                                .id("segment-\(index)")
+                                        }
                                     }
                                     
                                     // Show currently typing text with voice matching status
                                     Group {
                                         if voiceService.isRecording {
                                             // Recording state with animation
-                                            HStack(spacing: 16) {
-                                                // Pulsing record button
-                                                Circle()
-                                                    .fill(Color.red)
-                                                    .frame(width: 20, height: 20)
-                                                    .scaleEffect(showCursor ? 1.2 : 1.0)
-                                                    .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: showCursor)
-                                                
-                                                Text("Recording... Tap to stop")
-                                                    .font(.system(size: 48, weight: .light))
-                                                    .foregroundColor(.red)
-                                            }
+                                            Text("Recording... Tap to stop")
+                                                .font(.system(size: 48, weight: .light))
+                                                .foregroundColor(showCursor ? .white : .white.opacity(0.8))
+                                                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: showCursor)
+                                                .padding(.leading, 20) // Move text to the right
                                         } else if voiceService.isMatching {
                                             // Matching state with loading animation
                                             HStack(spacing: 16) {
                                                 // Loading spinner
                                                 ProgressView()
-                                                    .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                                     .scaleEffect(1.5)
                                                 
-                                                Text(voiceService.matchStatus ?? "Finding matches...")
+                                                Text("Analyzing voice...")
                                                     .font(.system(size: 48, weight: .light))
-                                                    .foregroundColor(.blue)
+                                                    .foregroundColor(showCursor ? .white : .white.opacity(0.8))
+                                                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: showCursor)
                                             }
+                                            .padding(.leading, 20) // Move both spinner and text to the right
                                         } else {
-                                            // Normal typing text
-                                    Text(currentTypingText + (showCursor ? "|" : ""))
-                                        .font(.system(size: 48, weight: .light))
-                                        .foregroundColor(.white)
+                                            // Normal typing text - use same layout structure for consistency
+                                            HStack(spacing: 16) {
+                                                // Invisible spacer to maintain layout consistency
+                                                Rectangle()
+                                                    .fill(Color.clear)
+                                                    .frame(width: 20, height: 20)
+                                                
+                                                Text(currentTypingText + (showCursor ? "|" : ""))
+                                                    .font(.system(size: 48, weight: .light))
+                                                    .foregroundColor(.white)
+                                            }
+                                            .padding(.leading, 20) // Same padding as other states
                                         }
                                     }
                                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -347,13 +355,19 @@ struct HomeView: View {
             print("🏠 [HomeView] Matching state changed: \(isMatching)")
             if !isMatching && !voiceService.isRecording {
                 print("🏠 [HomeView] Both recording and matching finished, scheduling text reset")
-                // Delay showing results, then reset
+                // Only restart typing if not navigating to waiting room
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     if !voiceService.shouldNavigateToWaitingRoom {
                         print("🏠 [HomeView] Resetting to normal text after showing results")
                         startTypingNewText()
                     }
                 }
+            } else if isMatching {
+                // Stop typing when matching starts
+                print("🏠 [HomeView] Matching started, stopping typing animation")
+                stopTyping()
+                textSegments.removeAll()
+                currentTypingText = ""
             }
         }
         .onChange(of: voiceService.isRecording) { isRecording in
