@@ -209,6 +209,11 @@ class AgentManagerService:
             logger.info(f"[AGENT RUN DEBUG] Token length: {len(token)}")
             logger.info(f"[AGENT RUN DEBUG] Metadata: {metadata}")
             
+            # Initialize variables for proper cleanup
+            http_session = None
+            session = None
+            room = None
+            
             # Import here to avoid circular imports
             from .vortex_agent import create_vortex_agent_session
             from livekit.agents import JobContext
@@ -248,20 +253,16 @@ class AgentManagerService:
             logger.info(f"[AGENT RUN DEBUG] Room name: {room.name}")
             logger.info(f"[AGENT RUN DEBUG] Local participant: {room.local_participant.identity}")
             
-            # Enable microphone for the agent
-            logger.info(f"[AGENT RUN DEBUG] Setting up agent audio...")
-            try:
-                await room.local_participant.set_microphone_enabled(True)
-                logger.info(f"[AGENT RUN DEBUG] ✅ Microphone enabled")
-            except Exception as mic_error:
-                logger.error(f"[AGENT RUN DEBUG] ❌ Microphone setup failed: {mic_error}")
+            # Agent audio is handled automatically by AgentSession
+            logger.info(f"[AGENT RUN DEBUG] ✅ Agent audio will be handled by AgentSession")
             
             # Create and configure the agent session with OpenAI Realtime API (OFFICIAL APPROACH)
             logger.info(f"[AGENT RUN DEBUG] Creating VortexAgent session with OpenAI Realtime API...")
             try:
-                # Import LiveKit Agents framework components
+                # Import LiveKit Agents framework components and aiohttp for HTTP session
                 from livekit import agents
                 from livekit.plugins import openai
+                import aiohttp
                 
                 # Create the VortexAgent
                 _, agent = create_vortex_agent_session(
@@ -270,6 +271,9 @@ class AgentManagerService:
                     room_context=metadata.get("room_context", {})
                 )
                 logger.info(f"[AGENT RUN DEBUG] ✅ VortexAgent created")
+                
+                # Create HTTP session for OpenAI Realtime API
+                http_session = aiohttp.ClientSession()
                 
                 # Create AgentSession with OpenAI Realtime API (as per official guide)
                 from openai.types.beta.realtime.session import TurnDetection
@@ -288,7 +292,9 @@ class AgentManagerService:
                             silence_duration_ms=500,
                             create_response=True,
                             interrupt_response=True,
-                        )
+                        ),
+                        # Provide explicit HTTP session to avoid context errors
+                        http_session=http_session
                     )
                 )
                 logger.info(f"[AGENT RUN DEBUG] ✅ AgentSession created with OpenAI Realtime API")
@@ -338,6 +344,14 @@ class AgentManagerService:
                 logger.info(f"[AGENT] VortexAgent session cleaned up for room: {room_name}")
             except Exception as cleanup_error:
                 logger.error(f"[AGENT ERROR] ❌ Error cleaning up agent session: {cleanup_error}")
+            
+            # Cleanup HTTP session
+            try:
+                if http_session:
+                    await http_session.close()
+                    logger.info(f"[AGENT] HTTP session cleaned up for room: {room_name}")
+            except Exception as http_cleanup_error:
+                logger.error(f"[AGENT ERROR] ❌ Error cleaning up HTTP session: {http_cleanup_error}")
             
         except Exception as e:
             logger.error(f"[AGENT ERROR] ❌ Error running agent in room {room_name}: {e}")
