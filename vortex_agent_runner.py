@@ -201,28 +201,19 @@ async def entrypoint(ctx: JobContext):
         if len(humans_in_room) >= expected_users:
             greeting_event.set()
         
-        # Wait for greeting trigger and deliver greeting
+        # Wait for enough participants, then let model handle greeting via prompt
         try:
             await asyncio.wait_for(greeting_event.wait(), timeout=30.0)  # 30 second timeout
             
-            # Get personalized greeting message from agent
-            greeting_msg = vortex_agent.get_greeting_message()
+            logger.info(f"[GREETING] 🎉 {len(humans_in_room)} participants ready - model will greet on next user message")
+            logger.info("[GREETING] ✅ Agent ready - waiting for user messages to trigger prompt-based greeting")
             
-            logger.info(f"[GREETING] 📢 Delivering personalized greeting to {len(humans_in_room)} participants")
-            logger.info(f"[GREETING] Message: {greeting_msg[:100]}...")
-            
-            # Deliver greeting via session.say() (bypasses LLM, cannot be interrupted)
-            await session.say(greeting_msg, allow_interruptions=False)
-            
-            # Mark greeting as delivered and set to listening mode
-            vortex_agent.mark_greeting_delivered()
-            vortex_agent.set_listening_mode(True)
-            
-            logger.info("[GREETING] ✅ Greeting delivered, agent now in listening mode")
+            # No manual greeting - the model will greet based on its instructions 
+            # when ready_to_greet=true and greeted=false in the prompt
             
         except asyncio.TimeoutError:
-            logger.warning("[GREETING] ⏰ Greeting timeout - proceeding without greeting")
-            vortex_agent.set_listening_mode(True)
+            logger.warning("[GREETING] ⏰ Greeting timeout - model will still greet when users speak")
+            # Still OK - model will greet when conditions are met
         
         # Keep the session running
         logger.info("🎯 VortexAgent session running - waiting for completion")
