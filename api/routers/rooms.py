@@ -116,17 +116,28 @@ async def create_room(
         saved_room = await room_repo.save(room)
         
         # NEW: Automatically deploy VortexAgent to the room
+        logger.info(f"🚀 ROOM CREATION DEBUG: Starting VortexAgent deployment for room: {saved_room.name}")
+        logger.info(f"🚀 ROOM CREATION DEBUG: Room ID: {saved_room.id}")
+        logger.info(f"🚀 ROOM CREATION DEBUG: LiveKit room name: {saved_room.livekit_room_name}")
+        
         try:
             from infrastructure.container import container
+            logger.info(f"🔍 CONTAINER DEBUG: Container imported successfully")
+            
             agent_manager = container.get_agent_manager_service()
+            logger.info(f"🔍 CONTAINER DEBUG: Agent manager retrieved: {agent_manager is not None}")
             
             if agent_manager:
-                logger.info(f"🤖 Deploying VortexAgent to new room: {saved_room.name}")
+                logger.info(f"🤖 DEPLOYMENT DEBUG: Deploying VortexAgent to new room: {saved_room.name}")
+                logger.info(f"🤖 DEPLOYMENT DEBUG: Room entity: {type(saved_room)}")
+                logger.info(f"🤖 DEPLOYMENT DEBUG: Room host_ai_identity: {getattr(saved_room, 'host_ai_identity', 'NOT FOUND')}")
                 
                 # Extract topics for the agent context
                 room_topics = [request.topic] if request.topic else ["general discussion"]
+                logger.info(f"🤖 DEPLOYMENT DEBUG: Room topics: {room_topics}")
                 
                 # Deploy the agent
+                logger.info(f"🤖 DEPLOYMENT DEBUG: About to call deploy_agent_to_room...")
                 deployment_result = await agent_manager.deploy_agent_to_room(
                     room=saved_room,
                     room_topics=room_topics,
@@ -137,15 +148,25 @@ async def create_room(
                     }
                 )
                 
+                logger.info(f"🤖 DEPLOYMENT DEBUG: Deployment result: {deployment_result}")
+                
                 if deployment_result.get("success"):
                     logger.info(f"✅ VortexAgent deployed successfully to room: {saved_room.name}")
+                    logger.info(f"✅ DEPLOYMENT SUCCESS: Agent identity: {deployment_result.get('agent_identity')}")
+                    logger.info(f"✅ DEPLOYMENT SUCCESS: Context: {deployment_result.get('context')}")
                 else:
-                    logger.warning(f"⚠️ VortexAgent deployment failed for room: {saved_room.name} - {deployment_result.get('error')}")
+                    logger.error(f"❌ VortexAgent deployment failed for room: {saved_room.name}")
+                    logger.error(f"❌ DEPLOYMENT FAILURE: Error: {deployment_result.get('error')}")
+                    logger.error(f"❌ DEPLOYMENT FAILURE: Full result: {deployment_result}")
             else:
-                logger.warning("⚠️ Agent manager service not available - no AI host will be deployed")
+                logger.error("❌ CRITICAL: Agent manager service not available - no AI host will be deployed")
+                logger.error(f"❌ CRITICAL: Container services: {[attr for attr in dir(container) if not attr.startswith('_')]}")
                 
         except Exception as agent_error:
-            logger.error(f"❌ Error deploying VortexAgent: {agent_error}")
+            logger.error(f"❌ EXCEPTION: Error deploying VortexAgent: {agent_error}")
+            logger.error(f"❌ EXCEPTION: Error type: {type(agent_error)}")
+            import traceback
+            logger.error(f"❌ EXCEPTION: Traceback: {traceback.format_exc()}")
             # Don't fail room creation if agent deployment fails
         
         return RoomResponse(

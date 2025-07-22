@@ -383,27 +383,40 @@ def create_vortex_agent_session(
     """
     
     try:
-        logger.info("🏗️ Creating VortexAgent session with OpenAI Realtime API")
+        logger.info("🏗️ SESSION DEBUG: Starting VortexAgent session creation with OpenAI Realtime API")
+        logger.info(f"🏗️ SESSION DEBUG: OpenAI service provided: {openai_service is not None}")
+        logger.info(f"🏗️ SESSION DEBUG: AI host service provided: {ai_host_service is not None}")
+        logger.info(f"🏗️ SESSION DEBUG: Room context provided: {room_context is not None}")
         
         # Import OpenAI Realtime components
+        logger.info("🏗️ SESSION DEBUG: Importing OpenAI Realtime components...")
         from livekit.plugins import openai
         from openai.types.beta.realtime.session import TurnDetection
+        logger.info("🏗️ SESSION DEBUG: ✅ OpenAI imports successful")
         
         # Create the agent instance
+        logger.info("🏗️ SESSION DEBUG: Creating VortexAgent instance...")
         vortex_agent = VortexAgent(
             openai_service=openai_service,
             ai_host_service=ai_host_service
         )
+        logger.info("🏗️ SESSION DEBUG: ✅ VortexAgent instance created")
         
         # Update room context if provided
+        logger.info("🏗️ SESSION DEBUG: Updating room context...")
         if room_context:
+            logger.info(f"🏗️ SESSION DEBUG: Room context details: {room_context}")
             vortex_agent.update_room_context(
                 participants=room_context.get("participants", []),
                 topics=room_context.get("topics", [])
             )
+            logger.info("🏗️ SESSION DEBUG: ✅ Room context updated")
+        else:
+            logger.info("🏗️ SESSION DEBUG: No room context to update")
         
         # Create session with OpenAI Realtime API (OFFICIAL APPROACH)
         # This replaces separate STT + LLM + TTS + VAD components
+        logger.info("🏗️ SESSION DEBUG: Creating AgentSession with OpenAI Realtime API...")
         session = AgentSession(
             llm=openai.realtime.RealtimeModel(
                 model="gpt-4o-realtime-preview",  # Latest Realtime model
@@ -420,10 +433,14 @@ def create_vortex_agent_session(
                 )
             )
         )
+        logger.info("🏗️ SESSION DEBUG: ✅ AgentSession created successfully")
         
-        logger.info("✅ VortexAgent session created with OpenAI Realtime API")
+        logger.info("✅ SESSION DEBUG: VortexAgent session creation completed successfully")
         return session, vortex_agent
         
     except Exception as e:
-        logger.error(f"❌ Failed to create VortexAgent session: {e}")
+        logger.error(f"❌ SESSION ERROR: Failed to create VortexAgent session: {e}")
+        logger.error(f"❌ SESSION ERROR: Error type: {type(e)}")
+        import traceback
+        logger.error(f"❌ SESSION ERROR: Traceback: {traceback.format_exc()}")
         raise Exception(f"Failed to create VortexAgent session: {str(e)}") 

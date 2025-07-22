@@ -11,7 +11,12 @@ class VortexAgentService: ObservableObject {
     
     private let apiService = APIService.shared
     
-    private init() {}
+    private init() {
+        // Set up authentication token if available
+        if let token = AuthService.shared.firebaseToken {
+            apiService.setAuthToken(token)
+        }
+    }
     
     // MARK: - Agent Status Management
     
@@ -22,13 +27,10 @@ class VortexAgentService: ObservableObject {
     func getAgentStatus(roomId: String) async throws -> AgentStatusResponse {
         let path = APIConfig.agentStatusPath(roomId)
         
-        let request = APIRequest<EmptyRequest, AgentStatusResponse>(
+        return try await apiService.request(
             endpoint: path,
-            method: .GET,
-            body: EmptyRequest()
+            method: "GET"
         )
-        
-        return try await apiService.performRequest(request)
     }
     
     /**
@@ -53,13 +55,13 @@ class VortexAgentService: ObservableObject {
             topic_suggestions_enabled: topicSuggestionsEnabled
         )
         
-        let request = APIRequest<AgentSettingsRequest, AgentSettingsResponse>(
-            endpoint: path,
-            method: .PUT,
-            body: settings
-        )
+        let bodyData = try JSONEncoder().encode(settings)
         
-        return try await apiService.performRequest(request)
+        return try await apiService.request(
+            endpoint: path,
+            method: "PUT",
+            body: bodyData
+        )
     }
     
     /**
@@ -69,13 +71,11 @@ class VortexAgentService: ObservableObject {
     func removeAgent(fromRoom roomId: String) async throws -> [String: Any] {
         let path = APIConfig.removeAgentPath(roomId)
         
-        let request = APIRequest<EmptyRequest, [String: AnyCodable]>(
+        let response: [String: AnyCodable] = try await apiService.request(
             endpoint: path,
-            method: .DELETE,
-            body: EmptyRequest()
+            method: "DELETE"
         )
         
-        let response = try await apiService.performRequest(request)
         return response.mapValues { $0.value }
     }
     
@@ -86,13 +86,24 @@ class VortexAgentService: ObservableObject {
     func getAgentStats() async throws -> AgentStatsResponse {
         let path = APIConfig.Endpoints.agentStats
         
-        let request = APIRequest<EmptyRequest, AgentStatsResponse>(
+        return try await apiService.request(
             endpoint: path,
-            method: .GET,
-            body: EmptyRequest()
+            method: "GET"
         )
-        
-        return try await apiService.performRequest(request)
+    }
+    
+    // MARK: - Authentication Management
+    
+    /**
+     * Update authentication token
+     * Call this when user authentication changes
+     */
+    func updateAuthToken() {
+        if let token = AuthService.shared.firebaseToken {
+            apiService.setAuthToken(token)
+        } else {
+            apiService.clearAuthToken()
+        }
     }
     
     // MARK: - Convenience Methods
@@ -159,7 +170,7 @@ class VortexAgentService: ObservableObject {
 
 // MARK: - Supporting Types
 
-private struct EmptyRequest: Codable {}
+// No additional types needed with current APIService implementation
 
 // MARK: - Usage Examples
 /*

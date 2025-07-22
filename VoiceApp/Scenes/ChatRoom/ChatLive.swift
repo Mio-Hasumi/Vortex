@@ -325,19 +325,19 @@ private struct ParticipantView: View {
     let participant: MatchParticipant
     let isConnected: Bool
     
+    // Computed property for profile image
+    private var profileImage: String {
+        if participant.isAIHost {
+            return "orb"
+        } else if participant.isCurrentUser {
+            return "profile1"
+        } else {
+            return "profile\(min(Int.random(in: 1...3), 3))"
+        }
+    }
+    
     var body: some View {
         VStack {
-            // Choose profile image based on participant type
-            let profileImage: String
-            if participant.isAIHost {
-                // Use orb image for AI host
-                profileImage = "orb"
-            } else if participant.isCurrentUser {
-                profileImage = "profile1"
-            } else {
-                profileImage = "profile\(min(Int.random(in: 1...3), 3))"
-            }
-            
             // AI Host gets special treatment with orb image
             if participant.isAIHost {
                 Image("orb")
@@ -616,12 +616,19 @@ extension LiveKitCallService: RoomDelegate {
                 // Check if this is an AI host participant
                 let isAIHost = participantId.hasPrefix("host_") || cleanParticipantId.hasPrefix("host_")
                 
+                print("🔍 [PARTICIPANT DEBUG] Processing participant: \(participantId)")
+                print("🔍 [PARTICIPANT DEBUG] Clean ID: \(cleanParticipantId)")
+                print("🔍 [PARTICIPANT DEBUG] Is AI Host: \(isAIHost)")
+                print("🔍 [PARTICIPANT DEBUG] Checking prefixes: host_ -> \(participantId.hasPrefix("host_")), clean host_ -> \(cleanParticipantId.hasPrefix("host_"))")
+                
                 // Use the clean ID (without "user_" prefix) for consistency with match data
                 let displayName: String
                 if isAIHost {
                     displayName = "Vortex" // AI host name
+                    print("✅ [PARTICIPANT DEBUG] AI HOST DETECTED! Setting displayName to: \(displayName)")
                 } else {
                     displayName = "User \(String(cleanParticipantId.prefix(8)))" // Use first 8 chars of clean ID
+                    print("👤 [PARTICIPANT DEBUG] Regular user detected: \(displayName)")
                 }
                 
                 let newParticipant = MatchParticipant(
@@ -630,6 +637,9 @@ extension LiveKitCallService: RoomDelegate {
                     isCurrentUser: false,
                     isAIHost: isAIHost
                 )
+                
+                print("🎭 [PARTICIPANT DEBUG] Created participant: \(newParticipant)")
+                print("🎭 [PARTICIPANT DEBUG] Participant isAIHost flag: \(newParticipant.isAIHost)")
                 
                 self.participants.append(newParticipant)
                 print("➕ [LiveKit] Added new participant to UI: \(newParticipant.displayName) (clean ID: '\(cleanParticipantId)')")
@@ -675,6 +685,7 @@ extension LiveKitCallService: RoomDelegate {
                 if let index = self.participants.firstIndex(where: { $0.userId == possibleId }) {
                     removedParticipant = self.participants.remove(at: index)
                     print("🗑️ [LiveKit] Removed participant from UI: \(removedParticipant!.displayName) (matched with ID: '\(possibleId)')")
+                    print("🎭 [DISCONNECT DEBUG] Was AI host: \(removedParticipant!.isAIHost)")
                     break
                 }
             }
@@ -682,6 +693,8 @@ extension LiveKitCallService: RoomDelegate {
             if let participant = removedParticipant {
                 // Show notification that participant left
                 self.showParticipantLeftNotification(participant.displayName)
+                print("🎭 [DISCONNECT DEBUG] Total participants after removal: \(self.participants.count)")
+                print("🎭 [DISCONNECT DEBUG] AI hosts remaining: \(self.participants.filter { $0.isAIHost }.count)")
             } else {
                 print("❌ [LiveKit] Could not find participant with ID '\(participantId)' to remove from UI")
                 print("❌ [LiveKit] Tried IDs: \(possibleIds)")
