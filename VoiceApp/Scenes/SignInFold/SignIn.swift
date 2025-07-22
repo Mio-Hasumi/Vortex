@@ -170,17 +170,24 @@ struct SignInFormView: View {
                 
                 // Add Google login button
                 Button(action: signInWithGoogle) {
-                    HStack {
-                        Image(systemName: "g.circle.fill")
-                            .foregroundColor(.white)
-                            .font(.title2)
+                    HStack(spacing: 12) {
+                        // Official Google logo (should be an asset)
+                        Image("google_logo") // You'll need to add this asset
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 18, height: 18)
+                        
                         Text("Sign in with Google")
-                            .font(.rajdhaniBody)
-                            .foregroundColor(.white)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color(red: 60/255, green: 64/255, blue: 67/255))
                     }
                     .frame(width: 280, height: 44)
-                    .background(Color.red)
-                    .cornerRadius(8)
+                    .background(Color.white)
+                    .cornerRadius(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color(red: 218/255, green: 220/255, blue: 224/255), lineWidth: 1)
+                    )
                 }
                 .disabled(isLoading)
                 
