@@ -136,17 +136,7 @@ class VortexAgent(Agent):
                                 "message_count": 0
                             }
                 
-                # Update personality based on settings
-                self.personality.update({
-                    "engagement_level": settings.get("engagement_level", 8),
-                    "style": settings.get("personality", "friendly"),
-                })
-                
-                # Update intervention thresholds
-                if settings.get("engagement_level"):
-                    # Higher engagement = more likely to intervene
-                    engagement = settings["engagement_level"]
-                    self.silence_threshold = max(15, 30 - (engagement * 2))  # 15-30 seconds
+                # Settings processed (personality and intervention logic removed in cleanup)
                     
             logger.info(f"[AGENT] Room context updated: match_type={self.room_context.get('match_type')}, timeout={self.room_context.get('timeout_explanation')}")
             logger.info(f"[AGENT] Participants pre-loaded: {list(self.participant_map.keys())}")
@@ -515,8 +505,9 @@ def create_vortex_agent_session(
             logger.info("[SESSION DEBUG] ✅ Room context updated")
         
         # Create AgentSession with OpenAI Realtime API (end-to-end low latency)
-        from livekit.plugins.openai.realtime import RealtimeModel, ServerVadOptions
+        from livekit.plugins.openai import realtime
         from livekit.plugins import openai
+        from openai.types.beta.realtime.session import TurnDetection
         
         # VAD 兜底配置 (优先 WebRTC，避免 silero 导入错误)
         vad = None
@@ -529,13 +520,14 @@ def create_vortex_agent_session(
             logger.info("[SESSION DEBUG] ⚠️ No local VAD - using Realtime built-in turn detection")
         
         # 一体化 Realtime（STT+LLM+TTS）- Pure prompt driven
-        rt_llm = RealtimeModel(
-            model="gpt-4o-realtime-preview",
+        rt_llm = realtime.RealtimeModel(
+            model="gpt-4o-realtime-preview-2024-12-17",
             voice="verse",
             temperature=0.7,
             modalities=["text", "audio"],
             # instructions 已经在 Agent 基类中设置，这里不重复设置避免冲突
-            turn_detection=ServerVadOptions(
+            turn_detection=TurnDetection(
+                type="server_vad",
                 threshold=0.5,
                 prefix_padding_ms=300,
                 silence_duration_ms=500,
