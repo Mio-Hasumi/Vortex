@@ -28,8 +28,7 @@ from livekit.agents import (
     function_tool, 
     RunContext
 )
-from livekit.agents.llm import LLMError
-from livekit.plugins import openai  # Using OpenAI Realtime API for all voice features
+
 
 from .openai_service import OpenAIService
 from .ai_host_service import AIHostService
@@ -1069,34 +1068,40 @@ def create_vortex_agent_session(
             logger.info("[SESSION DEBUG] ✅ Room context updated")
         
         # Create AgentSession with OpenAI Realtime API (end-to-end low latency)
-        from livekit.plugins import openai
+        from livekit.plugins.openai import realtime
+        from openai.types.beta.realtime.session import TurnDetection
         
-        # 可选 VAD 配置 (带回退机制)
+        # VAD 兜底配置 (优先 WebRTC，避免 silero 导入错误)
         vad = None
         try:
-            from livekit.plugins import silero
-            vad = silero.VAD.load()
-            logger.info("[SESSION DEBUG] ✅ Using Silero VAD")
-        except ImportError:
-            try:
-                from livekit.agents.vad.webrtc import WebRTCVAD
-                vad = WebRTCVAD()
-                logger.info("[SESSION DEBUG] ✅ Using WebRTC VAD")
-            except Exception:
-                vad = None  # 让 Realtime 自己处理
-                logger.info("[SESSION DEBUG] ⚠️ No local VAD - using Realtime built-in VAD")
+            from livekit.agents.vad.webrtc import WebRTCVAD
+            vad = WebRTCVAD()
+            logger.info("[SESSION DEBUG] ✅ Using WebRTC VAD")
+        except Exception:
+            vad = None  # 让 Realtime 自己处理
+            logger.info("[SESSION DEBUG] ⚠️ No local VAD - using Realtime built-in turn detection")
         
         # 一体化 Realtime（STT+LLM+TTS）
-        rt_llm = openai.Realtime(
+        rt_llm = realtime.RealtimeModel(
             model="gpt-4o-realtime-preview",
             voice="verse",
             temperature=0.7,
+            modalities=["audio", "text"],  # 默认音频+文本
+            turn_detection=TurnDetection(
+                type="server_vad",          # 或 "semantic_vad"
+                threshold=0.5,
+                prefix_padding_ms=300,
+                silence_duration_ms=500,
+                create_response=True,
+                interrupt_response=True,
+            ),
         )
         # 系统提示仍由 Agent 自己的 instructions 提供，不要重复塞到 Realtime
         
         session = AgentSession(
             llm=rt_llm,
-            vad=vad
+            vad=vad,             # None 时用 Realtime 内置
+            auto_response=True   # 让 Realtime 自动响应，配合 intervention 逻辑控制
         )
         
         logger.info("[SESSION DEBUG] ✅ AgentSession created with OpenAI Realtime API")
