@@ -274,6 +274,7 @@ class AgentManagerService:
                 logger.error(f"🏃 AGENT RUN DEBUG: ❌ Agent session start failed: {session_error}")
                 import traceback
                 logger.error(f"🏃 AGENT RUN DEBUG: Session error traceback: {traceback.format_exc()}")
+                # Don't return here, keep the agent running even if session start failed
             
             # Log that the agent is now active
             logger.info(f"🎭 ✅ VortexAgent is now ACTIVE and CONNECTED in room: {room_name}")
@@ -281,7 +282,7 @@ class AgentManagerService:
             logger.info(f"🎭 ✅ Room participants: {[p.identity for p in room.remote_participants]}")
             
             # Keep the agent running
-            while room_name in self.active_agents and room.connection_state == rtc.ConnectionState.CONNECTED:
+            while room_name in self.active_agents and room.connection_state == rtc.ConnectionState.CONN_CONNECTED:
                 await asyncio.sleep(5)  # Check every 5 seconds
                 logger.info(f"🎭 HEARTBEAT: Agent still active in {room_name}, participants: {len(room.remote_participants)}")
                 
@@ -303,6 +304,13 @@ class AgentManagerService:
                 logger.info(f"👋 VortexAgent disconnected from room: {room_name}")
             except Exception as disconnect_error:
                 logger.error(f"❌ Error disconnecting agent: {disconnect_error}")
+            
+            # Cleanup session resources
+            try:
+                await session.aclose()
+                logger.info(f"🧹 VortexAgent session cleaned up for room: {room_name}")
+            except Exception as cleanup_error:
+                logger.error(f"❌ Error cleaning up agent session: {cleanup_error}")
             
         except Exception as e:
             logger.error(f"❌ AGENT RUN ERROR: Error running agent in room {room_name}: {e}")

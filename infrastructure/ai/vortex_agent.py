@@ -416,6 +416,11 @@ def create_vortex_agent_session(
         # Create session with OpenAI Realtime API (OFFICIAL APPROACH)
         # This replaces separate STT + LLM + TTS + VAD components
         logger.info("🏗️ SESSION DEBUG: Creating AgentSession with OpenAI Realtime API...")
+        
+        # Create HTTP session for OpenAI API calls
+        import aiohttp
+        http_session = aiohttp.ClientSession()
+        
         session = AgentSession(
             llm=openai.realtime.RealtimeModel(
                 model="gpt-4o-realtime-preview",  # Latest Realtime model
@@ -429,7 +434,8 @@ def create_vortex_agent_session(
                     silence_duration_ms=500,  # 500ms silence ends turn
                     create_response=True,  # Auto-generate responses
                     interrupt_response=True  # Allow natural interruptions
-                )
+                ),
+                http_session=http_session  # Provide HTTP session explicitly
             )
         )
         logger.info("🏗️ SESSION DEBUG: ✅ AgentSession created successfully")
