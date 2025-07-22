@@ -90,6 +90,12 @@ class VortexAgent(Agent):
         self.listening_mode = True  # Start in passive listening mode
         self.has_been_introduced = False  # Track if agent has introduced itself
         self._pending_greeting = None  # Store greeting to be delivered
+        self._prepared_greeting = None  # Store prepared greeting for user join events
+        
+        # User join detection for greeting
+        self.expected_users = 2  # Expected number of users
+        self.current_user_count = 0  # Current number of users detected
+        self.has_greeted = False  # Track if initial greeting has been delivered
         
         # Participant tracking
         self.participant_map = {}  # Maps LiveKit identity to user info
@@ -195,20 +201,16 @@ Remember: Less is often more. Let users have their conversations naturally unles
     async def on_enter(self) -> None:
         """Called when agent becomes active in the session"""
         try:
-            logger.info("[AGENT] Vortex agent entering room - will greet users first")
+            logger.info("[AGENT] 🎯 Vortex agent entering room - waiting for users to join")
             
-            # Room context is already set during agent creation, no need for job context
+            # Room context is already set during agent creation
             room_name = self.room_context.get("room_name", "AI Chat Room")
             logger.info(f"[AGENT] Room context available: {room_name}")
             
-            # Give users a moment to settle in
-            logger.info("[AGENT] Waiting 3 seconds for users to settle...")
-            await asyncio.sleep(3)
-            
-            # ACTIVE introduction first to explain usage
+            # Set up greeting but don't deliver yet - wait for user join events
             if self.room_context.get("timeout_explanation", False):
                 # Timeout match explanation
-                greeting = (
+                self._prepared_greeting = (
                     "Hi there! I'm Vortex, your AI conversation assistant. "
                     f"{self.room_context.get('topics_context', 'Since no one was immediately interested in the same topics, I randomly connected you two.')} "
                     "I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join the conversation, suggest topics, or help in any way!"
@@ -219,46 +221,38 @@ Remember: Less is often more. Let users have their conversations naturally unles
                 hashtags = self.room_context.get('hashtags', [])
                 
                 if hashtags:
-                    greeting = (
+                    self._prepared_greeting = (
                         f"Hi everyone! I'm Vortex, your AI conversation assistant. "
                         f"I see you both are interested in {', '.join(hashtags[:3])}{'...' if len(hashtags) > 3 else ''}! "
                         f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to suggest topics, answer questions, or help with your conversation. Enjoy chatting!"
                     )
                 else:
-                    greeting = (
+                    self._prepared_greeting = (
                         f"Hi everyone! I'm Vortex, your AI conversation assistant. "
                         f"{topics_context} "
                         f"I'll be quietly listening from now on - just say 'Hey Vortex' anytime you want me to join in, suggest topics, or help with your conversation!"
                     )
             
-            logger.info(f"[AGENT] About to say greeting: {greeting[:100]}...")
+            logger.info(f"[AGENT] ✅ Greeting prepared: {self._prepared_greeting[:100]}...")
+            logger.info("[AGENT] 👁️ Now monitoring for user join events to trigger greeting")
             
-            # Use proper LiveKit Agents pattern - queue the greeting to be said immediately
-            logger.info("[AGENT] Scheduling immediate greeting...")
+            # Initialize participant tracking
+            self.expected_users = 2  # Expecting 2 users in AI matches
+            self.current_user_count = 0
+            self.has_greeted = False
             
-            try:
-                # Set a flag for immediate greeting and queue it
-                self._pending_greeting = greeting
-                self.listening_mode = False  # Temporarily active to deliver greeting
-                logger.info("[AGENT] ✅ Greeting queued for immediate delivery!")
-            except Exception as greeting_error:
-                logger.error(f"[AGENT] ❌ Error queuing greeting: {greeting_error}")
-            
-            # Will switch to passive listening mode after greeting is delivered
-            self.last_user_message_time = datetime.now()
-            self.has_been_introduced = True
-            
-            logger.info("[AGENT] Vortex greeting ready - will switch to passive listening after delivery")
+            # Set initial state
+            self.listening_mode = True  # Start in listening mode
+            self.has_been_introduced = False  # Will be set after greeting
             
         except Exception as e:
             logger.error(f"[AGENT] ❌ ERROR in on_enter: {e}")
             import traceback
             logger.error(f"[AGENT] Traceback: {traceback.format_exc()}")
-            # Set the greeting as pending for delivery on first user message
-            logger.info("[AGENT] Setting simple fallback greeting as pending")
-            self._pending_greeting = "Hi! I'm Vortex, your AI assistant. Say 'Hey Vortex' anytime you need help!"
-            self.listening_mode = False  # Will be set to true after greeting delivery
-            logger.info("[AGENT] ✅ Fallback greeting queued successfully!")
+            # Set fallback greeting
+            self._prepared_greeting = "Hi! I'm Vortex, your AI assistant. Say 'Hey Vortex' anytime you need help!"
+            self.has_greeted = False
+            logger.info("[AGENT] ✅ Fallback greeting prepared")
 
     async def on_exit(self) -> None:
         """Called when agent is leaving the session"""
@@ -276,9 +270,33 @@ Remember: Less is often more. Let users have their conversations naturally unles
             logger.info(f"[AGENT] ✅ on_user_turn_completed called! User said: '{user_input}'")
             participant_info = self._get_participant_info(new_message)
             
-            # Check if we have a pending greeting to deliver FIRST
+            # Check if this is a new user joining (for greeting detection)
+            await self._handle_potential_user_join(participant_info)
+            
+            # Check if we need to deliver the initial greeting
+            if not self.has_greeted and self._prepared_greeting and self.current_user_count >= 1:
+                logger.info(f"[AGENT] 🎉 USER JOIN DETECTED! Delivering greeting to {self.current_user_count} user(s)")
+                logger.info(f"[AGENT] Greeting: {self._prepared_greeting[:50]}...")
+                
+                # Add greeting as system message to be spoken
+                turn_ctx.add_message(
+                    role="system", 
+                    content=f"IMPORTANT: You must say this greeting first, then switch to passive listening mode: '{self._prepared_greeting}'"
+                )
+                
+                # Mark as greeted and switch to passive mode
+                self.has_greeted = True
+                self.has_been_introduced = True
+                self.listening_mode = True
+                self.room_context["conversation_state"] = "listening"
+                self.last_user_message_time = datetime.now()
+                
+                logger.info("[AGENT] ✅ Initial greeting delivered - now switching to passive listening mode")
+                return  # Let the greeting be spoken
+            
+            # Check if we have an older pending greeting to deliver (fallback)
             if self._pending_greeting:
-                logger.info(f"[AGENT] Delivering pending greeting: {self._pending_greeting[:50]}...")
+                logger.info(f"[AGENT] Delivering fallback pending greeting: {self._pending_greeting[:50]}...")
                 # Add greeting as system message to be spoken
                 turn_ctx.add_message(
                     role="system", 
@@ -289,7 +307,7 @@ Remember: Less is often more. Let users have their conversations naturally unles
                 # After greeting is delivered, switch to passive mode
                 self.listening_mode = True
                 self.room_context["conversation_state"] = "listening"
-                logger.info("[AGENT] Greeting delivered - now switching to passive listening mode")
+                logger.info("[AGENT] Fallback greeting delivered - now switching to passive listening mode")
                 return  # Let the greeting be spoken
             
             # Update participant message count
@@ -366,6 +384,42 @@ Remember: Less is often more. Let users have their conversations naturally unles
             logger.error(f"[AGENT ERROR] ❌ Error in on_user_turn_completed: {e}")
             import traceback
             logger.error(f"[AGENT ERROR] Traceback: {traceback.format_exc()}")
+
+    async def _handle_potential_user_join(self, participant_info: Dict[str, Any]) -> None:
+        """
+        Handle potential user join event for greeting trigger
+        
+        Args:
+            participant_info: Information about the participant
+        """
+        try:
+            participant_identity = participant_info.get("identity", "unknown")
+            
+            # Skip AI hosts from user counting
+            if participant_info.get("is_ai_host", False):
+                logger.debug(f"[USER JOIN] Skipping AI host: {participant_identity}")
+                return
+                
+            # Check if this is a new user we haven't seen before
+            if participant_identity not in self.participant_map:
+                # This is a new user joining
+                self.current_user_count += 1
+                logger.info(f"[USER JOIN] 🎯 NEW USER DETECTED: {participant_identity}")
+                logger.info(f"[USER JOIN] Current user count: {self.current_user_count}/{self.expected_users}")
+                
+                # Log user join for debugging
+                logger.info(f"[USER JOIN] User info: name={participant_info.get('name', 'Unknown')}, "
+                          f"is_ai_host={participant_info.get('is_ai_host', False)}")
+                
+                # If we haven't greeted yet and we have users, trigger greeting
+                if not self.has_greeted and self.current_user_count >= 1:
+                    logger.info(f"[USER JOIN] 🎉 Ready to greet! Users: {self.current_user_count}, "
+                              f"Has greeted: {self.has_greeted}")
+            else:
+                logger.debug(f"[USER JOIN] Existing user message: {participant_identity}")
+                
+        except Exception as e:
+            logger.error(f"[USER JOIN ERROR] ❌ Error handling user join: {e}")
 
     def _get_participant_info(self, message: ChatMessage) -> Dict[str, Any]:
         """

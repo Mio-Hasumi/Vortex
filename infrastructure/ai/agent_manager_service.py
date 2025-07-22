@@ -495,4 +495,63 @@ class AgentManagerService:
             "stopped_agents": stopped_count,
             "rooms_with_agents": list(self.active_agents.keys()),
             "timestamp": datetime.utcnow().isoformat()
-        } 
+        }
+
+    async def wait_for_agent_ready(self, room_name: str, timeout: int = 10) -> bool:
+        """
+        Wait for VortexAgent to be ready and connected to LiveKit room
+        
+        Args:
+            room_name: LiveKit room name to check
+            timeout: Timeout in seconds
+            
+        Returns:
+            True if agent is ready, False if timeout
+        """
+        try:
+            logger.info(f"[AGENT READY] Checking if agent is ready in room: {room_name}")
+            
+            # Check if agent is in active agents list
+            for attempt in range(timeout):
+                if room_name in self.active_agents:
+                    agent_info = self.active_agents[room_name]
+                    agent_status = agent_info.get("status", "unknown")
+                    
+                    logger.info(f"[AGENT READY] Attempt {attempt + 1}/{timeout}: Agent status = {agent_status}")
+                    
+                    if agent_status == "active":
+                        logger.info(f"✅ [AGENT READY] Agent confirmed active in room: {room_name}")
+                        return True
+                        
+                logger.debug(f"[AGENT READY] Waiting for agent... ({attempt + 1}/{timeout})")
+                await asyncio.sleep(1)
+            
+            logger.warning(f"⚠️ [AGENT READY] Timeout waiting for agent in room: {room_name}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ [AGENT READY] Error checking agent readiness: {e}")
+            return False
+
+    def get_agent_info(self, room_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get agent information for a specific room
+        
+        Args:
+            room_name: LiveKit room name to get agent info for
+            
+        Returns:
+            Agent info dict or None if no agent in room
+        """
+        try:
+            if room_name in self.active_agents:
+                agent_info = self.active_agents[room_name]
+                logger.info(f"[AGENT INFO] Found agent in room {room_name}: status={agent_info.get('status', 'unknown')}")
+                return agent_info
+            else:
+                logger.info(f"[AGENT INFO] No agent found in room: {room_name}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ [AGENT INFO] Error getting agent info for room {room_name}: {e}")
+            return None 
