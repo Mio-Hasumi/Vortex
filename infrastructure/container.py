@@ -26,9 +26,6 @@ from infrastructure.repositories.recording_repository import RecordingRepository
 from infrastructure.ai.openai_service import OpenAIService
 from infrastructure.ai.ai_host_service import AIHostService
 
-# Middleware
-from infrastructure.middleware.firebase_auth_middleware import FirebaseAuthMiddleware
-
 logger = logging.getLogger(__name__)
 
 class Container:
