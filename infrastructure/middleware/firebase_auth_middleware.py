@@ -18,7 +18,6 @@ from firebase_admin import auth
 
 from domain.entities import User
 from infrastructure.repositories.user_repository import UserRepository
-from infrastructure.container import container
 from infrastructure.db.firebase import FirebaseAdminService
 from fastapi.security import OAuth2PasswordBearer
 
@@ -187,10 +186,14 @@ def get_firebase_auth_middleware() -> FirebaseAuthMiddleware:
     
     return firebase_auth_instance
 
+def get_user_repository() -> UserRepository:
+    """Get user repository instance for dependency injection"""
+    db = FirebaseAdminService()
+    return UserRepository(db)
+
 async def get_current_user(
     request: Request = None,
     token: str = Depends(oauth2_scheme),
-    user_repo=Depends(get_user_repository),
 ) -> User:
     """
     Dependency function to get current authenticated user
@@ -203,4 +206,7 @@ async def get_current_user(
     # Get auth middleware instance directly
     firebase_auth = get_firebase_auth_middleware()
     
-    return firebase_auth.get_current_user(credentials=HTTPAuthorizationCredentials(credentials=token), test_mode=False)
+    # Create HTTPAuthorizationCredentials from token
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    
+    return firebase_auth.get_current_user(credentials=credentials, test_mode=False)
