@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var isTyping = false
     @State private var showCursor = true // For blinking cursor effect
     @State private var cursorTimer: Timer?
+    @State private var navigateToWaitingRoom = false
     
     // Voice matching related text
     private let matchingTexts = [
@@ -347,10 +348,10 @@ struct HomeView: View {
             startTypingNewText()
         }
         .onChange(of: voiceService.shouldNavigateToWaitingRoom) { shouldNavigate in
-            if shouldNavigate {
-                print("🚪 [HomeView] About to navigate to waiting room")
+            if shouldNavigate, voiceService.waitingRoomInfo != nil {
+                self.navigateToWaitingRoom = true
             }
-                    }
+        }
         .onChange(of: voiceService.isMatching) { isMatching in
             print("🏠 [HomeView] Matching state changed: \(isMatching)")
             if !isMatching && !voiceService.isRecording {

@@ -21,6 +21,7 @@ from domain.entities import Room
 from infrastructure.livekit.livekit_service import LiveKitService
 from .openai_service import OpenAIService
 from .ai_host_service import AIHostService
+from .waiting_room_agent import create_waiting_room_agent_session
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,56 @@ class AgentManagerService:
         }
         
         logger.info("[AGENT] ✅ AgentManagerService initialized")
+
+    async def deploy_waiting_room_agent(
+        self,
+        room_name: str,
+        user_info: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Deploys a WaitingRoomAgent to a temporary LiveKit room for a single user.
+        """
+        try:
+            agent_identity = f"waiting_room_agent_{user_info['id']}"
+            
+            agent_token = self.livekit.generate_token(
+                room_name=room_name,
+                identity=agent_identity,
+                can_publish=True,
+                can_subscribe=True,
+                can_publish_data=True,
+                ttl=3600 # 1 hour TTL for a waiting room agent
+            )
+
+            job_metadata = {
+                "agent_type": "waiting_room_agent",
+                "user_info": user_info,
+                "deployment_time": datetime.utcnow().isoformat(),
+            }
+
+            deployment_result = await self._start_agent_process(
+                agent_type="waiting_room",
+                room_name=room_name,
+                agent_token=agent_token,
+                metadata=job_metadata
+            )
+
+            self.active_agents[room_name] = {
+                "room_id": None, # it's a temporary room, no domain entity
+                "agent_identity": agent_identity,
+                "agent_token": agent_token,
+                "deployment_time": datetime.utcnow(),
+                "context": job_metadata,
+                "process_info": deployment_result,
+                "status": "active"
+            }
+            
+            logger.info(f"[AGENT] ✅ WaitingRoomAgent deployed successfully to room: {room_name}")
+            return {"success": True, "agent_identity": agent_identity, "room_name": room_name}
+
+        except Exception as e:
+            logger.error(f"❌ Failed to deploy waiting room agent to {room_name}: {e}")
+            return {"success": False, "error": str(e), "room_name": room_name}
 
     async def deploy_agent_to_room(
         self, 
@@ -119,6 +170,7 @@ class AgentManagerService:
             # Deploy agent using LiveKit's agent framework
             logger.info(f"[AGENT DEPLOY DEBUG] Starting agent process for room: {room.livekit_room_name}")
             deployment_result = await self._start_agent_process(
+                agent_type="vortex_host",
                 room_name=room.livekit_room_name,
                 agent_token=agent_token,
                 metadata=job_metadata
@@ -155,13 +207,14 @@ class AgentManagerService:
             }
 
     async def _start_agent_process(
-        self, 
+        self,
+        agent_type: str,
         room_name: str, 
         agent_token: str, 
         metadata: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Start the VortexAgent process for a specific room
+        Start the agent process for a specific room based on agent_type
         
         This can be implemented in different ways:
         1. Subprocess - spawn a new Python process
@@ -173,11 +226,12 @@ class AgentManagerService:
         # In production, you might want to use separate processes or containers
         
         try:
-            logger.info(f"🔧 Starting VortexAgent process for room: {room_name}")
+            logger.info(f"🔧 Starting {agent_type} process for room: {room_name}")
             
             # Create a background task that runs the agent
             agent_task = asyncio.create_task(
                 self._run_agent_in_room(
+                    agent_type=agent_type,
                     room_name=room_name,
                     token=agent_token,
                     metadata=metadata
@@ -196,13 +250,14 @@ class AgentManagerService:
             raise
 
     async def _run_agent_in_room(
-        self, 
+        self,
+        agent_type: str,
         room_name: str, 
         token: str, 
         metadata: Dict[str, Any]
     ):
         """
-        Run the VortexAgent in a specific room (async task version)
+        Run the agent in a specific room (async task version)
         """
         try:
             logger.info(f"[AGENT RUN DEBUG] Starting VortexAgent in room: {room_name}")
@@ -257,20 +312,32 @@ class AgentManagerService:
             logger.info(f"[AGENT RUN DEBUG] ✅ Agent audio will be handled by AgentSession")
             
             # Create and configure the agent session with OpenAI Realtime API (OFFICIAL APPROACH)
-            logger.info(f"[AGENT RUN DEBUG] Creating VortexAgent session with OpenAI Realtime API...")
+            logger.info(f"[AGENT RUN DEBUG] Creating agent session for type: {agent_type}")
             try:
                 # Import LiveKit Agents framework components and aiohttp for HTTP session
                 from livekit import agents
                 from livekit.plugins import openai
                 import aiohttp
-                
-                # Create the VortexAgent
-                _, agent = create_vortex_agent_session(
-                    openai_service=self.openai_service,
-                    ai_host_service=self.ai_host_service,
-                    room_context=metadata.get("room_context", {})
-                )
-                logger.info(f"[AGENT RUN DEBUG] ✅ VortexAgent created")
+
+                session = None
+                agent = None
+
+                if agent_type == "vortex_host":
+                    _, agent = create_vortex_agent_session(
+                        openai_service=self.openai_service,
+                        ai_host_service=self.ai_host_service,
+                        room_context=metadata.get("room_context", {})
+                    )
+                elif agent_type == "waiting_room":
+                    _, agent = create_waiting_room_agent_session(
+                        openai_service=self.openai_service,
+                        user_info=metadata.get("user_info", {})
+                    )
+                else:
+                    logger.error(f"Unknown agent type for deployment: {agent_type}")
+                    raise ValueError(f"Unknown agent type: {agent_type}")
+
+                logger.info(f"[AGENT RUN DEBUG] ✅ {agent.__class__.__name__} created")
                 
                 # Create HTTP session for OpenAI Realtime API
                 http_session = aiohttp.ClientSession()
@@ -317,7 +384,7 @@ class AgentManagerService:
             # Keep the agent running
             while room_name in self.active_agents and room.connection_state == rtc.ConnectionState.CONN_CONNECTED:
                 await asyncio.sleep(5)  # Check every 5 seconds
-                logger.info(f"[AGENT] Agent still active in {room_name}, participants: {len(room.remote_participants)}")
+                # logger.info(f"[AGENT] Agent still active in {room_name}, participants: {len(room.remote_participants)}") # Too noisy
                 
                 # Check if room still exists
                 try:
