@@ -17,6 +17,8 @@ struct HashtagScreen: View {
     
     @StateObject private var liveKitService = LiveKitCallService()
     @State private var showHangUpConfirmation = false
+    @State private var isIntentionallyLeaving = false
+    @State private var participantLeftMessage: String? = nil
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -62,13 +64,14 @@ struct HashtagScreen: View {
 
             // Dynamic participant display
             ZStack {
-                ForEach(Array(matchData.participants.enumerated()), id: \.offset) { index, participant in
-                    let offsets = getParticipantOffset(for: index, total: matchData.participants.count)
+                ForEach(Array(liveKitService.participants.enumerated()), id: \.offset) { index, participant in
+                    let offsets = getParticipantOffset(for: index, total: liveKitService.participants.count)
                     
                     ParticipantView(participant: participant, isConnected: liveKitService.isConnected)
                         .offset(x: offsets.x, y: offsets.y)
                         .shadow(color: participant.isCurrentUser ? .blue.opacity(0.5) : .white.opacity(0.3), 
                                radius: 15, x: 0, y: 0)
+                        .animation(.easeInOut(duration: 0.3), value: liveKitService.participants.count) // Smooth animation when participants change
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -139,9 +142,42 @@ struct HashtagScreen: View {
                 .padding()
                 Spacer()
             }
+            
+            // Participant left notification
+            if let message = participantLeftMessage {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Text(message)
+                            .font(.caption)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(Color.red.opacity(0.8)))
+                            .transition(.opacity)
+                    }
+                    .padding(.top, 60)
+                    Spacer()
+                }
+            }
         }
         .onAppear {
             print("📱 [CHAT] View appeared - connecting to LiveKit")
+            
+            // Set up participant left callback
+            liveKitService.onParticipantLeft = { displayName in
+                withAnimation(.easeIn(duration: 0.3)) {
+                    participantLeftMessage = "\(displayName) left the call"
+                }
+                
+                // Hide the message after 3 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    withAnimation(.easeOut(duration: 0.5)) {
+                        participantLeftMessage = nil
+                    }
+                }
+            }
+            
             // Connect to LiveKit when view appears
             Task {
                 await liveKitService.connect(
@@ -152,12 +188,25 @@ struct HashtagScreen: View {
             }
         }
         .onDisappear {
-            print("📱 [CHAT] View disappeared - cleaning up LiveKit connection")
-            // Only disconnect if we've actually connected
-            if liveKitService.hasConnected {
-                liveKitService.disconnect()
+            print("📱 [CHAT] View disappeared - isIntentionallyLeaving: \(isIntentionallyLeaving)")
+            
+            // Only cleanup if the user intentionally left (hang up button) or after a delay for other cases
+            if isIntentionallyLeaving {
+                print("📱 [CHAT] User intentionally left - immediate cleanup")
+                if liveKitService.hasConnected {
+                    liveKitService.disconnect()
+                }
             } else {
-                print("⚠️ [CHAT] View disappeared before connection was established - skipping disconnect")
+                // Add a longer delay to prevent premature cleanup during navigation transitions
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    // Only disconnect if we're still not connected to prevent cleanup during normal operation
+                    if liveKitService.hasConnected && !liveKitService.isDisconnecting && !liveKitService.isConnected {
+                        print("📱 [CHAT] Cleaning up LiveKit connection after delay (connection lost)")
+                        liveKitService.disconnect()
+                    } else {
+                        print("⚠️ [CHAT] Skipping cleanup - connection still active or already disconnecting")
+                    }
+                }
             }
         }
         .navigationBarHidden(true)
@@ -165,12 +214,26 @@ struct HashtagScreen: View {
             Button("Cancel", role: .cancel) {
                 showHangUpConfirmation = false
             }
-            Button("End Call", role: .destructive) {
-                print("📞 [CHAT] User confirmed hang up - ending call")
-                liveKitService.disconnect()
-                // Navigate back to home screen
-                dismiss()
-            }
+                            Button("End Call", role: .destructive) {
+                    print("📞 [CHAT] User confirmed hang up - ending call")
+                    isIntentionallyLeaving = true
+                    liveKitService.disconnect()
+                    
+                    // CRITICAL: Clear match data from AI service to prevent auto-navigation to old matches
+                    print("🧹 [CHAT] Clearing AI service match data to prevent auto-navigation")
+                    AIVoiceService.shared.clearMatchData()
+                    
+                    // Cleanup AI service when user intentionally leaves
+                    print("🧹 [CHAT] Cleaning up AI service on intentional exit")
+                    NotificationCenter.default.post(name: NSNotification.Name("CleanupAIServices"), object: nil)
+                    
+                    // Reset navigation state to return to home
+                    print("🔄 [CHAT] Resetting navigation state to return home")
+                    VoiceMatchingService.shared.resetNavigation()
+                    
+                    // Navigate back to home screen
+                    dismiss()
+                }
         } message: {
             Text("Are you sure you want to end this call? You'll be returned to the home screen.")
         }
@@ -253,7 +316,7 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
     private var audioSession: AVAudioSession?
     private var isSimulatingConnection = false
     private(set) var hasConnected = false  // Track if we've successfully connected
-    private var isDisconnecting = false  // Prevent multiple disconnects
+    private(set) var isDisconnecting = false  // Prevent multiple disconnects
     
     init() {
         setupAudioSession()
@@ -277,10 +340,12 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
         print("🔗 [LiveKit] Connecting to room: \(roomId)")
         
         await MainActor.run {
+            // Initialize with the provided participants from match data
             self.participants = participants
             self.connectionState = "Connecting..."
             self.hasConnected = false
             self.isDisconnecting = false
+            print("👥 [LiveKit] Initialized with \(participants.count) participants from match data")
         }
         
         // REAL LIVEKIT IMPLEMENTATION:
@@ -337,23 +402,18 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
         print("✅ [LiveKit] Room event handlers configured")
     }
     
-    // Handle new participants joining
-    nonisolated func room(_ room: Room, participantDidConnect participant: RemoteParticipant) {
-        print("🎉 [LiveKit] Participant joined: \(participant.identity)")
-        // LiveKit will automatically handle audio track subscriptions
-    }
-    
-    // Handle participants leaving
-    nonisolated func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
-        print("👋 [LiveKit] Participant left: \(participant.identity)")
-    }
-    
     func disconnect() {
         print("🔌 [LiveKit] Disconnect requested - hasConnected: \(hasConnected), isDisconnecting: \(isDisconnecting)")
         
         // Prevent multiple disconnects
         guard !isDisconnecting else {
             print("⚠️ [LiveKit] Already disconnecting, ignoring duplicate request")
+            return
+        }
+        
+        // Only disconnect if we actually have a connection
+        guard hasConnected, room != nil else {
+            print("⚠️ [LiveKit] No active connection to disconnect")
             return
         }
         
@@ -373,12 +433,14 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
             self.isConnected = false
             self.connectionState = "Disconnected"
             self.isMuted = false
+            // Clear all participants when disconnecting
             self.participants = []
             self.isSimulatingConnection = false
             self.hasConnected = false
             self.isDisconnecting = false
             
             print("✅ [LiveKit] Disconnected successfully")
+            print("👥 [LiveKit] Cleared all participants from UI")
         }
     }
     
@@ -392,11 +454,111 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
         }
     }
     
-
+    // Callback for participant left notifications
+    var onParticipantLeft: ((String) -> Void)?
+    
+    private func showParticipantLeftNotification(_ displayName: String) {
+        onParticipantLeft?(displayName)
+    }
 }
 
 // MARK: - LiveKit Room Delegate
 extension LiveKitCallService: RoomDelegate {
+    // Handle new participants joining
+    nonisolated func room(_ room: Room, participantDidConnect participant: RemoteParticipant) {
+        print("🎉 [LiveKit] Participant joined: \(participant.identity)")
+        // LiveKit will automatically handle audio track subscriptions
+        
+        Task { @MainActor in
+            let participantId: String
+            if let identity = participant.identity {
+                participantId = String(describing: identity)
+            } else {
+                participantId = "unknown"
+            }
+            
+            print("🔍 [LiveKit] Adding participant with ID: '\(participantId)'")
+            
+            // Check if participant is already in our list (avoid duplicates)
+            // Try both with and without "user_" prefix to handle format differences
+            let cleanParticipantId = participantId.replacingOccurrences(of: "user_", with: "")
+            let possibleIds = [participantId, cleanParticipantId]
+            
+            let alreadyExists = possibleIds.contains { id in
+                self.participants.contains(where: { $0.userId == id })
+            }
+            
+            if !alreadyExists {
+                // Use the clean ID (without "user_" prefix) for consistency with match data
+                let newParticipant = MatchParticipant(
+                    userId: cleanParticipantId,
+                    displayName: "User \(String(cleanParticipantId.prefix(8)))", // Use first 8 chars of clean ID
+                    isCurrentUser: false
+                )
+                
+                self.participants.append(newParticipant)
+                print("➕ [LiveKit] Added new participant to UI: \(newParticipant.displayName) (clean ID: '\(cleanParticipantId)')")
+            } else {
+                print("⚠️ [LiveKit] Participant already exists in UI, skipping duplicate")
+            }
+            
+            print("📊 [LiveKit] Total participants now: \(room.remoteParticipants.count + 1)")
+            print("👥 [LiveKit] Participants in UI: \(self.participants.count)")
+        }
+    }
+    
+    // Handle participants leaving
+    nonisolated func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
+        print("👋 [LiveKit] Participant left: \(participant.identity)")
+        
+        Task { @MainActor in
+            // Remove the participant from our local participant list
+            let participantId: String
+            if let identity = participant.identity {
+                participantId = String(describing: identity)
+            } else {
+                participantId = "unknown"
+            }
+            
+            print("🔍 [LiveKit] Looking for participant to remove with ID: '\(participantId)'")
+            print("📋 [LiveKit] Current participants in UI:")
+            for (index, p) in self.participants.enumerated() {
+                print("   [\(index)] userId: '\(p.userId)', displayName: '\(p.displayName)', isCurrentUser: \(p.isCurrentUser)")
+            }
+            
+            // Find and remove the participant from our list
+            // Try both with and without "user_" prefix to handle LiveKit format differences
+            let possibleIds = [participantId, participantId.replacingOccurrences(of: "user_", with: "")]
+            var removedParticipant: MatchParticipant?
+            
+            for possibleId in possibleIds {
+                if let index = self.participants.firstIndex(where: { $0.userId == possibleId }) {
+                    removedParticipant = self.participants.remove(at: index)
+                    print("🗑️ [LiveKit] Removed participant from UI: \(removedParticipant!.displayName) (matched with ID: '\(possibleId)')")
+                    break
+                }
+            }
+            
+            if let participant = removedParticipant {
+                // Show notification that participant left
+                self.showParticipantLeftNotification(participant.displayName)
+            } else {
+                print("❌ [LiveKit] Could not find participant with ID '\(participantId)' to remove from UI")
+                print("❌ [LiveKit] Tried IDs: \(possibleIds)")
+                print("❌ [LiveKit] Available participant IDs: \(self.participants.map { $0.userId })")
+            }
+            
+            print("📊 [LiveKit] Remaining participants in room: \(room.remoteParticipants.count)")
+            print("👥 [LiveKit] Participants in UI: \(self.participants.count)")
+            
+            // Show notification when you're alone
+            if room.remoteParticipants.isEmpty {
+                print("ℹ️ [LiveKit] You are now alone in the call")
+                // Could show a UI notification here if desired
+            }
+        }
+    }
+    
     // Implement required delegate methods for handling room events
     nonisolated func room(_ room: Room, didUpdateConnectionState connectionState: ConnectionState, from oldValue: ConnectionState) {
         print("🔄 [LiveKit] Connection state changed: \(oldValue) -> \(connectionState)")
