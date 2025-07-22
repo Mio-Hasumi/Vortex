@@ -346,6 +346,18 @@ class MatchingRepository:
         try:
             logger.info(f"🧠 Adding user {user_id} to AI matching queue")
             
+            # CRITICAL FIX: Remove any existing queue entries for this user first
+            # This prevents self-matching when user goes back and tries to match again
+            try:
+                user_uuid = UUID(user_id)
+                removed = self.remove_from_queue(user_uuid)
+                if removed:
+                    logger.info(f"🧹 Removed existing queue entry for user {user_id}")
+                else:
+                    logger.debug(f"🔍 No existing queue entry found for user {user_id}")
+            except (ValueError, TypeError) as e:
+                logger.warning(f"⚠️ Could not remove existing queue entry for user {user_id}: {e}")
+            
             # Get the actual hashtags and topics
             final_hashtags = hashtags or (ai_analysis.get('generated_hashtags', []) if ai_analysis else [])
             final_topics = ai_analysis.get('extracted_topics', []) if ai_analysis else []
@@ -415,6 +427,11 @@ class MatchingRepository:
             Match information dictionary
         """
         try:
+            # CRITICAL FIX: Prevent self-matching at the repository level
+            if user1_id == user2_id:
+                logger.error(f"🚫 [LIVEKIT] Self-match attempt blocked at repository level: {user1_id}")
+                raise ValueError(f"Cannot create match with same user: {user1_id}")
+            
             logger.info(f"🎯 [LIVEKIT] Creating AI match: {user1_id[:8]}... + {user2_id[:8]}... (confidence: {confidence:.2f})")
             
             # Import here to avoid circular imports

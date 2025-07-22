@@ -50,6 +50,8 @@ struct UserVoiceTopicMatchingView: View {
                         print("🚪 [EXIT] User tapped exit button - returning to home")
                         // Clean up AI voice service before dismissing
                         aiVoiceService.cleanup()
+                        // CRITICAL FIX: Reset navigation state to prevent self-matching
+                        VoiceMatchingService.shared.resetNavigation()
                         dismiss()
                     }) {
                         Image(systemName: "arrow.left")
@@ -117,6 +119,8 @@ struct UserVoiceTopicMatchingView: View {
             // Ensure cleanup when view disappears
             print("🚪 [EXIT] View disappearing - cleaning up AI voice service")
             aiVoiceService.cleanup()
+            // CRITICAL FIX: Reset navigation state to prevent self-matching
+            VoiceMatchingService.shared.resetNavigation()
         }
         .navigationBarHidden(true)
         // Navigation to live chat when match is found
