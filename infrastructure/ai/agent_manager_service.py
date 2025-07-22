@@ -53,7 +53,7 @@ class AgentManagerService:
             "topic_suggestions_enabled": True
         }
         
-        logger.info("✅ AgentManagerService initialized")
+        logger.info("[AGENT] ✅ AgentManagerService initialized")
 
     async def deploy_agent_to_room(
         self, 
@@ -73,16 +73,16 @@ class AgentManagerService:
             Agent deployment information
         """
         try:
-            logger.info(f"🚀 AGENT DEPLOY DEBUG: Starting deployment for room: {room.name}")
-            logger.info(f"🚀 AGENT DEPLOY DEBUG: Room type: {type(room)}")
-            logger.info(f"🚀 AGENT DEPLOY DEBUG: Room attributes: {dir(room)}")
+            logger.info(f"[AGENT DEPLOY DEBUG] Starting deployment for room: {room.name}")
+            logger.info(f"[AGENT DEPLOY DEBUG] Room type: {type(room)}")
+            logger.info(f"[AGENT DEPLOY DEBUG] Room attributes: {dir(room)}")
             
             # Generate agent identity (use the existing host_ai_identity)
             agent_identity = room.host_ai_identity
-            logger.info(f"🚀 AGENT DEPLOY DEBUG: Agent identity: {agent_identity}")
+            logger.info(f"[AGENT DEPLOY DEBUG] Agent identity: {agent_identity}")
             
             # Generate agent token with appropriate permissions
-            logger.info(f"🚀 AGENT DEPLOY DEBUG: Generating agent token for room: {room.livekit_room_name}")
+            logger.info(f"[AGENT DEPLOY DEBUG] Generating agent token for room: {room.livekit_room_name}")
             agent_token = self.livekit.generate_token(
                 room_name=room.livekit_room_name,
                 identity=agent_identity,
@@ -91,10 +91,10 @@ class AgentManagerService:
                 can_publish_data=True,  # Agent can send data messages
                 ttl=86400  # 24 hours
             )
-            logger.info(f"🚀 AGENT DEPLOY DEBUG: Agent token generated successfully (length: {len(agent_token) if agent_token else 'None'})")
+            logger.info(f"[AGENT DEPLOY DEBUG] Agent token generated successfully (length: {len(agent_token) if agent_token else 'None'})")
             
             # Prepare room context for the agent
-            logger.info(f"🚀 AGENT DEPLOY DEBUG: Preparing room context...")
+            logger.info(f"[AGENT DEPLOY DEBUG] Preparing room context...")
             room_context = {
                 "room_id": str(room.id),
                 "room_name": room.name,
@@ -105,7 +105,7 @@ class AgentManagerService:
                 "room_type": "voice_chat",
                 "room_settings": custom_settings or self.agent_settings
             }
-            logger.info(f"🚀 AGENT DEPLOY DEBUG: Room context prepared: {room_context}")
+            logger.info(f"[AGENT DEPLOY DEBUG] Room context prepared: {room_context}")
             
             # Create job metadata for the agent
             job_metadata = {
@@ -114,16 +114,16 @@ class AgentManagerService:
                 "deployment_time": datetime.utcnow().isoformat(),
                 "version": "1.0"
             }
-            logger.info(f"🚀 AGENT DEPLOY DEBUG: Job metadata prepared: {job_metadata}")
+            logger.info(f"[AGENT DEPLOY DEBUG] Job metadata prepared: {job_metadata}")
             
             # Deploy agent using LiveKit's agent framework
-            logger.info(f"🚀 AGENT DEPLOY DEBUG: Starting agent process for room: {room.livekit_room_name}")
+            logger.info(f"[AGENT DEPLOY DEBUG] Starting agent process for room: {room.livekit_room_name}")
             deployment_result = await self._start_agent_process(
                 room_name=room.livekit_room_name,
                 agent_token=agent_token,
                 metadata=job_metadata
             )
-            logger.info(f"🚀 AGENT DEPLOY DEBUG: Agent process result: {deployment_result}")
+            logger.info(f"[AGENT DEPLOY DEBUG] Agent process result: {deployment_result}")
             
             # Track the deployed agent
             self.active_agents[room.livekit_room_name] = {
@@ -136,7 +136,7 @@ class AgentManagerService:
                 "status": "active"
             }
             
-            logger.info(f"✅ VortexAgent deployed successfully to room: {room.name}")
+            logger.info(f"[AGENT] ✅ VortexAgent deployed successfully to room: {room.name}")
             
             return {
                 "success": True,
@@ -147,7 +147,7 @@ class AgentManagerService:
             }
             
         except Exception as e:
-            logger.error(f"❌ Failed to deploy agent to room {room.name}: {e}")
+            logger.error(f"[AGENT ERROR] ❌ Failed to deploy agent to room {room.name}: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -205,123 +205,149 @@ class AgentManagerService:
         Run the VortexAgent in a specific room (async task version)
         """
         try:
-            logger.info(f"🏃 AGENT RUN DEBUG: Starting VortexAgent in room: {room_name}")
-            logger.info(f"🏃 AGENT RUN DEBUG: Token length: {len(token)}")
-            logger.info(f"🏃 AGENT RUN DEBUG: Metadata: {metadata}")
+            logger.info(f"[AGENT RUN DEBUG] Starting VortexAgent in room: {room_name}")
+            logger.info(f"[AGENT RUN DEBUG] Token length: {len(token)}")
+            logger.info(f"[AGENT RUN DEBUG] Metadata: {metadata}")
             
             # Import here to avoid circular imports
             from .vortex_agent import create_vortex_agent_session
             from livekit.agents import JobContext
             from livekit import rtc
             
-            logger.info(f"🏃 AGENT RUN DEBUG: Imports successful")
+            logger.info(f"[AGENT RUN DEBUG] Imports successful")
             
             # Connect to the room using LiveKit SDK
             room_url = self.livekit.server_url
             if room_url.startswith("http"):
                 room_url = room_url.replace("http", "ws")
-            logger.info(f"🏃 AGENT RUN DEBUG: Connecting to LiveKit at: {room_url}")
+            logger.info(f"[AGENT RUN DEBUG] Connecting to LiveKit at: {room_url}")
             
             # Create a real LiveKit room connection
             room = rtc.Room()
-            logger.info(f"🏃 AGENT RUN DEBUG: Room object created")
+            logger.info(f"[AGENT RUN DEBUG] Room object created")
             
             # Set up room event handlers
             @room.on("participant_connected")
             def on_participant_connected(participant: rtc.RemoteParticipant):
-                logger.info(f"🎭 AGENT EVENT: Participant connected: {participant.identity}")
+                logger.info(f"[AGENT EVENT] Participant connected: {participant.identity}")
             
             @room.on("participant_disconnected") 
             def on_participant_disconnected(participant: rtc.RemoteParticipant):
-                logger.info(f"🎭 AGENT EVENT: Participant disconnected: {participant.identity}")
+                logger.info(f"[AGENT EVENT] Participant disconnected: {participant.identity}")
             
             @room.on("track_published")
             def on_track_published(publication: rtc.RemoteTrackPublication, participant: rtc.RemoteParticipant):
-                logger.info(f"🎭 AGENT EVENT: Track published by {participant.identity}: {publication.kind}")
+                logger.info(f"[AGENT EVENT] Track published by {participant.identity}: {publication.kind}")
             
-            logger.info(f"🏃 AGENT RUN DEBUG: Event handlers set up")
+            logger.info(f"[AGENT RUN DEBUG] Event handlers set up")
             
             # Connect to the room
-            logger.info(f"🏃 AGENT RUN DEBUG: Connecting to room with token...")
+            logger.info(f"[AGENT RUN DEBUG] Connecting to room with token...")
             await room.connect(room_url, token)
-            logger.info(f"🏃 AGENT RUN DEBUG: ✅ Successfully connected to LiveKit room!")
-            logger.info(f"🏃 AGENT RUN DEBUG: Room name: {room.name}")
-            logger.info(f"🏃 AGENT RUN DEBUG: Local participant: {room.local_participant.identity}")
+            logger.info(f"[AGENT RUN DEBUG] ✅ Successfully connected to LiveKit room!")
+            logger.info(f"[AGENT RUN DEBUG] Room name: {room.name}")
+            logger.info(f"[AGENT RUN DEBUG] Local participant: {room.local_participant.identity}")
             
             # Enable microphone for the agent
-            logger.info(f"🏃 AGENT RUN DEBUG: Setting up agent audio...")
+            logger.info(f"[AGENT RUN DEBUG] Setting up agent audio...")
             try:
-                await room.local_participant.set_microphone_enabled(True)
-                logger.info(f"🏃 AGENT RUN DEBUG: ✅ Microphone enabled")
+                # Use the correct LiveKit method for enabling microphone
+                source = room.local_participant.microphone
+                if source:
+                    await source.set_enabled(True)
+                    logger.info(f"[AGENT RUN DEBUG] ✅ Microphone enabled")
+                else:
+                    logger.info(f"[AGENT RUN DEBUG] No microphone source available")
             except Exception as mic_error:
-                logger.error(f"🏃 AGENT RUN DEBUG: ❌ Microphone setup failed: {mic_error}")
+                logger.error(f"[AGENT RUN DEBUG] ❌ Microphone setup failed: {mic_error}")
+                # This is not critical, continue without microphone setup
             
             # Create and configure the agent session
-            logger.info(f"🏃 AGENT RUN DEBUG: Creating VortexAgent session...")
+            logger.info(f"🤖 [AGENT RUN DEBUG] Creating VortexAgent session...")
+            logger.info(f"🤖 [AGENT RUN DEBUG] OpenAI service available: {self.openai_service is not None}")
+            logger.info(f"🤖 [AGENT RUN DEBUG] AI host service available: {self.ai_host_service is not None}")
+            logger.info(f"🤖 [AGENT RUN DEBUG] Room context keys: {list(metadata.get('room_context', {}).keys())}")
+            
             session, agent = create_vortex_agent_session(
                 openai_service=self.openai_service,
                 ai_host_service=self.ai_host_service,
                 room_context=metadata.get("room_context", {})
             )
-            logger.info(f"🏃 AGENT RUN DEBUG: ✅ VortexAgent session created")
+            logger.info(f"🤖 [AGENT RUN DEBUG] ✅ VortexAgent session created")
+            logger.info(f"🤖 [AGENT RUN DEBUG] Agent type: {type(agent)}")
+            logger.info(f"🤖 [AGENT RUN DEBUG] Session type: {type(session)}")
+            logger.info(f"🤖 [AGENT RUN DEBUG] Agent has session reference: {hasattr(agent, 'session') and agent.session is not None}")
             
             # Start the agent session with the connected room
-            logger.info(f"🏃 AGENT RUN DEBUG: Starting agent session...")
+            logger.info(f"🚀 [AGENT RUN DEBUG] Starting agent session...")
+            logger.info(f"🚀 [AGENT RUN DEBUG] Room connection state: {room.connection_state}")
+            logger.info(f"🚀 [AGENT RUN DEBUG] Room name in session start: {room.name}")
+            logger.info(f"🚀 [AGENT RUN DEBUG] Current participants before session start: {len(room.remote_participants)}")
+            
             try:
-                await session.start(room=room, agent=agent)
-                logger.info(f"🏃 AGENT RUN DEBUG: ✅ Agent session started successfully!")
+                # Since we already passed the agent to AgentSession constructor, 
+                # we only need to provide the room
+                logger.info(f"🚀 [AGENT RUN DEBUG] About to call session.start()...")
+                await session.start(room=room)
+                logger.info(f"🚀 [AGENT RUN DEBUG] ✅ Agent session started successfully!")
+                logger.info(f"🚀 [AGENT RUN DEBUG] Session state after start: active")
+                
+                # Give a moment for session to initialize
+                await asyncio.sleep(1)
+                logger.info(f"🚀 [AGENT RUN DEBUG] Agent should now be initializing...")
+                
             except Exception as session_error:
-                logger.error(f"🏃 AGENT RUN DEBUG: ❌ Agent session start failed: {session_error}")
+                logger.error(f"🚀 [AGENT RUN DEBUG] ❌ Agent session start failed: {session_error}")
                 import traceback
-                logger.error(f"🏃 AGENT RUN DEBUG: Session error traceback: {traceback.format_exc()}")
+                logger.error(f"🚀 [AGENT RUN DEBUG] Session error traceback: {traceback.format_exc()}")
                 # Don't return here, keep the agent running even if session start failed
             
             # Log that the agent is now active
-            logger.info(f"🎭 ✅ VortexAgent is now ACTIVE and CONNECTED in room: {room_name}")
-            logger.info(f"🎭 ✅ Agent identity: {room.local_participant.identity}")
-            logger.info(f"🎭 ✅ Room participants: {[p.identity for p in room.remote_participants]}")
+            logger.info(f"[AGENT] ✅ VortexAgent is now ACTIVE and CONNECTED in room: {room_name}")
+            logger.info(f"[AGENT] ✅ Agent identity: {room.local_participant.identity}")
+            logger.info(f"[AGENT] ✅ Room participants: {[p.identity for p in room.remote_participants]}")
             
             # Keep the agent running
             while room_name in self.active_agents and room.connection_state == rtc.ConnectionState.CONN_CONNECTED:
                 await asyncio.sleep(5)  # Check every 5 seconds
-                logger.info(f"🎭 HEARTBEAT: Agent still active in {room_name}, participants: {len(room.remote_participants)}")
+                logger.info(f"[AGENT] Agent still active in {room_name}, participants: {len(room.remote_participants)}")
                 
                 # Check if room still exists
                 try:
                     room_info = await self.livekit.get_room_info(room_name)
                     if not room_info:
-                        logger.info(f"🏃‍♀️ Room {room_name} no longer exists, stopping agent")
+                        logger.info(f"[AGENT] Room {room_name} no longer exists, stopping agent")
                         break
                 except Exception as check_error:
-                    logger.warning(f"🏃‍♀️ Error checking room {room_name}: {check_error}")
+                    logger.warning(f"[AGENT] Error checking room {room_name}: {check_error}")
                     break
             
-            logger.info(f"👋 VortexAgent stopping for room: {room_name}")
+            logger.info(f"[AGENT] VortexAgent stopping for room: {room_name}")
             
             # Disconnect from room
             try:
                 await room.disconnect()
-                logger.info(f"👋 VortexAgent disconnected from room: {room_name}")
+                logger.info(f"[AGENT] VortexAgent disconnected from room: {room_name}")
             except Exception as disconnect_error:
-                logger.error(f"❌ Error disconnecting agent: {disconnect_error}")
+                logger.error(f"[AGENT ERROR] ❌ Error disconnecting agent: {disconnect_error}")
             
             # Cleanup session resources
             try:
                 await session.aclose()
-                logger.info(f"🧹 VortexAgent session cleaned up for room: {room_name}")
+                logger.info(f"[AGENT] VortexAgent session cleaned up for room: {room_name}")
             except Exception as cleanup_error:
-                logger.error(f"❌ Error cleaning up agent session: {cleanup_error}")
+                logger.error(f"[AGENT ERROR] ❌ Error cleaning up agent session: {cleanup_error}")
             
         except Exception as e:
-            logger.error(f"❌ AGENT RUN ERROR: Error running agent in room {room_name}: {e}")
+            logger.error(f"[AGENT ERROR] ❌ Error running agent in room {room_name}: {e}")
             import traceback
-            logger.error(f"❌ AGENT RUN ERROR: Traceback: {traceback.format_exc()}")
+            logger.error(f"[AGENT ERROR] ❌ Traceback: {traceback.format_exc()}")
             
         finally:
             # Clean up
             if room_name in self.active_agents:
                 self.active_agents[room_name]["status"] = "stopped"
-                logger.info(f"🧹 Agent status set to stopped for room: {room_name}")
+                logger.info(f"[AGENT] Agent status set to stopped for room: {room_name}")
 
     async def remove_agent_from_room(self, room_name: str) -> Dict[str, Any]:
         """
@@ -334,10 +360,10 @@ class AgentManagerService:
             Removal result information
         """
         try:
-            logger.info(f"🗑️ Removing VortexAgent from room: {room_name}")
+            logger.info(f"[AGENT] Removing VortexAgent from room: {room_name}")
             
             if room_name not in self.active_agents:
-                logger.warning(f"⚠️ No active agent found for room: {room_name}")
+                logger.warning(f"[AGENT WARNING] No active agent found for room: {room_name}")
                 return {
                     "success": True,
                     "message": "No agent was active in this room",
@@ -352,10 +378,10 @@ class AgentManagerService:
             try:
                 success = self.livekit.remove_participant(room_name, agent_identity)
                 if success:
-                    logger.info(f"✅ Removed agent participant {agent_identity} from room {room_name}")
+                    logger.info(f"[AGENT] ✅ Removed agent participant {agent_identity} from room {room_name}")
                 
             except Exception as e:
-                logger.warning(f"⚠️ Could not remove agent participant: {e}")
+                logger.warning(f"[AGENT WARNING] Could not remove agent participant: {e}")
             
             # Mark agent as stopped
             agent_info["status"] = "stopped" 
@@ -364,7 +390,7 @@ class AgentManagerService:
             # Remove from active agents after a delay (to allow cleanup)
             asyncio.create_task(self._cleanup_agent_after_delay(room_name, delay=10))
             
-            logger.info(f"✅ VortexAgent removal initiated for room: {room_name}")
+            logger.info(f"[AGENT] ✅ VortexAgent removal initiated for room: {room_name}")
             
             return {
                 "success": True,
@@ -374,7 +400,7 @@ class AgentManagerService:
             }
             
         except Exception as e:
-            logger.error(f"❌ Failed to remove agent from room {room_name}: {e}")
+            logger.error(f"[AGENT ERROR] ❌ Failed to remove agent from room {room_name}: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -387,10 +413,10 @@ class AgentManagerService:
             await asyncio.sleep(delay)
             if room_name in self.active_agents:
                 del self.active_agents[room_name]
-                logger.info(f"🧹 Cleaned up agent info for room: {room_name}")
+                logger.info(f"[AGENT] Cleaned up agent info for room: {room_name}")
                 
         except Exception as e:
-            logger.error(f"❌ Error cleaning up agent info: {e}")
+            logger.error(f"[AGENT ERROR] ❌ Error cleaning up agent info: {e}")
 
     def get_active_agents(self) -> Dict[str, Dict[str, Any]]:
         """Get information about all active agents"""
@@ -427,7 +453,7 @@ class AgentManagerService:
             agent_info["context"]["room_settings"].update(settings)
             agent_info["last_updated"] = datetime.utcnow()
             
-            logger.info(f"✅ Updated agent settings for room: {room_name}")
+            logger.info(f"[AGENT] ✅ Updated agent settings for room: {room_name}")
             
             return {
                 "success": True,
@@ -437,7 +463,7 @@ class AgentManagerService:
             }
             
         except Exception as e:
-            logger.error(f"❌ Failed to update agent settings: {e}")
+            logger.error(f"[AGENT ERROR] ❌ Failed to update agent settings: {e}")
             return {
                 "success": False,
                 "error": str(e)
