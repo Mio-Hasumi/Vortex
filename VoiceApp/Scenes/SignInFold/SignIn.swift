@@ -146,14 +146,14 @@ struct SignInFormView: View {
                 .disabled(isLoading || email.isEmpty || password.isEmpty)
                 .padding(.top, 20)
                 
-                // 修改忘记密码按钮
+                // Modify forgot password button
                 Button("Forgot Password?") {
                     showForgotPassword = true
                 }
                 .foregroundColor(.blue)
                 .padding(.top, 8)
                 
-                // 添加分隔线
+                // Add separator line
                 HStack {
                     Rectangle()
                         .frame(height: 1)
@@ -168,7 +168,7 @@ struct SignInFormView: View {
                 .padding(.horizontal, 40)
                 .padding(.vertical, 20)
                 
-                // 添加 Google 登录按钮
+                // Add Google login button
                 Button(action: signInWithGoogle) {
                     HStack {
                         Image(systemName: "g.circle.fill")
@@ -214,7 +214,7 @@ struct SignInFormView: View {
                 await MainActor.run {
                     print("📧 Email sign in completed. Auth status: \(authService.isAuthenticated)")
                     isLoading = false
-                    // 检查认证状态并关闭表单
+                    // Check authentication status and close form
                     if authService.isAuthenticated {
                         print("📧 Dismissing sign in form...")
                         dismiss()
@@ -243,7 +243,7 @@ struct SignInFormView: View {
                 await MainActor.run {
                     print("🔴 Google sign in completed. Auth status: \(authService.isAuthenticated)")
                     isLoading = false
-                    // 检查认证状态并关闭表单
+                    // Check authentication status and close form
                     if authService.isAuthenticated {
                         print("🔴 Dismissing sign in form...")
                         dismiss()
@@ -367,7 +367,7 @@ struct RegisterFormView: View {
                 )
                 await MainActor.run {
                     isLoading = false
-                    // 检查认证状态并关闭表单
+                    // Check authentication status and close form
                     if authService.isAuthenticated {
                         dismiss()
                     }

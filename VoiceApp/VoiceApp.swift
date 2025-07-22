@@ -11,16 +11,16 @@ import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
 
-// Firebase 初始化代理
+// Firebase initialization delegate
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
         FirebaseApp.configure()
         
-        // 配置 Firestore 设置
+        // Configure Firestore settings
         let db = Firestore.firestore()
         let settings = FirestoreSettings()
-        settings.isPersistenceEnabled = true  // 启用离线支持
+        settings.isPersistenceEnabled = true  // Enable offline support
         db.settings = settings
         
         print("🔥 Firebase configured with Auth, Firestore, and Storage")
@@ -30,7 +30,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
 @main
 struct VoiceAppApp: App {
-    // 注册 AppDelegate 以设置 Firebase
+    // Register AppDelegate to set up Firebase
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     
     var body: some Scene {
@@ -40,7 +40,7 @@ struct VoiceAppApp: App {
     }
 }
 
-// 根视图 - 管理认证状态
+// Root view - manage authentication state
 struct RootView: View {
     @StateObject private var authService = AuthService.shared
     @StateObject private var voiceService = VoiceMatchingService.shared

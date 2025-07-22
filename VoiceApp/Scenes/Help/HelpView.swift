@@ -107,7 +107,7 @@ struct ContactView: View {
                     title: "Email Support",
                     subtitle: "support@voiceapp.com",
                     action: {
-                        // TODO: 打开邮件应用
+                        // TODO: Open mail app
                     }
                 )
                 
@@ -116,7 +116,7 @@ struct ContactView: View {
                     title: "Live Chat",
                     subtitle: "Available 24/7",
                     action: {
-                        // TODO: 打开聊天支持
+                        // TODO: Open chat support
                     }
                 )
                 
@@ -125,7 +125,7 @@ struct ContactView: View {
                     title: "Help Center",
                     subtitle: "Browse our knowledge base",
                     action: {
-                        // TODO: 打开帮助中心
+                        // TODO: Open help center
                     }
                 )
             }

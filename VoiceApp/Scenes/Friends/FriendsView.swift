@@ -111,7 +111,7 @@ struct FindPeopleView: View {
                 .padding(.horizontal, 40)
             
             Button("Start Finding Friends") {
-                // TODO: 实现查找好友功能
+                // TODO: Implement find friends functionality
             }
             .padding(.horizontal, 30)
             .padding(.vertical, 12)
@@ -195,7 +195,7 @@ struct FriendRequestRow: View {
             
             HStack(spacing: 12) {
                 Button("Accept") {
-                    // TODO: 接受好友请求
+                    // TODO: Accept friend request
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
@@ -204,7 +204,7 @@ struct FriendRequestRow: View {
                 .cornerRadius(8)
                 
                 Button("Decline") {
-                    // TODO: 拒绝好友请求
+                    // TODO: Reject friend request
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)

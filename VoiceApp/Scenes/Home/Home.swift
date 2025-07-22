@@ -25,7 +25,7 @@ struct HomeView: View {
     @State private var showCursor = true // For blinking cursor effect
     @State private var cursorTimer: Timer?
     
-    // 语音匹配相关的文本
+    // Voice matching related text
     private let matchingTexts = [
         "Tap to start recording, let me help you find interesting conversations...",
         "Share your interests, and I'll match you with like-minded people",
@@ -42,15 +42,15 @@ struct HomeView: View {
                 try await voiceService.startRecording()
                 await MainActor.run {
                     print("🏠 [HomeView] Recording started, updating UI")
-                    // 停止当前的打字动画
+                    // Stop current typing animation
                     stopTyping()
-                    // 开始录音状态的脉冲动画
+                    // Start recording state pulse animation
                     startCursorBlinking()
                 }
             } catch {
                 await MainActor.run {
                     print("🏠 [HomeView] Recording failed: \(error)")
-                    // 显示错误信息
+                    // Show error message
                     fullText = "Recording failed. Please try again."
                     currentTypingText = ""
                     currentCharIndex = 0
@@ -68,13 +68,13 @@ struct HomeView: View {
                 try await voiceService.stopRecording()
                 await MainActor.run {
                     print("🏠 [HomeView] Recording stopped, updating UI")
-                    // 停止录音动画
+                    // Stop recording animation
                     stopCursorBlinking()
                 }
             } catch {
                 await MainActor.run {
                     print("🏠 [HomeView] Stop recording failed: \(error)")
-                    // 显示错误信息
+                    // Show error message
                     fullText = "Failed to process recording. Please try again."
                     currentTypingText = ""
                     currentCharIndex = 0
@@ -347,7 +347,7 @@ struct HomeView: View {
             print("🏠 [HomeView] Matching state changed: \(isMatching)")
             if !isMatching && !voiceService.isRecording {
                 print("🏠 [HomeView] Both recording and matching finished, scheduling text reset")
-                // 延迟显示结果，然后重置
+                // Delay showing results, then reset
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     if !voiceService.shouldNavigateToWaitingRoom {
                         print("🏠 [HomeView] Resetting to normal text after showing results")
