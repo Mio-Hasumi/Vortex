@@ -56,12 +56,7 @@ class VortexAgent(Agent):
         room_context: Optional[Dict[str, Any]] = None
     ):
         
-        # Initialize with personality and instructions - use standard Agent constructor
-        super().__init__(
-            instructions=self._get_agent_instructions(),
-            chat_ctx=chat_ctx or ChatContext()
-        )
-        
+        # Initialize ALL instance variables FIRST before calling super().__init__
         self.openai_service = openai_service
         self.ai_host_service = ai_host_service
         
@@ -93,7 +88,7 @@ class VortexAgent(Agent):
         self.has_been_introduced = False  # Track if agent has introduced itself
         self.has_greeted = False  # Track if initial greeting has been delivered
         
-        # Participant tracking (will be managed externally now)
+        # Participant tracking (CRITICAL: initialize before _get_agent_instructions())
         self.participant_map = {}  # Maps LiveKit identity to user info
         
         # Greeting message
@@ -107,6 +102,12 @@ class VortexAgent(Agent):
             'fuck', 'shit', 'bitch', 'damn', 'ass', 'bastard', 'hell',
             'crap', 'piss', 'whore', 'slut', 'dickhead', 'asshole'
         }
+        
+        # NOW we can safely call super().__init__ with dynamic instructions
+        super().__init__(
+            instructions=self._get_agent_instructions(),
+            chat_ctx=chat_ctx or ChatContext()
+        )
         
         logger.info("✅ VortexAgent initialized with conversation hosting capabilities")
 
