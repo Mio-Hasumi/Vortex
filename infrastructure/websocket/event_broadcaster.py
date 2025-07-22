@@ -533,6 +533,11 @@ class EventBroadcaster:
                     
                     if user2_id in processed_users:
                         continue
+                    
+                    # CRITICAL FIX: Prevent self-matching
+                    if user2_id == user1_id:
+                        logger.warning(f"🚫 [MATCHING] Skipping self-match attempt: {user1_id[:8]}...")
+                        continue
                         
                     user2_hashtags = set(user2.get('hashtags', []))
                     
@@ -624,6 +629,11 @@ class EventBroadcaster:
             
             user1_id_str = user1['user_id']
             user2_id_str = user2['user_id']
+            
+            # CRITICAL FIX: Prevent self-matching at the final stage
+            if user1_id_str == user2_id_str:
+                logger.error(f"🚫 [BACKGROUND_MATCH] Self-match attempt blocked: {user1_id_str}")
+                return
             
             # Get hashtags for the match
             user1_hashtags = user1.get('hashtags', [])
