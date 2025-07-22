@@ -205,15 +205,17 @@ async def entrypoint(ctx: JobContext):
         try:
             await asyncio.wait_for(greeting_event.wait(), timeout=30.0)  # 30 second timeout
             
-            # Deliver greeting via session.say() (bypasses LLM)
-            greeting_msg = "Hi everyone! I'm Vortex, your AI conversation assistant. I'm here to help facilitate your discussion and provide assistance when needed. Feel free to continue your conversation!"
+            # Get personalized greeting message from agent
+            greeting_msg = vortex_agent.get_greeting_message()
             
-            logger.info(f"[GREETING] 📢 Delivering greeting to {len(humans_in_room)} participants")
+            logger.info(f"[GREETING] 📢 Delivering personalized greeting to {len(humans_in_room)} participants")
+            logger.info(f"[GREETING] Message: {greeting_msg[:100]}...")
+            
+            # Deliver greeting via session.say() (bypasses LLM)
             await session.say(greeting_msg, allow_interruptions=True)
             
-            # Mark agent as greeted and set to listening mode
-            vortex_agent.has_greeted = True
-            vortex_agent.has_been_introduced = True
+            # Mark greeting as delivered and set to listening mode
+            vortex_agent.mark_greeting_delivered()
             vortex_agent.set_listening_mode(True)
             
             logger.info("[GREETING] ✅ Greeting delivered, agent now in listening mode")
