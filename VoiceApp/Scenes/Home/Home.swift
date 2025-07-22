@@ -258,20 +258,26 @@ struct HomeView: View {
                                                 
                                                 Text("Recording... Tap to stop")
                                                     .font(.system(size: 48, weight: .light))
-                                                    .foregroundColor(.red)
+                                                    .foregroundColor(.white)
+                                                    .opacity(showCursor ? 1.0 : 0.7)
+                                                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: showCursor)
                                             }
+                                            .padding(.leading, 20) // Move both dot and text to the right
                                         } else if voiceService.isMatching {
                                             // Matching state with loading animation
                                             HStack(spacing: 16) {
                                                 // Loading spinner
                                                 ProgressView()
-                                                    .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                                     .scaleEffect(1.5)
                                                 
                                                 Text(voiceService.matchStatus ?? "Finding matches...")
                                                     .font(.system(size: 48, weight: .light))
-                                                    .foregroundColor(.blue)
+                                                    .foregroundColor(.white)
+                                                    .opacity(showCursor ? 1.0 : 0.7)
+                                                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: showCursor)
                                             }
+                                            .padding(.leading, 20) // Move both spinner and text to the right
                                         } else {
                                             // Normal typing text
                                     Text(currentTypingText + (showCursor ? "|" : ""))
