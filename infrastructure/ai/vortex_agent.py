@@ -90,6 +90,7 @@ class VortexAgent(Agent):
         self.silence_threshold = 20  # seconds before considering it "too quiet"
         self.listening_mode = True  # Start in passive listening mode
         self.has_been_introduced = False  # Track if agent has introduced itself
+        self._pending_greeting = None  # Store greeting to be delivered
         
         # Participant tracking
         self.participant_map = {}  # Maps LiveKit identity to user info
@@ -234,23 +235,22 @@ Remember: Less is often more. Let users have their conversations naturally unles
             
             logger.info(f"[AGENT] About to say greeting: {greeting[:100]}...")
             
-            # Check if session exists
-            if not hasattr(self, 'session') or self.session is None:
-                logger.error("[AGENT] ❌ ERROR: self.session is None! Cannot speak.")
-                return
+            # Use proper LiveKit Agents pattern - queue the greeting to be said immediately
+            logger.info("[AGENT] Scheduling immediate greeting...")
             
-            # Active greeting
-            logger.info("[AGENT] Calling session.say()...")
-            await self.session.say(greeting, allow_interruptions=True)
-            logger.info("[AGENT] ✅ Greeting said successfully!")
+            try:
+                # Set a flag for immediate greeting and queue it
+                self._pending_greeting = greeting
+                self.listening_mode = False  # Temporarily active to deliver greeting
+                logger.info("[AGENT] ✅ Greeting queued for immediate delivery!")
+            except Exception as greeting_error:
+                logger.error(f"[AGENT] ❌ Error queuing greeting: {greeting_error}")
             
-            # AFTER greeting, switch to passive listening mode
-            self.listening_mode = True
+            # Will switch to passive listening mode after greeting is delivered
             self.last_user_message_time = datetime.now()
-            self.room_context["conversation_state"] = "listening"
             self.has_been_introduced = True
             
-            logger.info("[AGENT] Vortex introduction complete - now in passive listening mode")
+            logger.info("[AGENT] Vortex greeting ready - will switch to passive listening after delivery")
             
         except Exception as e:
             logger.error(f"[AGENT] ❌ ERROR in on_enter: {e}")
@@ -280,6 +280,22 @@ Remember: Less is often more. Let users have their conversations naturally unles
             logger.info(f"[AGENT] ✅ on_user_turn_completed called! User said: '{user_input}'")
             participant_info = self._get_participant_info(new_message)
             
+            # Check if we have a pending greeting to deliver FIRST
+            if self._pending_greeting:
+                logger.info(f"[AGENT] Delivering pending greeting: {self._pending_greeting[:50]}...")
+                # Add greeting as system message to be spoken
+                turn_ctx.add_message(
+                    role="system", 
+                    content=f"IMPORTANT: You must say this greeting first, then switch to passive listening mode: '{self._pending_greeting}'"
+                )
+                # Clear the pending greeting
+                self._pending_greeting = None
+                # After greeting is delivered, switch to passive mode
+                self.listening_mode = True
+                self.room_context["conversation_state"] = "listening"
+                logger.info("[AGENT] Greeting delivered - now switching to passive listening mode")
+                return  # Let the greeting be spoken
+            
             # Update participant message count
             participant_info["message_count"] += 1
             
@@ -297,7 +313,7 @@ Remember: Less is often more. Let users have their conversations naturally unles
             if len(self.conversation_log) > 20:
                 self.conversation_log = self.conversation_log[-20:]
             
-            # Check intervention triggers
+            # PASSIVE LISTENING: Only respond if specifically triggered
             intervention_type = await self._should_intervene(user_input)
             
             if intervention_type:
@@ -341,11 +357,12 @@ Remember: Less is often more. Let users have their conversations naturally unles
                             content=f"{participant_info['name']} just called you to participate. Recent conversation: {conversation_context['total_exchanges']} exchanges total. Recent speakers: {speakers_summary}. Address {participant_info['name']} by name and respond naturally to their message: '{user_input}'"
                         )
             else:
-                # Stay in listening mode - don't respond
-                # Just log the activity
-                logger.info(f"[AGENT] Listening - recorded message from user, staying passive")
+                # PASSIVE LISTENING: No intervention triggered - DO NOT RESPOND
+                logger.info(f"[AGENT] PASSIVE LISTENING: User '{participant_info['name']}' said: '{user_input[:50]}...' - NO intervention needed")
+                logger.info("[AGENT] STAYING SILENT - only respond to 'Hey Vortex' or direct calls")
                 self.room_context["conversation_state"] = "listening"
-                return  # Don't let the agent respond
+                # Critical: Return early without adding any response context
+                return
             
             logger.info(f"[AGENT] Processed turn from {participant_info['name']} ({participant_info['identity']}) - intervention: {intervention_type or 'none'}")
             
