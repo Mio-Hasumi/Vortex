@@ -24,9 +24,8 @@ livekit==0.17.6
 livekit-api==0.7.0
 livekit-protocol==1.0.4
 
-# LiveKit Agents Framework (NEW: for VortexAgent with OpenAI Realtime API)
-livekit-agents[openai]~=1.0  # Official OpenAI Realtime API integration
-livekit-plugins-openai>=1.0.0
+# LiveKit Agents Framework with OpenAI Realtime API
+livekit-agents[openai]~=1.0  # All-in-one solution: STT + LLM + TTS + VAD
 
 # AI Services - LOCKED: Use realtime client with aiohttp support
 openai[realtime,aiohttp]==1.97.0

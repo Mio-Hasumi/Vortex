@@ -28,7 +28,7 @@ from livekit.agents import (
     get_job_context
 )
 from livekit.agents.llm import LLMError
-from livekit.plugins import openai, deepgram, elevenlabs, silero
+from livekit.plugins import openai  # Using OpenAI Realtime API for all voice features
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from .openai_service import OpenAIService

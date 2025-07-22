@@ -12,9 +12,7 @@ Environment Variables Required:
     LIVEKIT_URL - LiveKit server WebSocket URL
     LIVEKIT_API_KEY - LiveKit API key
     LIVEKIT_API_SECRET - LiveKit API secret
-    OPENAI_API_KEY - OpenAI API key for LLM functionality
-    DEEPGRAM_API_KEY - Deepgram API key for STT
-    ELEVENLABS_API_KEY - ElevenLabs API key for TTS
+    OPENAI_API_KEY - OpenAI API key for Realtime API (STT + LLM + TTS + VAD)
 """
 
 import asyncio
@@ -206,10 +204,8 @@ def check_environment():
         "OPENAI_API_KEY"
     ]
     
-    optional_vars = [
-        "DEEPGRAM_API_KEY",
-        "ELEVENLABS_API_KEY"
-    ]
+    # No optional API keys needed with OpenAI Realtime API
+    optional_vars = []
     
     missing_vars = []
     
@@ -253,9 +249,7 @@ def main():
     # Log startup info
     logger.info("🤖 VortexAgent Worker starting...")
     logger.info(f"📡 LiveKit URL: {os.getenv('LIVEKIT_URL', 'Not set')}")
-    logger.info(f"🔑 OpenAI API configured: {'Yes' if os.getenv('OPENAI_API_KEY') else 'No'}")
-    logger.info(f"🎤 Deepgram API configured: {'Yes' if os.getenv('DEEPGRAM_API_KEY') else 'No'}")
-    logger.info(f"🔊 ElevenLabs API configured: {'Yes' if os.getenv('ELEVENLABS_API_KEY') else 'No'}")
+    logger.info(f"🔑 OpenAI Realtime API configured: {'Yes' if os.getenv('OPENAI_API_KEY') else 'No'}")
     
     # Create worker options
     worker_opts = WorkerOptions(
