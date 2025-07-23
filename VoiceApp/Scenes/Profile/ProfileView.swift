@@ -27,7 +27,7 @@ struct ProfileView: View {
                         )
                     
                     VStack(spacing: 8) {
-                        Text(authService.displayName ?? "User")
+                        Text(authService.uiDisplayName)
                             .font(.title2)
                             .fontWeight(.bold)
                             .foregroundColor(.white)
@@ -48,7 +48,7 @@ struct ProfileView: View {
                 // Profile Info
                 VStack(spacing: 16) {
                     ProfileInfoRow(title: "User ID", value: authService.userId ?? "N/A")
-                    ProfileInfoRow(title: "Display Name", value: authService.displayName ?? "N/A")
+                    ProfileInfoRow(title: "Display Name", value: authService.uiDisplayName)
                     ProfileInfoRow(title: "Email", value: authService.email ?? "N/A")
                     ProfileInfoRow(title: "Status", value: "Active")
                 }
