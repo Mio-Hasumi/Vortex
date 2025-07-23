@@ -318,6 +318,9 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
     var lastMatchData: LiveMatchData?  // Made public for debugging
     var hasActiveMatch: Bool = false   // Made public for debugging
     
+    // Audio crossfading to prevent clicking between PCM chunks
+    private var lastTail: [Int16] = []
+    
     private var matchContext: MatchResult?
     private var conversationContext: String = ""
     private var webSocketService: WebSocketService?
@@ -378,8 +381,14 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             
             // Set preferred sample rate to 24kHz to match GPT-4o
             try audioSession.setPreferredSampleRate(24000)
+            
+            // Lock the hardware block size to prevent buffer size mismatches
+            try audioSession.setPreferredIOBufferDuration(512.0 / 24000.0)  // ≈ 512 frames at 24kHz
+            
             try audioSession.setActive(true)
             
+            let frames = Int(audioSession.ioBufferDuration * audioSession.sampleRate)
+            print("🔥 [AIVoice] IO block = \(frames) frames @ \(audioSession.sampleRate) Hz")
             print("✅ [AIVoice] Audio session configured for 24kHz voice chat (GPT-4o compatible)")
         } catch {
             print("❌ [AIVoice] Audio session setup failed: \(error)")
@@ -576,11 +585,14 @@ Start the conversation now with your greeting and a question about their interes
                 "transcription": matchContext?.transcription ?? "",
                 "conversation_context": conversationContext
             ],
+            "output_audio_format": [
+                "type": "pcm16"
+            ],
             "timestamp": Date().timeIntervalSince1970
         ]
         
         webSocketService?.send(startSessionMessage)
-        print("📤 [AIVoice] Sent start session with topic context")
+        print("📤 [AIVoice] Sent start session with topic context and PCM16 audio format")
     }
     
     func startListening() async {
@@ -707,11 +719,12 @@ Start the conversation now with your greeting and a question about their interes
         inputNode = nil
         isRecording = false
         
-        // Stop audio playback immediately
+        // Stop audio playback immediately (final cleanup - use stop, not pause)
         currentAudioPlayer?.stop()
         currentAudioPlayer = nil
         audioQueue.removeAll()
         audioAccumulator = Data()
+        lastTail.removeAll()
         isPlayingAudio = false
         
         // Disconnect AI Audio WebSocket but preserve Matching WebSocket if we have an active match
@@ -774,11 +787,19 @@ Start the conversation now with your greeting and a question about their interes
     
     // MARK: - 🔧 Fixed unified audio playback system
     
+    private func fadeAndStop(_ player: AVAudioPlayer?, duration: TimeInterval = 0.05) {
+        guard let player = player else { return }
+        player.setVolume(0, fadeDuration: duration)
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            player.pause()  // Use pause instead of stop to keep audio pipeline alive
+        }
+    }
+    
     private func stopAllAudio() {
         audioPlaybackQueue.async {
-            // Stop current playback
-            self.currentAudioPlayer?.stop()
-            self.currentAudioPlayer = nil
+            // Stop current playback with fade out (using pause to keep pipeline alive)
+            self.fadeAndStop(self.currentAudioPlayer)
+            // Don't set currentAudioPlayer = nil to keep reference alive
             
             // Clear queue
             self.audioQueue.removeAll()
@@ -789,46 +810,87 @@ Start the conversation now with your greeting and a question about their interes
             }
             
             self.isPlayingAudio = false
-            print("🔇 [AIVoice] All audio playback stopped and cleared")
+            print("🔇 [AIVoice] All audio playback stopped and cleared (pipeline kept alive)")
         }
     }
     
-    private func addAudioChunk(_ base64AudioData: String) {
-        guard let audioData = Data(base64Encoded: base64AudioData) else {
-            print("❌ [AIVoice] Failed to decode audio chunk")
+    private func addPCMChunk(_ base64AudioData: String) {
+        guard var chunk = Data(base64Encoded: base64AudioData) else {
+            print("❌ [AIVoice] Failed to decode PCM chunk")
             return
         }
         
+        // Safety: trim to even number of bytes (Int16 requires pairs)
+        if chunk.count & 1 == 1 { 
+            chunk.removeLast() 
+        }
+        
         audioPlaybackQueue.async {
-            // Accumulate audio data (GPT-4o sends PCM16 fragments)
-            let previousSize = self.audioAccumulator.count
-            self.audioAccumulator.append(audioData)
-            // print("🎵 [AIVoice] Audio chunk accumulated: +\(audioData.count) bytes, total: \(previousSize) → \(self.audioAccumulator.count) bytes")  // COMMENTED OUT - too verbose
+            // Decode to Int16 for crossfading
+            chunk.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                let ptr = raw.bindMemory(to: Int16.self)
+                var samples = Array(ptr)
+                
+                // CROSSFADE with adaptive length and Hann window to prevent clicking
+                let maxFade = 180  // 7.5ms @ 24kHz   
+                let fade = min(maxFade, min(self.lastTail.count, samples.count / 2))
+                if fade > 0 {
+                    for i in 0..<fade {
+                        // Hann window for smoother crossfade
+                        let progress = Double(i) / Double(fade)
+                        let hannWeight = 0.5 - 0.5 * cos(progress * Double.pi)
+                        
+                        let tailSample = Float(self.lastTail[self.lastTail.count - fade + i])
+                        let currentSample = Float(samples[i])
+                        
+                        let crossfaded = (1.0 - Float(hannWeight)) * tailSample + Float(hannWeight) * currentSample
+                        samples[i] = Int16(crossfaded)
+                    }
+                }
+                
+                // Store new tail for next crossfade (adaptive size)
+                self.lastTail = Array(samples.suffix(min(maxFade, samples.count)))
+                
+                // Convert back to bytes and append
+                samples.withUnsafeBytes { buf in
+                    self.audioAccumulator.append(buf.bindMemory(to: UInt8.self))
+                }
+            }
+            // print("🎵 [AIVoice] PCM chunk crossfaded: +\(chunk.count) bytes, total: \(self.audioAccumulator.count) bytes")  // COMMENTED OUT - too verbose
         }
     }
     
     private func finalizeAndPlayAudio() {
         audioPlaybackQueue.async {
-            guard !self.audioAccumulator.isEmpty else {
-                print("🔇 [AIVoice] No accumulated audio to play")
-                return
-            }
-            
-            // print("🔊 [AIVoice] Finalizing and playing complete audio response: \(self.audioAccumulator.count) bytes")  // COMMENTED OUT - too verbose
-            
-            // Convert PCM16 data to WAV format for playback
-            let wavData = self.convertPCM16ToWAV(self.audioAccumulator)
-            
-            // Add to playback queue
-            self.audioQueue.append(wavData)
-            
-            // Start playback queue (if not currently playing)
-            if !self.isPlayingAudio {
-                self.playNextAudioInQueue()
-            }
-            
-            // Clear accumulator, prepare for next response
-            self.audioAccumulator = Data()
+            self.finalizeAndPlayAudioOnQueue()
+        }
+    }
+    
+    private func finalizeAndPlayAudioOnQueue() {
+        guard !self.audioAccumulator.isEmpty else {
+            print("🔇 [AIVoice] No accumulated PCM data to play")
+            return
+        }
+        
+        // print("🔊 [AIVoice] Finalizing and playing complete audio response: \(self.audioAccumulator.count) bytes PCM16")  // COMMENTED OUT - too verbose
+        
+        // Apply attack ramp to first ~10ms to prevent sentence-start clicking
+        var pcmDataWithRamp = self.audioAccumulator
+        self.applyAttackRamp(to: &pcmDataWithRamp)
+        
+        // Convert accumulated PCM16 data to WAV format for playback
+        let wavData = self.convertPCM16ToWAV(pcmDataWithRamp)
+        
+        // Add to playback queue
+        self.audioQueue.append(wavData)
+        
+        // Clear accumulator and crossfade tail for next response
+        self.audioAccumulator.removeAll(keepingCapacity: true)
+        self.lastTail.removeAll(keepingCapacity: true)
+        
+        // Start playback queue (if not currently playing)
+        if !self.isPlayingAudio {
+            self.playNextAudioInQueue()
         }
     }
     
@@ -846,19 +908,31 @@ Start the conversation now with your greeting and a question about their interes
             }
             
             do {
-                // Stop previous player
-                self.currentAudioPlayer?.stop()
+                // Stop previous player with fade out
+                self.fadeAndStop(self.currentAudioPlayer)
                 
-                // Create new player
-                self.currentAudioPlayer = try AVAudioPlayer(data: audioData)
-                self.currentAudioPlayer?.delegate = self
-                
-                // Start playback
-                let success = self.currentAudioPlayer?.play() ?? false
-                print("🔊 [AIVoice] \(success ? "✅ Started" : "❌ Failed to start") playing audio: \(audioData.count) bytes")
-                
-                if !success {
-                    self.audioPlaybackFinished()
+                // Wait for fade out to complete before starting new audio
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { // Wait 60ms (fade duration + buffer)
+                    do {
+                        // Create new player
+                        self.currentAudioPlayer = try AVAudioPlayer(data: audioData)
+                        self.currentAudioPlayer?.delegate = self
+                        self.currentAudioPlayer?.prepareToPlay()
+                        
+                        // Start with very small volume to keep pipeline alive, then fade in
+                        self.currentAudioPlayer?.volume = 0.0001  // Keep pipeline alive
+                        let success = self.currentAudioPlayer?.play() ?? false
+                        self.currentAudioPlayer?.setVolume(1.0, fadeDuration: 0.05)  // ~50ms fade in
+                        
+                        print("🔊 [AIVoice] \(success ? "✅ Started" : "❌ Failed to start") playing audio: \(audioData.count) bytes")
+                        
+                        if !success {
+                            self.audioPlaybackFinished()
+                        }
+                    } catch {
+                        print("❌ [AIVoice] Failed to create delayed audio player: \(error)")
+                        self.audioPlaybackFinished()
+                    }
                 }
                 
             } catch {
@@ -884,6 +958,19 @@ Start the conversation now with your greeting and a question about their interes
             }
             
             // print("🔊 [AIVoice] Audio playback finished, queue remaining: \(self.audioQueue.count)")  // COMMENTED OUT - too verbose
+        }
+    }
+    
+    private func applyAttackRamp(to data: inout Data, samples: Int = 180 /* 7.5ms @24kHz */) {
+        data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
+            let ptr = raw.bindMemory(to: Int16.self)
+            let count = min(samples, ptr.count)
+            for i in 0..<count {
+                let progress = Float(i) / Float(count)
+                // Hann window for smooth attack ramp
+                let hannWeight = 0.5 - 0.5 * cosf(Float.pi * progress)
+                ptr[i] = Int16(Float(ptr[i]) * hannWeight)
+            }
         }
     }
     
@@ -921,6 +1008,7 @@ Start the conversation now with your greeting and a question about their interes
         
         return wavData
     }
+
     
     // MARK: - Helper methods
     
@@ -1140,6 +1228,10 @@ Start the conversation now with your greeting and a question about their interes
         case "ai_response_started":
             print("🤖 [AI_AUDIO] AI response started")
             stopAllAudio() // Stop previous audio, start new response
+            audioPlaybackQueue.async {
+                self.audioAccumulator.removeAll(keepingCapacity: true)
+                self.lastTail.removeAll(keepingCapacity: true)
+            }
             
         case "response.text.delta":
             // print("📝 [AI_AUDIO] Text delta received") // COMMENTED OUT - too verbose
@@ -1152,12 +1244,14 @@ Start the conversation now with your greeting and a question about their interes
         case "response.audio.delta":
             // print("🔊 [AI_AUDIO] Audio delta received") // COMMENTED OUT - too verbose
             if let audioData = message["delta"] as? String {
-                addAudioChunk(audioData)
+                addPCMChunk(audioData)
             }
             
         case "response.done":
             print("✅ [AI_AUDIO] AI response completed")
-            finalizeAndPlayAudio() // Finalize and play
+            audioPlaybackQueue.async {
+                self.finalizeAndPlayAudioOnQueue()
+            }
             
         case "audio_received":
             // COMMENTED OUT - too verbose: print("📥 [AI_AUDIO] Audio received confirmation")
