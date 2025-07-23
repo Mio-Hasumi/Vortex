@@ -154,14 +154,14 @@ struct UserVoiceTopicMatchingView: View {
                     // Toggle mute state
                     aiVoiceService.toggleMute()
                 }) {
-                    Image(systemName: aiVoiceService.isMuted ? "mic.slash.fill" : "mic.fill")
+                    Image(systemName: aiVoiceService.isMuted ? "mic.slash.fill" : (aiVoiceService.isAISpeaking ? "speaker.wave.2.fill" : "mic.fill"))
                         .font(.system(size: 40))
-                        .foregroundColor(aiVoiceService.isMuted ? .red : .white)
+                        .foregroundColor(aiVoiceService.isMuted ? .red : (aiVoiceService.isAISpeaking ? .blue : .white))
                         .padding(20)
                         .background(Circle().fill(Color.white.opacity(0.2)))
                 }
                 
-                Text(aiVoiceService.isMuted ? "Muted" : "Listening...")
+                Text(aiVoiceService.isMuted ? "Muted" : (aiVoiceService.isAISpeaking ? "AI Speaking..." : "Listening..."))
                     .foregroundColor(.white)
                     .padding(.bottom, 30)
             }
@@ -553,7 +553,12 @@ Start the conversation now with your greeting and a question about their interes
     }
     
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, originalFormat: AVAudioFormat, targetFormat: AVAudioFormat) {
-        guard sessionStarted && !isMuted && isRecording else { 
+        // Don't process audio if:
+        // 1. Session not started
+        // 2. User manually muted
+        // 3. Not recording
+        // 4. AI is currently speaking (auto-mute during AI speech)
+        guard sessionStarted && !isMuted && isRecording && !isAISpeaking else { 
             return 
         }
         
@@ -629,8 +634,8 @@ Start the conversation now with your greeting and a question about their interes
     }
     
     func startListening() async {
-        guard sessionStarted && !isMuted else {
-            print("⚠️ [AIVoice] Cannot start listening - session not started or muted")
+        guard sessionStarted && !isMuted && !isAISpeaking else {
+            print("⚠️ [AIVoice] Cannot start listening - session not started, muted, or AI is speaking")
             return
         }
         
@@ -649,7 +654,8 @@ Start the conversation now with your greeting and a question about their interes
         
         if isMuted {
             stopAudioEngine()
-        } else if sessionStarted {
+        } else if sessionStarted && !isAISpeaking {
+            // Only restart audio if AI is not currently speaking
             startAudioEngine()
         }
     }
@@ -657,7 +663,7 @@ Start the conversation now with your greeting and a question about their interes
 
     
     private func startAudioEngine() {
-        guard !isMuted, let audioEngine = audioEngine else { 
+        guard !isMuted && !isAISpeaking, let audioEngine = audioEngine else { 
             return 
         }
         
@@ -982,6 +988,10 @@ Start the conversation now with your greeting and a question about their interes
             DispatchQueue.main.async {
                 if self.audioQueue.isEmpty {
                     self.isAISpeaking = false
+                    // Restart audio recording when AI finishes speaking
+                    if self.sessionStarted && !self.isMuted {
+                        self.startAudioEngine()
+                    }
                 }
             }
             
@@ -1269,6 +1279,12 @@ Start the conversation now with your greeting and a question about their interes
                 self.audioAccumulator.removeAll(keepingCapacity: true)
                 self.lastTail.removeAll(keepingCapacity: true)
             }
+            
+            // Auto-mute user input during AI speech
+            DispatchQueue.main.async {
+                self.isAISpeaking = true
+            }
+            stopAudioEngine() // Stop recording user input
             
         case "response.text.delta":
             // print("📝 [AI_AUDIO] Text delta received") // COMMENTED OUT - too verbose
