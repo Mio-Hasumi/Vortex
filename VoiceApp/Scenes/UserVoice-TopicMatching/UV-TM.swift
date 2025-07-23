@@ -394,6 +394,22 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
             name: NSNotification.Name("CleanupAIServices"),
             object: nil
         )
+        
+        // Listen for audio session interruptions
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioSessionInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+        
+        // Listen for audio session route changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioSessionRouteChange),
+            name: AVAudioSession.routeChangeNotification,
+            object: nil
+        )
     }
     
     @objc private func handleDelayedCleanup() {
@@ -407,22 +423,83 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         }
     }
     
+    @objc private func handleAudioSessionInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+        
+        print("🔄 [AIVoice] Audio session interruption: \(type)")
+        
+        switch type {
+        case .began:
+            // Interruption began - stop audio
+            stopAudioEngine()
+        case .ended:
+            // Interruption ended - restart audio if needed
+            if sessionStarted && !isMuted && !isAISpeaking {
+                handleAudioSessionChange()
+            }
+        @unknown default:
+            break
+        }
+    }
+    
+    @objc private func handleAudioSessionRouteChange(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
+            return
+        }
+        
+        print("🔄 [AIVoice] Audio route change: \(reason)")
+        
+        // Handle route changes that might affect our audio setup
+        switch reason {
+        case .newDeviceAvailable, .oldDeviceUnavailable, .categoryChange:
+            if sessionStarted {
+                handleAudioSessionChange()
+            }
+        default:
+            break
+        }
+    }
+    
     private func setupAudioSession() {
         do {
             let audioSession = AVAudioSession.sharedInstance()
+            
+            // Check if audio session is already active and configured for calls
+            if audioSession.category == .playAndRecord && audioSession.mode == .voiceChat {
+                print("✅ [AIVoice] Audio session already configured for voice chat")
+                return
+            }
+            
+            // Configure for voice chat with more flexible options
             try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
             
-            // Set preferred sample rate to 24kHz to match GPT-4o
-            try audioSession.setPreferredSampleRate(24000)
+            // Try to set 24kHz, but fall back to system default if it fails
+            do {
+                try audioSession.setPreferredSampleRate(24000)
+                print("✅ [AIVoice] Set preferred sample rate to 24kHz")
+            } catch {
+                print("⚠️ [AIVoice] Could not set 24kHz sample rate, using system default")
+            }
             
-            // Lock the hardware block size to prevent buffer size mismatches
-            try audioSession.setPreferredIOBufferDuration(512.0 / 24000.0)  // ≈ 512 frames at 24kHz
+            // Set buffer duration with fallback
+            do {
+                try audioSession.setPreferredIOBufferDuration(512.0 / 24000.0)
+                print("✅ [AIVoice] Set preferred IO buffer duration")
+            } catch {
+                print("⚠️ [AIVoice] Could not set preferred buffer duration, using system default")
+            }
             
             try audioSession.setActive(true)
             
             let frames = Int(audioSession.ioBufferDuration * audioSession.sampleRate)
             print("🔥 [AIVoice] IO block = \(frames) frames @ \(audioSession.sampleRate) Hz")
-            print("✅ [AIVoice] Audio session configured for 24kHz voice chat (GPT-4o compatible)")
+            print("✅ [AIVoice] Audio session configured successfully")
         } catch {
             print("❌ [AIVoice] Audio session setup failed: \(error)")
         }
@@ -442,23 +519,61 @@ class AIVoiceService: NSObject, ObservableObject, WebSocketDelegate, AVAudioPlay
         let inputFormat = inputNode.inputFormat(forBus: 0)
         print("🎙️ [AIVoice] Hardware input format: \(inputFormat)")
         
-        // Create target format (24kHz, Int16, mono) - match OpenAI Realtime API requirements
-        guard let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, 
-                                             sampleRate: 24000,  // OpenAI requires 24kHz
-                                             channels: 1, 
-                                             interleaved: false) else {
-            print("❌ [AIVoice] Failed to create target audio format")
+        // Check if input format has valid properties
+        guard inputFormat.sampleRate > 0 && inputFormat.channelCount > 0 else {
+            print("❌ [AIVoice] Invalid input format properties: sampleRate=\(inputFormat.sampleRate), channels=\(inputFormat.channelCount)")
             return
         }
         
-        print("🎵 [AIVoice] Target format for OpenAI: 24kHz, PCM16, mono")
+        // Create target format with fallback options
+        var targetFormat: AVAudioFormat?
         
-        // Install tap using hardware's native format - use 0 for automatic buffer size
-        inputNode.installTap(onBus: 0, bufferSize: 0, format: inputFormat) { [weak self] buffer, time in
-            self?.processAudioBuffer(buffer, originalFormat: inputFormat, targetFormat: targetFormat)
+        // Try 24kHz first (OpenAI preferred)
+        targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, 
+                                   sampleRate: 24000, 
+                                   channels: 1, 
+                                   interleaved: false)
+        
+        // If 24kHz fails, try 16kHz (common fallback)
+        if targetFormat == nil {
+            print("⚠️ [AIVoice] 24kHz format failed, trying 16kHz")
+            targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, 
+                                       sampleRate: 16000, 
+                                       channels: 1, 
+                                       interleaved: false)
         }
         
-        print("✅ [AIVoice] Audio engine configured for streaming")
+        // If that fails, try 44.1kHz (system default)
+        if targetFormat == nil {
+            print("⚠️ [AIVoice] 16kHz format failed, trying 44.1kHz")
+            targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, 
+                                       sampleRate: 44100, 
+                                       channels: 1, 
+                                       interleaved: false)
+        }
+        
+        // If all fail, use input format as-is
+        if targetFormat == nil {
+            print("⚠️ [AIVoice] All target formats failed, using input format as-is")
+            targetFormat = inputFormat
+        }
+        
+        guard let finalTargetFormat = targetFormat else {
+            print("❌ [AIVoice] Failed to create any valid target audio format")
+            return
+        }
+        
+        print("🎵 [AIVoice] Using target format: \(finalTargetFormat)")
+        
+        // Install tap using hardware's native format with validation
+        do {
+            inputNode.installTap(onBus: 0, bufferSize: 0, format: inputFormat) { [weak self] buffer, time in
+                self?.processAudioBuffer(buffer, originalFormat: inputFormat, targetFormat: finalTargetFormat)
+            }
+            print("✅ [AIVoice] Audio engine configured for streaming")
+        } catch {
+            print("❌ [AIVoice] Failed to install audio tap: \(error)")
+        }
     }
     
     func initializeAIConversation(with matchResult: MatchResult) async {
@@ -746,8 +861,10 @@ Start the conversation now with your greeting and a question about their interes
     private func cleanupSynchronously() {
         print("🧹 [AIVoice] Starting synchronous cleanup")
         
-        // Remove notification observer
-        NotificationCenter.default.removeObserver(self)
+        // Remove all notification observers
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("CleanupAIServices"), object: nil)
+        NotificationCenter.default.removeObserver(self, name: AVAudioSession.interruptionNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: AVAudioSession.routeChangeNotification, object: nil)
         
         // Stop audio engine immediately
         if let audioEngine = audioEngine, audioEngine.isRunning {
@@ -802,6 +919,20 @@ Start the conversation now with your greeting and a question about their interes
     // Public cleanup method for view dismissal
     func cleanup() {
         cleanupSynchronously()
+    }
+    
+    // Method to handle audio session changes (e.g., when entering a call)
+    func handleAudioSessionChange() {
+        print("🔄 [AIVoice] Handling audio session change")
+        
+        // Stop current audio engine
+        stopAudioEngine()
+        
+        // Re-setup audio session and engine
+        setupAudioSession()
+        setupAudioEngine()
+        
+        print("✅ [AIVoice] Audio session change handled")
     }
     
     // Reset method for singleton - reinitialize state
