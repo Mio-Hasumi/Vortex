@@ -13,6 +13,21 @@ class AuthService: ObservableObject {
     @Published var email: String?
     @Published var firebaseToken: String?
     
+    // Store the real Gmail address from Google Sign-In
+    @Published var realEmail: String?
+    
+    // Computed property to always show first name from real Gmail address in UI
+    var uiDisplayName: String {
+        print("🔍 [AuthService] uiDisplayName called - realEmail: \(realEmail ?? "nil"), email: \(email ?? "nil"), displayName: \(displayName ?? "nil")")
+        if let realEmail = realEmail, !realEmail.isEmpty {
+            let firstName = extractFirstNameFromEmail(realEmail)
+            print("🔍 [AuthService] Extracted firstName: \(firstName) from realEmail: \(realEmail)")
+            return firstName
+        }
+        print("🔍 [AuthService] Using fallback displayName: \(displayName ?? "User")")
+        return displayName ?? "User"
+    }
+    
     private init() {
         // Configure Firebase if not already configured
         if FirebaseApp.app() == nil {
@@ -37,15 +52,50 @@ class AuthService: ObservableObject {
         }
     }
     
-    private func updateAuthState(userResponse: AuthResponse, token: String) {
+    private func updateAuthState(userResponse: AuthResponse, token: String, realEmail: String? = nil) {
         DispatchQueue.main.async {
             self.userId = userResponse.user_id
             self.displayName = userResponse.display_name
             self.email = userResponse.email
             self.firebaseToken = token
             self.isAuthenticated = true
+            
+            // Store the real Gmail address if provided
+            if let realEmail = realEmail {
+                self.realEmail = realEmail
+                print("🔐 Auth state updated - realEmail: \(realEmail)")
+            }
+            
             print("🔐 Auth state updated - isAuthenticated: \(self.isAuthenticated)")
+            print("🔐 Auth state updated - email: \(userResponse.email ?? "nil")")
+            print("🔐 Auth state updated - displayName: \(userResponse.display_name ?? "nil")")
         }
+    }
+    
+    // Helper function to extract first name from email
+    private func extractFirstNameFromEmail(_ email: String) -> String {
+        print("🔍 [AuthService] extractFirstNameFromEmail called with: \(email)")
+        
+        // Extract the part before @ symbol
+        let emailPrefix = email.components(separatedBy: "@").first ?? ""
+        print("🔍 [AuthService] emailPrefix: \(emailPrefix)")
+        
+        // Split by common separators and take the first part
+        let separators = [".", "_", "-"]
+        var firstName = emailPrefix
+        
+        for separator in separators {
+            if emailPrefix.contains(separator) {
+                firstName = emailPrefix.components(separatedBy: separator).first ?? emailPrefix
+                print("🔍 [AuthService] Found separator '\(separator)', firstName: \(firstName)")
+                break
+            }
+        }
+        
+        // Capitalize the first letter
+        let result = firstName.prefix(1).uppercased() + firstName.dropFirst().lowercased()
+        print("🔍 [AuthService] Final result: \(result)")
+        return result
     }
     
     private func logout() {
@@ -53,6 +103,7 @@ class AuthService: ObservableObject {
             self.userId = nil
             self.displayName = nil
             self.email = nil
+            self.realEmail = nil
             self.firebaseToken = nil
             self.isAuthenticated = false
             print("🔐 Logged out - isAuthenticated: \(self.isAuthenticated)")
@@ -97,6 +148,10 @@ class AuthService: ObservableObject {
         let token = try await authResult.user.getIDToken()
         APIService.shared.setAuthToken(token)
         
+        // Store the real Gmail address from Google Sign-In
+        let realGmailAddress = result.user.profile?.email ?? authResult.user.email ?? ""
+        print("🔍 [AuthService] Real Gmail address from Google Sign-In: \(realGmailAddress)")
+        
         // Try to login first
         let signInRequest = SignInRequest(
             firebase_uid: authResult.user.uid,
@@ -112,17 +167,21 @@ class AuthService: ObservableObject {
             )
             
             // Login successful
-            updateAuthState(userResponse: authResponse, token: token)
+            updateAuthState(userResponse: authResponse, token: token, realEmail: realGmailAddress)
             return authResponse
             
         } catch let error as APIError {
             // If login fails with notFound, try to register
             if case .notFound = error {
+                // Extract first name from email for display name
+                let userEmail = authResult.user.email ?? ""
+                let displayName = extractFirstNameFromEmail(userEmail)
+                
                 // Register the user
                 let signUpRequest = SignUpRequest(
                     firebase_uid: authResult.user.uid,
-                    display_name: authResult.user.displayName ?? "User\(Int.random(in: 1000...9999))",
-                    email: authResult.user.email ?? ""
+                    display_name: displayName,
+                    email: userEmail
                 )
                 
                 let registerData = try JSONEncoder().encode(signUpRequest)
@@ -133,7 +192,7 @@ class AuthService: ObservableObject {
                 )
                 
                 // Registration successful
-                updateAuthState(userResponse: authResponse, token: token)
+                updateAuthState(userResponse: authResponse, token: token, realEmail: realGmailAddress)
                 return authResponse
             }
             
