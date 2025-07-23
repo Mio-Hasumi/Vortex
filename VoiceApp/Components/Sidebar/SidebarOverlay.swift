@@ -147,8 +147,8 @@ struct SidebarContent: View {
                         )
                     }
                     
-                    // User name - display real username
-                    Text(authService.displayName ?? "User")
+                    // User name - display first name from email
+                    Text(authService.uiDisplayName)
                         .font(.system(size: 24, weight: .semibold, design: .rounded))
                         .foregroundColor(.white)
                     
