@@ -20,6 +20,7 @@ struct HashtagScreen: View {
     @State private var isIntentionallyLeaving = false
     @State private var participantLeftMessage: String? = nil
     @State private var aiHostWelcomeMessage: String? = nil
+    @State private var vortexActivationMessage: String? = nil
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -108,18 +109,66 @@ struct HashtagScreen: View {
                 Spacer()
             }
             
-            // Mute/Unmute button
+            // Bottom controls - Vortex button and microphone
             VStack {
                 Spacer()
                 
-                Button(action: {
-                    liveKitService.toggleMute()
-                }) {
-                    Image(systemName: liveKitService.isMuted ? "mic.slash.fill" : "mic.fill")
-                        .font(.system(size: 30))
-                        .foregroundColor(liveKitService.isMuted ? .red : .white)
-                        .padding(15)
-                        .background(Circle().fill(Color.white.opacity(0.2)))
+                HStack(spacing: 20) {
+                    // Vortex AI Control Button
+                    Button(action: {
+                        liveKitService.toggleVortexAI()
+                    }) {
+                        VStack(spacing: 4) {
+                            Image(systemName: liveKitService.isVortexEnabled ? "brain.head.profile" : "brain.head.profile.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(liveKitService.isVortexEnabled ? .purple : .gray)
+                            
+                            Text(liveKitService.isVortexEnabled ? "Stop" : "Vortex")
+                                .font(.caption)
+                                .foregroundColor(liveKitService.isVortexEnabled ? .purple : .gray)
+                        }
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(liveKitService.isVortexEnabled ? 
+                                      LinearGradient(
+                                          gradient: Gradient(colors: [.purple.opacity(0.3), .blue.opacity(0.3)]),
+                                          startPoint: .topLeading,
+                                          endPoint: .bottomTrailing
+                                      ) :
+                                      Color.white.opacity(0.1)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .stroke(
+                                            liveKitService.isVortexEnabled ? 
+                                            LinearGradient(
+                                                gradient: Gradient(colors: [.purple, .blue]),
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            ) : Color.gray.opacity(0.3),
+                                            lineWidth: 2
+                                        )
+                                )
+                        )
+                        .shadow(
+                            color: liveKitService.isVortexEnabled ? .purple.opacity(0.6) : .clear,
+                            radius: liveKitService.isVortexEnabled ? 8 : 0
+                        )
+                        .scaleEffect(liveKitService.isVortexEnabled ? 1.05 : 1.0)
+                        .animation(.easeInOut(duration: 0.2), value: liveKitService.isVortexEnabled)
+                    }
+                    
+                    // Microphone button
+                    Button(action: {
+                        liveKitService.toggleMute()
+                    }) {
+                        Image(systemName: liveKitService.isMuted ? "mic.slash.fill" : "mic.fill")
+                            .font(.system(size: 30))
+                            .foregroundColor(liveKitService.isMuted ? .red : .white)
+                            .padding(15)
+                            .background(Circle().fill(Color.white.opacity(0.2)))
+                    }
                 }
                 .padding(.bottom, 80)
             }
@@ -129,19 +178,32 @@ struct HashtagScreen: View {
                 HStack {
                     Spacer()
                     
-                    // AI Host indicator
+                    // Vortex AI Status Indicator
                     if liveKitService.participants.contains(where: { $0.isAIHost }) {
                         HStack(spacing: 6) {
-                            Image(systemName: "brain.head.profile")
+                            Image(systemName: liveKitService.isVortexEnabled ? "brain.head.profile.fill" : "brain.head.profile")
                                 .font(.caption)
-                                .foregroundColor(.purple)
-                            Text("AI Host Active")
+                                .foregroundColor(liveKitService.isVortexEnabled ? .purple : .gray)
+                            Text(liveKitService.isVortexEnabled ? "Vortex Active" : "Vortex Ready")
                                 .font(.caption2)
-                                .foregroundColor(.purple)
+                                .foregroundColor(liveKitService.isVortexEnabled ? .purple : .gray)
+                            
+                            if !liveKitService.isVortexEnabled && liveKitService.vortexActivationCount > 0 {
+                                Text("(\(liveKitService.vortexActivationCount))")
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
+                            }
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Capsule().fill(Color.purple.opacity(0.2)))
+                        .background(Capsule().fill(
+                            liveKitService.isVortexEnabled ? 
+                            LinearGradient(
+                                gradient: Gradient(colors: [.purple.opacity(0.3), .blue.opacity(0.3)]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ) : Color.gray.opacity(0.2)
+                        ))
                     }
                     
                     // Connection status
@@ -205,6 +267,29 @@ struct HashtagScreen: View {
                     Spacer()
                 }
             }
+            
+            // Vortex activation notification
+            if let message = vortexActivationMessage {
+                VStack {
+                    HStack {
+                        Spacer()
+                        HStack(spacing: 8) {
+                            Image(systemName: "brain.head.profile")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                            Text(message)
+                                .font(.caption)
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Color.orange.opacity(0.8)))
+                        .transition(.opacity)
+                    }
+                    .padding(.top, 140) // Offset below AI host message
+                    Spacer()
+                }
+            }
         }
         .onAppear {
             print("📱 [CHAT] View appeared - connecting to LiveKit")
@@ -237,6 +322,26 @@ struct HashtagScreen: View {
                 }
             }
             
+            // Set up Vortex activation notification observer
+            NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("ShowVortexActivation"),
+                object: nil,
+                queue: .main
+            ) { notification in
+                if let message = notification.object as? String {
+                    withAnimation(.easeIn(duration: 0.3)) {
+                        vortexActivationMessage = message
+                    }
+                    
+                    // Hide the message after 3 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                        withAnimation(.easeOut(duration: 0.5)) {
+                            vortexActivationMessage = nil
+                        }
+                    }
+                }
+            }
+            
             // Connect to LiveKit when view appears
             Task {
                 await liveKitService.connect(
@@ -248,6 +353,13 @@ struct HashtagScreen: View {
         }
         .onDisappear {
             print("📱 [CHAT] View disappeared - isIntentionallyLeaving: \(isIntentionallyLeaving)")
+            
+            // Remove notification observer
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSNotification.Name("ShowVortexActivation"),
+                object: nil
+            )
             
             // Only cleanup if the user intentionally left (hang up button) or after a delay for other cases
             if isIntentionallyLeaving {
@@ -425,6 +537,10 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
     @Published var participants: [MatchParticipant] = []
     @Published var connectionState: String = "Disconnected"
     
+    // Vortex AI Control
+    @Published var isVortexEnabled = false
+    @Published var vortexActivationCount = 0  // Track how many users have activated Vortex
+    
     // MARK: - LiveKit Integration
     private var room: Room?
     private var localParticipant: LocalParticipant?
@@ -568,6 +684,58 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
         // REAL LIVEKIT MUTE:
         Task { @MainActor in
             try? await localParticipant?.setMicrophone(enabled: !isMuted)
+        }
+    }
+    
+    func toggleVortexAI() {
+        if isVortexEnabled {
+            // Stop Vortex - any user can stop it
+            isVortexEnabled = false
+            vortexActivationCount = 0
+            print("🤖 [LiveKit] Vortex AI disabled by user")
+            
+            // Send RPC to disable Vortex AI
+            Task { @MainActor in
+                try? await localParticipant?.sendData(
+                    data: "disable_vortex".data(using: .utf8) ?? Data(),
+                    topic: "vortex_control"
+                )
+            }
+        } else {
+            // Enable Vortex - increment activation count
+            vortexActivationCount += 1
+            
+            // Check if both users have activated Vortex (assuming 2 users in the room)
+            let humanParticipants = participants.filter { !$0.isAIHost }
+            let requiredActivations = max(1, humanParticipants.count) // At least 1, or all human participants
+            
+            if vortexActivationCount >= requiredActivations {
+                isVortexEnabled = true
+                print("🤖 [LiveKit] Vortex AI enabled by \(vortexActivationCount) users")
+                
+                // Send RPC to enable Vortex AI
+                Task { @MainActor in
+                    try? await localParticipant?.sendData(
+                        data: "enable_vortex".data(using: .utf8) ?? Data(),
+                        topic: "vortex_control"
+                    )
+                }
+            } else {
+                print("🤖 [LiveKit] Vortex AI activation count: \(vortexActivationCount)/\(requiredActivations)")
+                
+                // Show activation notification
+                let humanParticipants = participants.filter { !$0.isAIHost }
+                let remainingActivations = requiredActivations - vortexActivationCount
+                let message = remainingActivations == 1 ? 
+                    "Waiting for 1 more user to activate Vortex..." :
+                    "Waiting for \(remainingActivations) more users to activate Vortex..."
+                
+                // Post notification to show activation message
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("ShowVortexActivation"),
+                    object: message
+                )
+            }
         }
     }
     
@@ -739,6 +907,30 @@ extension LiveKitCallService: RoomDelegate {
             default:
                 print("❓ [LiveKit] Room delegate: Unknown state")
                 self.connectionState = "Unknown"
+            }
+        }
+    }
+    
+    // Handle data messages for Vortex control synchronization
+    nonisolated func room(_ room: Room, participant: RemoteParticipant, didReceiveData data: Data, topic: String?) {
+        guard let message = String(data: data, encoding: .utf8) else { return }
+        
+        print("📨 [LiveKit] Received data message: \(message) from \(participant.identity)")
+        
+        Task { @MainActor in
+            if topic == "vortex_control" {
+                switch message {
+                case "enable_vortex":
+                    self.isVortexEnabled = true
+                    self.vortexActivationCount = 0  // Reset count when enabled
+                    print("🤖 [LiveKit] Vortex AI enabled by remote participant")
+                case "disable_vortex":
+                    self.isVortexEnabled = false
+                    self.vortexActivationCount = 0  // Reset count when disabled
+                    print("🤖 [LiveKit] Vortex AI disabled by remote participant")
+                default:
+                    print("❓ [LiveKit] Unknown Vortex control message: \(message)")
+                }
             }
         }
     }
