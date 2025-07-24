@@ -161,7 +161,7 @@ struct UserVoiceTopicMatchingView: View {
                         .background(Circle().fill(Color.white.opacity(0.2)))
                 }
                 
-                Text(aiVoiceService.isMuted ? "Muted" : (aiVoiceService.isAISpeaking ? "AI Speaking..." : "Listening..."))
+                Text(aiVoiceService.isMuted ? "Muted" : (aiVoiceService.isAISpeaking ? "Vortex Speaking..." : "Listening..."))
                     .foregroundColor(.white)
                     .padding(.bottom, 30)
             }
