@@ -316,7 +316,9 @@ class AuthService: ObservableObject {
                 message: "Authenticated successfully"
             )
             
-            updateAuthState(userResponse: authResponse, token: token)
+            // Use Firebase user's email as realEmail to preserve Gmail username
+            let realEmail = firebaseUser.email ?? userResponse.email
+            updateAuthState(userResponse: authResponse, token: token, realEmail: realEmail)
             
         } catch {
             print("Failed to authenticate with backend: \(error)")
