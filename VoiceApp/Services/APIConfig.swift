@@ -70,6 +70,10 @@ enum APIConfig {
     static let environment = "production"
     static let apiDocsURL = "https://vortex-production-71fe.up.railway.app/docs"
     
+    // MARK: - YouTube Ad Configuration
+    static let youtubeAdVideoId = "Ydp7cNF5p74" // YouTube video ID for waiting room ad
+    static let youtubeAdTimeoutSeconds = 30 // Auto-hide timeout if video doesn't end properly
+    
     // MARK: - Helper Methods
     static func roomPath(_ roomId: String) -> String {
         return "/api/rooms/\(roomId)"

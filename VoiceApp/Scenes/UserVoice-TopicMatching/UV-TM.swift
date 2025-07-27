@@ -8,6 +8,7 @@ import SwiftUI
 import Combine
 import AVFoundation
 import FirebaseAuth
+import WebKit
 
 // Data model for live match information
 struct LiveMatchData {
@@ -35,6 +36,129 @@ struct MatchParticipant {
     }
 }
 
+// YouTube Video Ad Component
+struct YouTubeVideoAd: UIViewRepresentable {
+    let videoId: String
+    let onVideoEnd: () -> Void
+    
+    func makeUIView(context: Context) -> WKWebView {
+        let webView = WKWebView()
+        webView.navigationDelegate = context.coordinator
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.bounces = false
+        webView.backgroundColor = .black
+        webView.isOpaque = false
+        
+        // Create YouTube embed HTML with autoplay and controls
+        let htmlString = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {
+                    margin: 0;
+                    padding: 0;
+                    background-color: black;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                }
+                .video-container {
+                    position: relative;
+                    width: 100%;
+                    height: 100%;
+                    max-width: 400px;
+                    max-height: 300px;
+                }
+                iframe {
+                    width: 100%;
+                    height: 100%;
+                    border: none;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="video-container">
+                <iframe 
+                    id="youtube-player"
+                    src="https://www.youtube.com/embed/\(videoId)?autoplay=1&mute=0&controls=1&rel=0&showinfo=0&modestbranding=1&playsinline=1&enablejsapi=1&origin=\(APIConfig.baseURL)"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowfullscreen>
+                </iframe>
+            </div>
+            <script>
+                // Load YouTube API
+                var tag = document.createElement('script');
+                tag.src = "https://www.youtube.com/iframe_api";
+                var firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                
+                var player;
+                function onYouTubeIframeAPIReady() {
+                    player = new YT.Player('youtube-player', {
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange
+                        }
+                    });
+                }
+                
+                function onPlayerReady(event) {
+                    // Force autoplay when player is ready
+                    event.target.playVideo();
+                }
+                
+                function onPlayerStateChange(event) {
+                    if (event.data == YT.PlayerState.ENDED) {
+                        window.webkit.messageHandlers.videoEnded.postMessage('ended');
+                    }
+                }
+                
+                // Fallback: Auto-hide after timeout if no end event is detected
+                setTimeout(function() {
+                    window.webkit.messageHandlers.videoEnded.postMessage('timeout');
+                }, \(APIConfig.youtubeAdTimeoutSeconds * 1000));
+            </script>
+        </body>
+        </html>
+        """
+        
+        webView.loadHTMLString(htmlString, baseURL: nil)
+        return webView
+    }
+    
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        // No updates needed
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+        let parent: YouTubeVideoAd
+        
+        init(_ parent: YouTubeVideoAd) {
+            self.parent = parent
+        }
+        
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // Add message handler for video end event
+            webView.configuration.userContentController.add(self, name: "videoEnded")
+        }
+        
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == "videoEnded" {
+                DispatchQueue.main.async {
+                    self.parent.onVideoEnd()
+                }
+            }
+        }
+    }
+}
+
 // Simplified view, keeping only core functionality
 struct UserVoiceTopicMatchingView: View {
     let matchResult: MatchResult
@@ -51,125 +175,231 @@ struct UserVoiceTopicMatchingView: View {
     @State private var matchData: LiveMatchData?
     @State private var showPreparingRoom = false
     @State private var preparingMessage = "Preparing room..."
+    
+    // YouTube Ad state
+    @State private var showYouTubeAd = true
+    @State private var adVideoId = APIConfig.youtubeAdVideoId
+    @State private var adTimeRemaining = APIConfig.youtubeAdTimeoutSeconds
+    @State private var adTimer: Timer?
 
     var body: some View {
         ZStack {
             // Background
             Color.black.ignoresSafeArea()
 
-            // Top UI elements
-            VStack {
-                // Back button
-                HStack {
-                    Button(action: {
-                        print("🚪 [EXIT] User tapped exit button - returning to home")
-                        // Clean up AI voice service before dismissing
-                        aiVoiceService.cleanup()
-                        // CRITICAL FIX: Reset navigation state to prevent self-matching
-                        VoiceMatchingService.shared.resetNavigation()
-                        dismiss()
-                    }) {
-                        Image(systemName: "arrow.left")
-                            .font(.title2)
-                            .foregroundColor(.white)
-                    }
-                    Spacer()
-                }
-                .padding()
-                
-                Spacer()
-                
-                // AI text response display area OR preparing room message
-                ScrollView {
-                    if showPreparingRoom {
-                        VStack(spacing: 16) {
-                            // Preparing room UI
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(1.5)
-                            
-                            Text(preparingMessage)
-                                .font(.custom("Rajdhani", size: 28))
-                                .foregroundColor(.white)
-                                .multilineTextAlignment(.center)
-                            
-                            Text("Setting up AI host...")
-                                .font(.custom("Rajdhani", size: 18))
-                                .foregroundColor(.white.opacity(0.7))
-                                .multilineTextAlignment(.center)
+            // YouTube Ad Overlay
+            if showYouTubeAd && !showPreparingRoom {
+                VStack {
+                    // Timer indicator and sponsored content
+                    HStack {
+                        // Timer indicator
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Ad in progress")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            Text("\(adTimeRemaining)s remaining")
+                                .font(.caption2)
+                                .foregroundColor(.gray.opacity(0.7))
                         }
-                        .padding()
-                    } else {
-                        VStack(spacing: 20) {
-                            // AI response
-                            Text(aiVoiceService.currentResponse)
-                                .font(.custom("Rajdhani", size: 28))
-                                .foregroundColor(.white)
-                                .multilineTextAlignment(.center)
+                        .padding(.leading, 20)
+                        .padding(.top, 20)
+                        
+                        Spacer()
+                        
+                        // Sponsored content label
+                        Text("Sponsored Content")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .padding(.trailing, 20)
+                            .padding(.top, 20)
+                    }
+                    
+                    Spacer()
+                    
+                    // YouTube Video
+                    YouTubeVideoAd(videoId: adVideoId) {
+                        // Video ended callback
+                        stopAdTimer() // Stop the timer when video ends
+                        
+                        // Restart AI conversation when ad ends
+                        Task {
+                            await restartAIConversation()
                             
-                            // Topic facts display
-                            if !topicFactsService.currentFact.isEmpty {
-                                VStack(spacing: 8) {
-                                    if topicFactsService.isGeneratingFact {
-                                        ProgressView()
-                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                            .scaleEffect(0.8)
-                                    }
-                                    
-                                    Text(topicFactsService.currentFact)
-                                        .font(.custom("Rajdhani", size: 18))
-                                        .foregroundColor(.white.opacity(0.8))
-                                        .multilineTextAlignment(.center)
-                                        .transition(.opacity.combined(with: .scale))
-                                        .animation(.easeInOut(duration: 0.5), value: topicFactsService.currentFact)
-                                }
-                                .padding(.horizontal, 20)
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                showYouTubeAd = false
                             }
                         }
-                        .padding()
+                    }
+                    .frame(height: 300)
+                    .cornerRadius(12)
+                    .padding(.horizontal, 20)
+                    
+                    Spacer()
+                    
+                    // Custom ad message with topic under the video
+                    if let firstTopic = matchResult.topics.first {
+                        Text("After this advertisement you will be matched with someone to talk about #\(firstTopic)")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 20)
                     }
                 }
-                
-                Spacer()
+                .transition(.opacity.combined(with: .scale))
             }
-            
-            // Bottom microphone button
-            VStack {
-                Spacer()
-                // Add subtle searching indicator if still waiting for match
-                if !navigateToLiveChat, let firstTopic = matchResult.topics.first {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.8)
+
+            // Main waiting room content (only visible when ad is not showing)
+            if !showYouTubeAd || showPreparingRoom {
+                // Top UI elements
+                VStack {
+                    // Back button (disabled when ad is showing)
+                    HStack {
+                        Button(action: {
+                            print("🚪 [EXIT] User tapped exit button - returning to home")
+                            // Clean up AI voice service before dismissing
+                            aiVoiceService.cleanup()
+                            // CRITICAL FIX: Reset navigation state to prevent self-matching
+                            VoiceMatchingService.shared.resetNavigation()
+                            dismiss()
+                        }) {
+                            Image(systemName: "arrow.left")
+                                .font(.title2)
+                                .foregroundColor(showYouTubeAd ? .gray : .white) // Gray out when ad is showing
+                        }
+                        .disabled(showYouTubeAd) // Disable button when ad is showing
                         
-                        Text("Searching for someone to talk about #\(firstTopic) with you...")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(Color.white.opacity(0.7))
+                        // Show message when ad is active
+                        if showYouTubeAd {
+                            Text("Please watch the ad to be matched")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                                .padding(.leading, 10)
+                        }
+                        
+                        Spacer()
                     }
-                    .padding(.bottom, 8)
-                    .transition(.opacity)
-                }
-                Button(action: {
-                    // Toggle mute state
-                    aiVoiceService.toggleMute()
-                }) {
-                    Image(systemName: aiVoiceService.isMuted ? "mic.slash.fill" : (aiVoiceService.isAISpeaking ? "speaker.wave.2.fill" : "mic.fill"))
-                        .font(.system(size: 40))
-                        .foregroundColor(aiVoiceService.isMuted ? .red : (aiVoiceService.isAISpeaking ? .blue : .white))
-                        .padding(20)
-                        .background(Circle().fill(Color.white.opacity(0.2)))
+                    .padding()
+                    
+                    Spacer()
+                    
+                    // AI text response display area OR preparing room message
+                    ScrollView {
+                        if showPreparingRoom {
+                            VStack(spacing: 16) {
+                                // Preparing room UI
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(1.5)
+                                
+                                Text(preparingMessage)
+                                    .font(.custom("Rajdhani", size: 28))
+                                    .foregroundColor(.white)
+                                    .multilineTextAlignment(.center)
+                                
+                                Text("Setting up AI host...")
+                                    .font(.custom("Rajdhani", size: 18))
+                                    .foregroundColor(.white.opacity(0.7))
+                                    .multilineTextAlignment(.center)
+                            }
+                            .padding()
+                        } else {
+                            VStack(spacing: 20) {
+                                // AI response
+                                Text(aiVoiceService.currentResponse)
+                                    .font(.custom("Rajdhani", size: 28))
+                                    .foregroundColor(.white)
+                                    .multilineTextAlignment(.center)
+                                
+                                // Topic facts display
+                                if !topicFactsService.currentFact.isEmpty {
+                                    VStack(spacing: 8) {
+                                        if topicFactsService.isGeneratingFact {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                                .scaleEffect(0.8)
+                                        }
+                                        
+                                        Text(topicFactsService.currentFact)
+                                            .font(.custom("Rajdhani", size: 18))
+                                            .foregroundColor(.white.opacity(0.8))
+                                            .multilineTextAlignment(.center)
+                                            .transition(.opacity.combined(with: .scale))
+                                            .animation(.easeInOut(duration: 0.5), value: topicFactsService.currentFact)
+                                    }
+                                    .padding(.horizontal, 20)
+                                }
+                            }
+                            .padding()
+                        }
+                    }
+                    
+                    Spacer()
                 }
                 
-                Text(aiVoiceService.isMuted ? "Muted" : (aiVoiceService.isAISpeaking ? "Vortex Speaking..." : "Listening..."))
-                    .foregroundColor(.white)
-                    .padding(.bottom, 30)
+                                    // Bottom microphone button
+                    VStack {
+                        Spacer()
+                        // Add subtle searching indicator if still waiting for match
+                        if !navigateToLiveChat, let firstTopic = matchResult.topics.first {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(0.8)
+                                
+                                Text("Searching for someone to talk about #\(firstTopic) with you...")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(Color.white.opacity(0.7))
+                            }
+                            .padding(.bottom, 8)
+                            .transition(.opacity)
+                        }
+                        
+                        // Show muted indicator during ad
+                        if showYouTubeAd {
+                            HStack(spacing: 8) {
+                                Image(systemName: "speaker.slash.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.gray)
+                                Text("AI muted during ad")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                            .padding(.bottom, 8)
+                        }
+                        
+                        Button(action: {
+                            // Toggle mute state (disabled during ad)
+                            if !showYouTubeAd {
+                                aiVoiceService.toggleMute()
+                            }
+                        }) {
+                            Image(systemName: aiVoiceService.isMuted ? "mic.slash.fill" : (aiVoiceService.isAISpeaking ? "speaker.wave.2.fill" : "mic.fill"))
+                                .font(.system(size: 40))
+                                .foregroundColor(showYouTubeAd ? .gray : (aiVoiceService.isMuted ? .red : (aiVoiceService.isAISpeaking ? .blue : .white)))
+                                .padding(20)
+                                .background(Circle().fill(Color.white.opacity(showYouTubeAd ? 0.1 : 0.2)))
+                        }
+                        .disabled(showYouTubeAd) // Disable button during ad
+                        
+                        Text(showYouTubeAd ? "AI muted during ad" : (aiVoiceService.isMuted ? "Muted" : (aiVoiceService.isAISpeaking ? "Vortex Speaking..." : "Listening...")))
+                            .foregroundColor(.white)
+                            .padding(.bottom, 30)
+                    }
             }
         }
         .onAppear {
-            // Initialize AI conversation when view appears
+            // Start ad timer first
+            startAdTimer()
+            
+            // Initialize AI conversation when view appears (but keep muted during ad)
             Task {
                 await aiVoiceService.initializeAIConversation(with: matchResult)
+                // Ensure AI is muted during ad but keep session active
+                await MainActor.run {
+                    aiVoiceService.isMuted = true
+                    // Don't stop the session, just mute the audio processing
+                }
             }
             
             // Start topic facts service with the first topic
@@ -180,6 +410,9 @@ struct UserVoiceTopicMatchingView: View {
         .onDisappear {
             // Stop topic facts service
             topicFactsService.stopFacts()
+            
+            // Stop ad timer
+            stopAdTimer()
             
             // Only cleanup if we're not navigating to a successful match
             print("🚪 [EXIT] View disappearing - checking if we should cleanup")
@@ -203,6 +436,7 @@ struct UserVoiceTopicMatchingView: View {
             }
         }
         .navigationBarHidden(true)
+        .interactiveDismissDisabled(showYouTubeAd) // Prevent swipe-to-dismiss when ad is showing
         // Navigation to live chat when match is found
         .background(
             NavigationLink(
@@ -229,6 +463,14 @@ struct UserVoiceTopicMatchingView: View {
         .onReceive(aiVoiceService.$matchFound) { matchData in
             if let matchData = matchData {
                 print("🎯 [NAVIGATION] Match found - entering room preparation phase!")
+                
+                // Hide YouTube ad when match is found
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showYouTubeAd = false
+                }
+                
+                // Unmute AI when match is found
+                aiVoiceService.isMuted = false
                 
                 // Stop AI conversation and show preparing state
                 Task {
@@ -318,6 +560,62 @@ struct UserVoiceTopicMatchingView: View {
             print("❌ [AGENT_CHECK] Error checking agent status: \(error)")
             return false  // Assume not ready on error
         }
+    }
+    
+    // MARK: - Ad Timer Methods
+    
+    private func startAdTimer() {
+        // Reset timer
+        adTimeRemaining = APIConfig.youtubeAdTimeoutSeconds
+        
+        // Start countdown timer
+        adTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            if adTimeRemaining > 0 {
+                adTimeRemaining -= 1
+            } else {
+                // Timer expired - hide ad
+                stopAdTimer()
+                
+                // Restart AI conversation when timer expires
+                DispatchQueue.main.async {
+                    Task {
+                        await self.restartAIConversation()
+                    }
+                }
+                
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showYouTubeAd = false
+                }
+            }
+        }
+    }
+    
+    private func stopAdTimer() {
+        adTimer?.invalidate()
+        adTimer = nil
+    }
+    
+    // MARK: - AI Conversation Management
+    
+    private func restartAIConversation() async {
+        print("🔄 [AI_RESTART] Restarting AI conversation after ad")
+        
+        // Ensure AI is not speaking and is unmuted
+        await MainActor.run {
+            aiVoiceService.isAISpeaking = false
+            aiVoiceService.isMuted = false // Ensure AI starts unmuted
+        }
+        
+        // Force restart audio engine first
+        aiVoiceService.handleAudioSessionChange()
+        
+        // Wait for audio engine to initialize
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        
+        // Start listening directly without toggling mute
+        await aiVoiceService.startListening()
+        
+        print("✅ [AI_RESTART] AI conversation restarted and ready for voice input")
     }
 }
 
