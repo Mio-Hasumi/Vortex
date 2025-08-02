@@ -112,14 +112,29 @@ struct HashtagScreen: View {
             VStack {
                 Spacer()
                 
-                Button(action: {
-                    liveKitService.toggleMute()
-                }) {
-                    Image(systemName: liveKitService.isMuted ? "mic.slash.fill" : "mic.fill")
-                        .font(.system(size: 30))
-                        .foregroundColor(liveKitService.isMuted ? .red : .white)
-                        .padding(15)
-                        .background(Circle().fill(Color.white.opacity(0.2)))
+                HStack(spacing: 20) {
+                    // AI Control Button - Visual only (no functionality)
+                    Button(action: {
+                        // No functionality - just visual toggle
+                        liveKitService.isAIListening.toggle()
+                    }) {
+                        Image(systemName: liveKitService.isAIListening ? "brain.head.profile.fill" : "brain.head.profile")
+                            .font(.system(size: 30))
+                            .foregroundColor(liveKitService.isAIListening ? .purple : .white)
+                            .padding(15)
+                            .background(Circle().fill(Color.white.opacity(0.2)))
+                    }
+                    
+                    // Mute/Unmute button
+                    Button(action: {
+                        liveKitService.toggleMute()
+                    }) {
+                        Image(systemName: liveKitService.isMuted ? "mic.slash.fill" : "mic.fill")
+                            .font(.system(size: 30))
+                            .foregroundColor(liveKitService.isMuted ? .red : .white)
+                            .padding(15)
+                            .background(Circle().fill(Color.white.opacity(0.2)))
+                    }
                 }
                 .padding(.bottom, 80)
             }
@@ -128,6 +143,21 @@ struct HashtagScreen: View {
             VStack {
                 HStack {
                     Spacer()
+                    
+                    // AI Listening indicator
+                    if liveKitService.isAIListening {
+                        HStack(spacing: 6) {
+                            Image(systemName: "brain.head.profile.fill")
+                                .font(.caption)
+                                .foregroundColor(.purple)
+                            Text("AI Listening...")
+                                .font(.caption2)
+                                .foregroundColor(.purple)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.purple.opacity(0.2)))
+                    }
                     
                     // AI Host indicator
                     if liveKitService.participants.contains(where: { $0.isAIHost }) {
@@ -422,6 +452,7 @@ private struct CirclePic: View {
 class LiveKitCallService: ObservableObject, @unchecked Sendable {
     @Published var isConnected = false
     @Published var isMuted = false
+    @Published var isAIListening = false
     @Published var participants: [MatchParticipant] = []
     @Published var connectionState: String = "Disconnected"
     
