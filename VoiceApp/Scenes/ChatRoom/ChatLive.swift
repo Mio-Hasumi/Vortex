@@ -113,16 +113,24 @@ struct HashtagScreen: View {
                 Spacer()
                 
                 HStack(spacing: 20) {
-                    // AI Control Button - Visual only (no functionality)
+                    // AI Control Button - Functional implementation
                     Button(action: {
-                        // No functionality - just visual toggle
-                        liveKitService.isAIListening.toggle()
+                        // Toggle AI listening state
+                        liveKitService.toggleAIListening()
                     }) {
                         Image(systemName: liveKitService.isAIListening ? "brain.head.profile.fill" : "brain.head.profile")
                             .font(.system(size: 30))
                             .foregroundColor(liveKitService.isAIListening ? .purple : .white)
                             .padding(15)
                             .background(Circle().fill(Color.white.opacity(0.2)))
+                            .overlay(
+                                // Add visual indicator when AI is speaking
+                                Circle()
+                                    .stroke(liveKitService.isAISpeaking ? .blue : .clear, lineWidth: 3)
+                                    .scaleEffect(liveKitService.isAISpeaking ? 1.2 : 1.0)
+                                    .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), 
+                                              value: liveKitService.isAISpeaking)
+                            )
                     }
                     
                     // Mute/Unmute button
@@ -150,7 +158,7 @@ struct HashtagScreen: View {
                             Image(systemName: "brain.head.profile.fill")
                                 .font(.caption)
                                 .foregroundColor(.purple)
-                            Text("AI Listening...")
+                            Text(liveKitService.isAISpeaking ? "AI Speaking..." : "AI Listening...")
                                 .font(.caption2)
                                 .foregroundColor(.purple)
                         }
@@ -449,16 +457,20 @@ private struct CirclePic: View {
 
 // Real LiveKit service implementation
 @MainActor
-class LiveKitCallService: ObservableObject, @unchecked Sendable {
+class LiveKitCallService: ObservableObject, @unchecked Sendable, WebSocketDelegate {
     @Published var isConnected = false
     @Published var isMuted = false
     @Published var isAIListening = false
+    @Published var isAISpeaking = false
     @Published var participants: [MatchParticipant] = []
     @Published var connectionState: String = "Disconnected"
     
     // MARK: - LiveKit Integration
     private var room: Room?
     private var localParticipant: LocalParticipant?
+    
+    // WebSocket for AI control
+    private var aiWebSocketService: WebSocketService?
     
     // Audio session for LiveKit
     private var audioSession: AVAudioSession?
@@ -517,6 +529,9 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
             // Set up event handlers
             setupRoomEventHandlers()
             
+            // Set up WebSocket for AI control
+            setupAIWebSocket()
+            
             await MainActor.run {
                 self.isConnected = true
                 self.connectionState = "Connected"
@@ -547,7 +562,23 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
         // Handle participant connections
         room.add(delegate: self)
         
+        // Note: Data channel subscription is not available in current LiveKit SDK
+        // AI speaking state will be handled via WebSocket fallback
         print("✅ [LiveKit] Room event handlers configured")
+    }
+    
+    private func setupAIWebSocket() {
+        // Set up WebSocket for AI control messages
+        aiWebSocketService = WebSocketService()
+        aiWebSocketService?.delegate = self
+        
+        // Connect to AI control WebSocket
+        if let token = AuthService.shared.firebaseToken {
+            aiWebSocketService?.connect(to: APIConfig.WebSocket.aiAudioStream, with: token)
+            print("🔗 [LiveKit] Connecting to AI control WebSocket")
+        } else {
+            print("⚠️ [LiveKit] No auth token available for AI WebSocket")
+        }
     }
     
     func disconnect() {
@@ -587,6 +618,10 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
             self.hasConnected = false
             self.isDisconnecting = false
             
+            // Disconnect AI WebSocket
+            aiWebSocketService?.disconnect()
+            aiWebSocketService = nil
+            
             print("✅ [LiveKit] Disconnected successfully")
             print("👥 [LiveKit] Cleared all participants from UI")
         }
@@ -599,6 +634,82 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
         // REAL LIVEKIT MUTE:
         Task { @MainActor in
             try? await localParticipant?.setMicrophone(enabled: !isMuted)
+        }
+    }
+    
+    func toggleAIListening() {
+        isAIListening.toggle()
+        print("🧠 [LiveKit] AI listening \(isAIListening ? "enabled" : "disabled")")
+        
+        // Send control message to backend
+        Task {
+            await sendAIControlMessage(isListening: isAIListening)
+        }
+    }
+
+    private func sendAIControlMessage(isListening: Bool) async {
+        // Send WebSocket message to control AI input
+        let controlMessage: [String: Any] = [
+            "type": "ai_control",
+            "action": isListening ? "enable_listening" : "disable_listening",
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        
+        // Send via WebSocket
+        aiWebSocketService?.send(controlMessage)
+        print("📤 [LiveKit] Sent AI control message: \(controlMessage)")
+    }
+    
+    // Note: WebSocket messages are now handled via WebSocketServiceDelegate
+    
+    // MARK: - WebSocket Delegate Methods
+    
+    func webSocketDidConnect(_ service: WebSocketService) {
+        print("✅ [LiveKit] AI control WebSocket connected")
+    }
+    
+    func webSocketDidDisconnect(_ service: WebSocketService) {
+        print("❌ [LiveKit] AI control WebSocket disconnected")
+    }
+    
+    func webSocket(_ service: WebSocketService, didReceiveMessage message: [String: Any]) {
+        guard let messageType = message["type"] as? String else { return }
+        
+        switch messageType {
+        case "ai_speaking_state":
+            if let isSpeaking = message["is_speaking"] as? Bool {
+                setAISpeaking(isSpeaking)
+            }
+        case "ai_control_response":
+            print("📥 [LiveKit] Received AI control response: \(message)")
+        default:
+            print("📥 [LiveKit] Received WebSocket message: \(messageType)")
+        }
+    }
+    
+    func webSocket(_ service: WebSocketService, didEncounterError error: Error) {
+        print("❌ [LiveKit] AI control WebSocket error: \(error)")
+    }
+
+    // Add AI speaking detection
+    func setAISpeaking(_ speaking: Bool) {
+        DispatchQueue.main.async {
+            self.isAISpeaking = speaking
+            print("🗣️ [LiveKit] AI speaking state: \(speaking)")
+            
+            if speaking {
+                // AI is speaking - mute user input to prevent interference
+                if !self.isMuted {
+                    print("🔇 [LiveKit] AI speaking - muting user input")
+                    self.toggleMute()
+                }
+            } else {
+                // AI finished speaking - unmute user input if AI listening is still enabled
+                if self.isAIListening && self.isMuted {
+                    print("🔊 [LiveKit] AI finished speaking - unmuting user input")
+                    self.toggleMute()
+                }
+            }
         }
     }
     
@@ -773,6 +884,9 @@ extension LiveKitCallService: RoomDelegate {
             }
         }
     }
+    
+    // Note: Data channel messages are not available in current LiveKit SDK
+    // AI speaking state will be handled via WebSocket fallback
 }
 
 #Preview {
