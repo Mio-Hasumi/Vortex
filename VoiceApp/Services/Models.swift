@@ -4,12 +4,27 @@ import Foundation
 struct SignUpRequest: Codable {
     let firebase_uid: String
     let display_name: String
-    let email: String
+    let email: String?
+    let phone_number: String?
+    
+    init(firebase_uid: String, display_name: String, email: String? = nil, phone_number: String? = nil) {
+        self.firebase_uid = firebase_uid
+        self.display_name = display_name
+        self.email = email
+        self.phone_number = phone_number
+    }
 }
 
 struct SignInRequest: Codable {
     let firebase_uid: String
-    let email: String
+    let email: String?
+    let phone_number: String?
+    
+    init(firebase_uid: String, email: String? = nil, phone_number: String? = nil) {
+        self.firebase_uid = firebase_uid
+        self.email = email
+        self.phone_number = phone_number
+    }
 }
 
 struct AuthResponse: Codable {

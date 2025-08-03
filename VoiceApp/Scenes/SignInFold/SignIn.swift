@@ -6,6 +6,12 @@
 //
 import SwiftUI
 
+// MARK: - Auth Method Enum
+enum AuthMethod: String, CaseIterable {
+    case email = "Email"
+    case phone = "Phone"
+}
+
 struct SignIn: View {
     @ObservedObject private var authService = AuthService.shared
     @State private var isShowingSignInForm = false
@@ -95,7 +101,7 @@ struct SignInFormView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var authService = AuthService.shared
     
-    @State private var email = ""
+    @State private var emailOrPhone = ""
     @State private var password = ""
     @State private var isLoading = false
     @State private var errorMessage = ""
@@ -111,10 +117,15 @@ struct SignInFormView: View {
                     .padding(.top, 40)
                 
                 VStack(spacing: 16) {
-                    TextField("Email", text: $email)
+                    TextField("Email or Phone Number", text: $emailOrPhone)
                         .textFieldStyle(CustomTextFieldStyle())
                         .keyboardType(.emailAddress)
                         .autocapitalization(.none)
+                        .onChange(of: emailOrPhone) { newValue in
+                            if isPhoneNumber(newValue) {
+                                emailOrPhone = formatPhoneNumber(newValue)
+                            }
+                        }
                     
                     SecureField("Password", text: $password)
                         .textFieldStyle(CustomTextFieldStyle())
@@ -143,7 +154,7 @@ struct SignInFormView: View {
                     .background(Color.blue)
                     .cornerRadius(8)
                 }
-                .disabled(isLoading || email.isEmpty || password.isEmpty)
+                .disabled(isLoading || !isFormValid)
                 .padding(.top, 20)
                 
                 // Modify forgot password button
@@ -209,6 +220,31 @@ struct SignInFormView: View {
         }
     }
     
+    private var isFormValid: Bool {
+        return !emailOrPhone.isEmpty && !password.isEmpty
+    }
+    
+    private func isPhoneNumber(_ input: String) -> Bool {
+        let cleaned = input.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+        return cleaned.count >= 10 && cleaned.count <= 15
+    }
+    
+    private func formatPhoneNumber(_ phone: String) -> String {
+        let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+        let mask = "(XXX) XXX-XXXX"
+        var result = ""
+        var index = cleaned.startIndex
+        for ch in mask where index < cleaned.endIndex {
+            if ch == "X" {
+                result.append(cleaned[index])
+                index = cleaned.index(after: index)
+            } else {
+                result.append(ch)
+            }
+        }
+        return result
+    }
+    
     private func signIn() {
         isLoading = true
         showError = false
@@ -216,10 +252,17 @@ struct SignInFormView: View {
         
         Task {
             do {
-                print("📧 Starting email sign in...")
-                _ = try await authService.signInWithEmail(email: email, password: password)
+                let isPhone = isPhoneNumber(emailOrPhone)
+                print("📧 Starting \(isPhone ? "phone" : "email") sign in...")
+                
+                if isPhone {
+                    _ = try await authService.signInWithPhone(phoneNumber: emailOrPhone, password: password)
+                } else {
+                    _ = try await authService.signInWithEmail(email: emailOrPhone, password: password)
+                }
+                
                 await MainActor.run {
-                    print("📧 Email sign in completed. Auth status: \(authService.isAuthenticated)")
+                    print("📧 \(isPhone ? "phone" : "email") sign in completed. Auth status: \(authService.isAuthenticated)")
                     isLoading = false
                     // Check authentication status and close form
                     if authService.isAuthenticated {
@@ -229,7 +272,7 @@ struct SignInFormView: View {
                 }
             } catch {
                 await MainActor.run {
-                    print("📧 Email sign in failed: \(error)")
+                    print("📧 Sign in failed: \(error)")
                     errorMessage = error.localizedDescription
                     showError = true
                     isLoading = false
@@ -273,7 +316,7 @@ struct RegisterFormView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var authService = AuthService.shared
     
-    @State private var email = ""
+    @State private var emailOrPhone = ""
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var displayName = ""
@@ -293,10 +336,15 @@ struct RegisterFormView: View {
                     TextField("Display Name", text: $displayName)
                         .textFieldStyle(CustomTextFieldStyle())
                     
-                    TextField("Email", text: $email)
+                    TextField("Email or Phone Number", text: $emailOrPhone)
                         .textFieldStyle(CustomTextFieldStyle())
                         .keyboardType(.emailAddress)
                         .autocapitalization(.none)
+                        .onChange(of: emailOrPhone) { newValue in
+                            if isPhoneNumber(newValue) {
+                                emailOrPhone = formatPhoneNumber(newValue)
+                            }
+                        }
                     
                     SecureField("Password", text: $password)
                         .textFieldStyle(CustomTextFieldStyle())
@@ -385,11 +433,32 @@ struct RegisterFormView: View {
     }
     
     private var isFormValid: Bool {
-        !email.isEmpty && 
+        return !emailOrPhone.isEmpty && 
         !password.isEmpty && 
         !displayName.isEmpty && 
         password == confirmPassword &&
         password.count >= 6
+    }
+    
+    private func isPhoneNumber(_ input: String) -> Bool {
+        let cleaned = input.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+        return cleaned.count >= 10 && cleaned.count <= 15
+    }
+    
+    private func formatPhoneNumber(_ phone: String) -> String {
+        let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+        let mask = "(XXX) XXX-XXXX"
+        var result = ""
+        var index = cleaned.startIndex
+        for ch in mask where index < cleaned.endIndex {
+            if ch == "X" {
+                result.append(cleaned[index])
+                index = cleaned.index(after: index)
+            } else {
+                result.append(ch)
+            }
+        }
+        return result
     }
     
     private func register() {
@@ -405,12 +474,25 @@ struct RegisterFormView: View {
         
         Task {
             do {
-                _ = try await authService.signUpWithEmail(
-                    email: email, 
-                    password: password, 
-                    displayName: displayName
-                )
+                let isPhone = isPhoneNumber(emailOrPhone)
+                print("📧 Starting \(isPhone ? "phone" : "email") registration...")
+                
+                if isPhone {
+                    _ = try await authService.signUpWithPhone(
+                        phoneNumber: emailOrPhone, 
+                        password: password, 
+                        displayName: displayName
+                    )
+                } else {
+                    _ = try await authService.signUpWithEmail(
+                        email: emailOrPhone, 
+                        password: password, 
+                        displayName: displayName
+                    )
+                }
+                
                 await MainActor.run {
+                    print("📧 \(isPhone ? "phone" : "email") registration completed. Auth status: \(authService.isAuthenticated)")
                     isLoading = false
                     // Check authentication status and close form
                     if authService.isAuthenticated {
@@ -419,6 +501,7 @@ struct RegisterFormView: View {
                 }
             } catch {
                 await MainActor.run {
+                    print("📧 Registration failed: \(error)")
                     errorMessage = error.localizedDescription
                     showError = true
                     isLoading = false

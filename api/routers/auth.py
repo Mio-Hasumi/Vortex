@@ -18,11 +18,13 @@ security = HTTPBearer()
 class SignUpRequest(BaseModel):
     firebase_uid: str  # Firebase UID from client
     display_name: str
-    email: str
+    email: Optional[str] = None
+    phone_number: Optional[str] = None
 
 class SignInRequest(BaseModel):
     firebase_uid: str  # Firebase UID from client
-    email: str
+    email: Optional[str] = None
+    phone_number: Optional[str] = None
 
 class AuthResponse(BaseModel):
     user_id: str
@@ -50,13 +52,30 @@ async def sign_up(
     Client should create Firebase user first, then call this endpoint
     """
     try:
-        # Check if user already exists
-        existing_user = user_repo.find_by_email(request.email)
-        if existing_user:
+        # Validate that either email or phone_number is provided
+        if not request.email and not request.phone_number:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User with this email already exists"
+                detail="Either email or phone_number must be provided"
             )
+        
+        # Check if user already exists by email
+        if request.email:
+            existing_user = user_repo.find_by_email(request.email)
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="User with this email already exists"
+                )
+        
+        # Check if user already exists by phone number
+        if request.phone_number:
+            existing_user = user_repo.find_by_phone_number(request.phone_number)
+            if existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="User with this phone number already exists"
+                )
         
         existing_user_by_name = user_repo.find_by_display_name(request.display_name)
         if existing_user_by_name:
@@ -70,6 +89,7 @@ async def sign_up(
         user = new_user(
             display_name=request.display_name,
             email=request.email,
+            phone_number=request.phone_number,
             firebase_uid=request.firebase_uid,
             password_hash=""  # Not needed for Firebase auth
         )
@@ -79,7 +99,7 @@ async def sign_up(
         return AuthResponse(
             user_id=str(saved_user.id),
             display_name=saved_user.display_name,
-            email=saved_user.email,
+            email=saved_user.email or "",
             message="User registered successfully. Use Firebase ID Token for authentication."
         )
     except HTTPException:
@@ -103,8 +123,12 @@ async def sign_in(
         # Find user by Firebase UID
         user = user_repo.find_by_firebase_uid(request.firebase_uid)
         if not user:
-            # If user doesn't exist, create them
-            user = user_repo.find_by_email(request.email)
+            # If user doesn't exist, try to find by email or phone
+            if request.email:
+                user = user_repo.find_by_email(request.email)
+            elif request.phone_number:
+                user = user_repo.find_by_phone_number(request.phone_number)
+            
             if not user:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -114,7 +138,7 @@ async def sign_in(
         return AuthResponse(
             user_id=str(user.id),
             display_name=user.display_name,
-            email=user.email,
+            email=user.email or "",
             message="User authenticated successfully. Use Firebase ID Token for API calls."
         )
     except HTTPException:
