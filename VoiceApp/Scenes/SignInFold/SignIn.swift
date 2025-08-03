@@ -331,6 +331,44 @@ struct RegisterFormView: View {
                 .disabled(isLoading || !isFormValid)
                 .padding(.top, 20)
                 
+                // Add separator line
+                HStack {
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(.gray.opacity(0.3))
+                    Text("OR")
+                        .foregroundColor(.gray)
+                        .font(.caption)
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(.gray.opacity(0.3))
+                }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 20)
+                
+                // Add Google sign up button
+                Button(action: signUpWithGoogle) {
+                    HStack(spacing: 12) {
+                        // Official Google logo (should be an asset)
+                        Image("google_logo") // You'll need to add this asset
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 18, height: 18)
+                        
+                        Text("Sign up with Google")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color(red: 60/255, green: 64/255, blue: 67/255))
+                    }
+                    .frame(width: 280, height: 44)
+                    .background(Color.white)
+                    .cornerRadius(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color(red: 218/255, green: 220/255, blue: 224/255), lineWidth: 1)
+                    )
+                }
+                .disabled(isLoading)
+                
                 Spacer()
             }
             .background(Color.black)
@@ -381,6 +419,35 @@ struct RegisterFormView: View {
                 }
             } catch {
                 await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func signUpWithGoogle() {
+        isLoading = true
+        showError = false
+        errorMessage = ""
+        
+        Task {
+            do {
+                print("🔴 Starting Google sign up...")
+                _ = try await authService.signInWithGoogle()
+                await MainActor.run {
+                    print("🔴 Google sign up completed. Auth status: \(authService.isAuthenticated)")
+                    isLoading = false
+                    // Check authentication status and close form
+                    if authService.isAuthenticated {
+                        print("🔴 Dismissing sign up form...")
+                        dismiss()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    print("🔴 Google sign up failed: \(error)")
                     errorMessage = error.localizedDescription
                     showError = true
                     isLoading = false
