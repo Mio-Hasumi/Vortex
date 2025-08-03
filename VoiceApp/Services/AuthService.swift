@@ -239,6 +239,41 @@ class AuthService: ObservableObject {
     }
     
     @MainActor
+    func signUpWithPhone(phoneNumber: String, password: String, displayName: String) async throws -> AuthResponse {
+        // 1. Create Firebase user with phone number
+        let authResult = try await Auth.auth().createUser(withEmail: "\(phoneNumber)@phone.vortex.com", password: password)
+        
+        // 2. Update Firebase profile
+        let changeRequest = authResult.user.createProfileChangeRequest()
+        changeRequest.displayName = displayName
+        try await changeRequest.commitChanges()
+        
+        // 3. Get Firebase ID token
+        let token = try await authResult.user.getIDToken()
+        
+        // 4. Register with backend
+        let signUpRequest = SignUpRequest(
+            firebase_uid: authResult.user.uid,
+            display_name: displayName,
+            phone_number: phoneNumber
+        )
+        
+        APIService.shared.setAuthToken(token)
+        
+        let requestData = try JSONEncoder().encode(signUpRequest)
+        let authResponse: AuthResponse = try await APIService.shared.request(
+            endpoint: APIConfig.Endpoints.register,
+            method: "POST",
+            body: requestData
+        )
+        
+        // 5. Update local user state
+        updateAuthState(userResponse: authResponse, token: token)
+        
+        return authResponse
+    }
+    
+    @MainActor
     func signInWithEmail(email: String, password: String) async throws -> AuthResponse {
         // 1. Sign in with Firebase
         let authResult = try await Auth.auth().signIn(withEmail: email, password: password)
@@ -250,6 +285,35 @@ class AuthService: ObservableObject {
         let signInRequest = SignInRequest(
             firebase_uid: authResult.user.uid,
             email: email
+        )
+        
+        APIService.shared.setAuthToken(token)
+        
+        let requestData = try JSONEncoder().encode(signInRequest)
+        let authResponse: AuthResponse = try await APIService.shared.request(
+            endpoint: APIConfig.Endpoints.login,
+            method: "POST",
+            body: requestData
+        )
+        
+        // 4. Update local user state
+        updateAuthState(userResponse: authResponse, token: token)
+        
+        return authResponse
+    }
+    
+    @MainActor
+    func signInWithPhone(phoneNumber: String, password: String) async throws -> AuthResponse {
+        // 1. Sign in with Firebase using phone-based email
+        let authResult = try await Auth.auth().signIn(withEmail: "\(phoneNumber)@phone.vortex.com", password: password)
+        
+        // 2. Get Firebase ID token
+        let token = try await authResult.user.getIDToken()
+        
+        // 3. Sign in with backend
+        let signInRequest = SignInRequest(
+            firebase_uid: authResult.user.uid,
+            phone_number: phoneNumber
         )
         
         APIService.shared.setAuthToken(token)

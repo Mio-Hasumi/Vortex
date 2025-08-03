@@ -97,6 +97,31 @@ class UserRepository:
             logger.error(f"❌ Failed to find user by email {email}: {e}")
             return None
     
+    def find_by_phone_number(self, phone_number: str) -> Optional[User]:
+        """
+        Find user by phone number
+        
+        Args:
+            phone_number: User's phone number
+            
+        Returns:
+            User entity or None if not found
+        """
+        try:
+            users = self.firebase.query_documents(
+                self.collection_name,
+                filters=[{"field": "phone_number", "operator": "==", "value": phone_number}],
+                limit=1
+            )
+            
+            if users:
+                return self._dict_to_entity(users[0])
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to find user by phone number {phone_number}: {e}")
+            return None
+    
     def find_by_firebase_uid(self, firebase_uid: str) -> Optional[User]:
         """
         Find user by Firebase UID
@@ -280,7 +305,8 @@ class UserRepository:
         return {
             "id": str(user.id),
             "display_name": user.display_name,
-            "email": user.email.lower(),  # Store email in lowercase
+            "email": user.email.lower() if user.email else None,  # Store email in lowercase
+            "phone_number": user.phone_number,
             "firebase_uid": user.firebase_uid,  # Firebase Auth UID
             "password_hash": user.password_hash,
             "push_token": user.push_token,
@@ -310,7 +336,8 @@ class UserRepository:
         return User(
             id=UUID(data["id"]),
             display_name=data["display_name"],
-            email=data["email"],
+            email=data.get("email"),
+            phone_number=data.get("phone_number"),
             firebase_uid=data["firebase_uid"],  # Firebase Auth UID
             password_hash=data["password_hash"],
             push_token=data.get("push_token"),
