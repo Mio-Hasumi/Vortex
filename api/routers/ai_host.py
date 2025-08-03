@@ -21,7 +21,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from uuid import UUID
 import json
 import io
@@ -33,6 +33,11 @@ from datetime import datetime
 from infrastructure.container import container
 from infrastructure.middleware.firebase_auth_middleware import get_current_user
 from domain.entities import User
+
+from infrastructure.ai.openai_service import OpenAIService
+from infrastructure.ai.ai_host_service import AIHostService
+from livekit.agents import ChatContext, ChatMessage, Agent, AgentSession
+from infrastructure.ai.vortex_agent import VortexAgent
 
 logger = logging.getLogger(__name__)
 
@@ -1106,8 +1111,8 @@ async def _handle_realtime_streaming(websocket: WebSocket, openai_service, sessi
                         "threshold": 0.5,      # Speech detection sensitivity: 0.0 (most sensitive) to 1.0 (least sensitive)
                         "prefix_padding_ms": 300,   # Audio milliseconds before speech to include
                         "silence_duration_ms": 500, # Silence duration before ending turn
-                        "create_response": True,     # Automatically create response after turn ends
-                        "interrupt_response": True   # Allow interrupting ongoing responses
+                        "create_response": False,     # 关键：不要让服务器自动回复
+                        "interrupt_response": False   # 防止打断AI响应
                     }
                 }
             )
@@ -1210,6 +1215,48 @@ Current conversation context:
                             "message": "Server VAD handles turn detection automatically"
                         }))
                         
+                    elif message_type == "ai_control":
+                        # Handle AI control messages from iOS app
+                        action = data.get("action")
+                        logger.info(f"🎛️ [AI Control] Received action: {action}")
+                        
+                        if action == "enable_listening":
+                            # Enable AI listening - this would be handled by the VortexAgent
+                            logger.info("✅ [AI Control] AI listening enabled")
+                            await websocket.send_text(json.dumps({
+                                "type": "ai_control_response",
+                                "action": "enable_listening",
+                                "status": "enabled",
+                                "timestamp": datetime.utcnow().isoformat()
+                            }))
+                        elif action == "disable_listening":
+                            # Disable AI listening
+                            logger.info("❌ [AI Control] AI listening disabled")
+                            await websocket.send_text(json.dumps({
+                                "type": "ai_control_response",
+                                "action": "disable_listening",
+                                "status": "disabled",
+                                "timestamp": datetime.utcnow().isoformat()
+                            }))
+                        else:
+                            logger.warning(f"⚠️ [AI Control] Unknown action: {action}")
+                            await websocket.send_text(json.dumps({
+                                "type": "error",
+                                "message": f"Unknown AI control action: {action}"
+                            }))
+                    
+                    elif message_type == "ai_speaking_state":
+                        # Handle AI speaking state notifications from VortexAgent
+                        is_speaking = data.get("is_speaking", False)
+                        logger.info(f"🗣️ [AI Speaking] State changed: {is_speaking}")
+                        
+                        # Forward the notification to iOS app
+                        await websocket.send_text(json.dumps({
+                            "type": "ai_speaking_state",
+                            "is_speaking": is_speaking,
+                            "timestamp": datetime.utcnow().isoformat()
+                        }))
+                    
                     elif message_type == "ping":
                         await websocket.send_text(json.dumps({
                             "type": "pong",
