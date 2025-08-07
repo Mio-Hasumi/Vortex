@@ -78,13 +78,10 @@ class VortexAgent(Agent):
         # Participant tracking (CRITICAL: initialize before _get_agent_instructions())
         self.participant_map = {}  # Maps LiveKit identity to user info
         
-        # Add AI control state
-        self.ai_listening_enabled = False
-        self.is_speaking = False
-        self.speaking_start_time = None
-        
         # Greeting message
         self._greeting_message = "Hi everyone! I'm Vortex, your AI conversation assistant. I'm here to help facilitate your discussion and provide assistance when needed. Feel free to continue your conversation!"
+        
+        
         
         # NOW we can safely call super().__init__ with dynamic instructions
         system_instructions = self._get_agent_instructions()
@@ -282,125 +279,69 @@ Your role is to facilitate, not lead conversations. Stay quiet and let people co
     
 
 
-    # Removed _addressed_to_me method - no longer needed with button-based control
+    def _addressed_to_me(self, txt: str) -> bool:
+        """Check if the message is addressed to Vortex"""
+        import re
+        return re.search(r'\b(hey|hi|hello)?\s*@?\s*vortex\b', txt, re.I) is not None
 
     async def on_user_turn_completed(self, turn_ctx: ChatContext, new_message: ChatMessage) -> None:
-        """Process user input - only respond when AI listening is enabled"""
+        """Process user input - only respond when explicitly addressed"""
         try:
             user_input = new_message.text_content()
             participant_info = self._get_participant_info(new_message)
+            
+            # Simple logging
+            logger.info(f"[AGENT] 🎙️ User message from {participant_info['name']}: '{user_input[:50]}...'")
+            
+            # Update conversation log
+            self.conversation_log.append({
+                "timestamp": datetime.now().isoformat(),
+                "participant_name": participant_info['name'],
+                "participant_identity": participant_info['identity'],
+                "message": user_input,
+                "is_ai_host": participant_info.get('is_ai_host', False)
+            })
             
             # Skip AI host messages
             if participant_info.get("is_ai_host", False):
                 logger.debug("[AGENT] 🤖 Skipping AI host message")
                 return
             
-            # Check if AI listening is enabled
-            if not self.ai_listening_enabled:
-                logger.info("[AGENT] 🤫 AI listening disabled - staying silent")
+            logger.info(f"[AGENT] 💬 User message: '{user_input[:50]}...'")
+            
+            # Check if message is addressed to Vortex
+            if not self._addressed_to_me(user_input):
+                logger.info("[AGENT] 🤫 Message not addressed to me - staying silent")
+                logger.debug(f"[INSTRUCTIONS] 📋 Following instructions to stay silent unless addressed")
+                # 阻止默认回复（不同版本写法不同）
+                try:
+                    turn_ctx.prevent_default()
+                except AttributeError:
+                    try:
+                        turn_ctx.should_respond = False
+                    except AttributeError:
+                        logger.debug("[AGENT] Could not prevent default response - relying on prompt control")
                 return
             
-            # Check if AI is currently speaking
-            if self.is_speaking:
-                logger.info("[AGENT] 🗣️ AI is speaking - ignoring user input")
-                return
+            logger.info("[AGENT] 🗣️ Message addressed to me - responding")
+            logger.debug(f"[INSTRUCTIONS] 📋 Following instructions to respond when addressed directly")
             
-            logger.info(f"[AGENT] 🎙️ Processing user input: '{user_input[:50]}...'")
+            # Provide a helpful response (always in English first)
+            participant_names = [info["name"] for info in self.participant_map.values() if not info.get("is_ai_host", False)]
+            if len(participant_names) >= 2:
+                response = f"Hi! I see {', '.join(participant_names)} here. What can I help you discuss?"
+            else:
+                response = "Hi there! What can I help you with?"
             
-            # Set speaking state and notify iOS
-            self.is_speaking = True
-            self.speaking_start_time = datetime.now()
-            logger.info("[AGENT] 🗣️ AI speaking started - notifying iOS")
-            
-            # Notify iOS that AI is speaking (this would be sent via WebSocket)
-            await self._notify_ai_speaking_state(True)
-            
-            # Generate and provide response
-            response = await self._generate_response(user_input)
+            logger.info(f"[INSTRUCTIONS] 🌍 Responding in English first as instructed: '{response[:50]}...'")
             await self.session.say(response)
-            
-            # Reset speaking state and notify iOS
-            self.is_speaking = False
-            logger.info("[AGENT] 🤫 AI speaking ended - notifying iOS")
-            await self._notify_ai_speaking_state(False)
             
         except Exception as e:
             logger.error(f"[AGENT ERROR] ❌ Error in on_user_turn_completed: {e}")
-            self.is_speaking = False
     
-    async def _generate_response(self, user_input: str) -> str:
-        """Generate AI response based on user input"""
-        try:
-            # Use the OpenAI service to generate a proper response
-            if self.openai_service:
-                # Create conversation context
-                conversation_state = "active_host"
-                user_context = {
-                    "room_context": self.room_context,
-                    "participants": self.participant_map,
-                    "conversation_log": self.conversation_log[-5:] if self.conversation_log else []  # Last 5 exchanges
-                }
-                
-                # Generate response using OpenAI service
-                response_data = await self.openai_service.generate_ai_host_response(
-                    user_input=user_input,
-                    conversation_state=conversation_state,
-                    user_context=user_context
-                )
-                
-                # Extract the response text
-                response_text = response_data.get("ai_response", "I understand your input. What would you like to discuss?")
-                logger.info(f"[AGENT] Generated response: '{response_text[:100]}...'")
-                return response_text
-            else:
-                # Fallback response if OpenAI service is not available
-                return f"I understand you said: {user_input}. That's an interesting point! What are your thoughts on this topic?"
-                
-        except Exception as e:
-            logger.error(f"[AGENT ERROR] Failed to generate response: {e}")
-            return "I'm here to help facilitate your conversation. What would you like to discuss?"
+
     
-    async def _notify_ai_speaking_state(self, is_speaking: bool):
-        """Notify iOS app about AI speaking state changes"""
-        try:
-            # Create notification message
-            notification = {
-                "type": "ai_speaking_state",
-                "is_speaking": is_speaking,
-                "timestamp": datetime.now().isoformat()
-            }
-            logger.info(f"[AGENT] 📡 Notifying iOS: AI speaking = {is_speaking}")
-            
-            # Store notification for WebSocket forwarding (LiveKit data channels not available)
-            self._last_ai_speaking_notification = notification
-            
-        except Exception as e:
-            logger.error(f"[AGENT ERROR] Failed to notify AI speaking state: {e}")
-    
-    def get_last_ai_speaking_notification(self):
-        """Get the last AI speaking notification for WebSocket forwarding"""
-        notification = getattr(self, '_last_ai_speaking_notification', None)
-        if notification:
-            # Clear the notification after retrieving it
-            self._last_ai_speaking_notification = None
-        return notification
-    
-    async def handle_ai_control_message(self, message: dict):
-        """Handle AI control messages from iOS app"""
-        action = message.get("action")
-        
-        if action == "enable_listening":
-            self.ai_listening_enabled = True
-            logger.info("[AGENT] ✅ AI listening enabled - will respond to all user input")
-        elif action == "disable_listening":
-            self.ai_listening_enabled = False
-            logger.info("[AGENT] ❌ AI listening disabled - staying silent")
-        elif action == "ai_speaking_start":
-            self.is_speaking = True
-            logger.info("[AGENT] 🗣️ AI speaking started")
-        elif action == "ai_speaking_end":
-            self.is_speaking = False
-            logger.info("[AGENT] 🤫 AI speaking ended")
+
 
     # Participant join/leave handling moved to entrypoint level
 
@@ -589,7 +530,6 @@ def create_vortex_agent_session(
                 prefix_padding_ms=300,
                 silence_duration_ms=500,
                 create_response=False,      # 关键：不要让服务器自动回复
-                interrupt_response=False,   # 防止打断AI响应
             ),
         )
         
