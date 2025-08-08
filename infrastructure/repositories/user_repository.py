@@ -148,12 +148,12 @@ class UserRepository:
             from uuid import uuid4
             new_user = User(
                 id=uuid4(),  # Generate a new UUID
-                firebase_uid=firebase_uid,
-                email=f"user_{firebase_uid}@firebase.com",  # Temporary email, can be updated later
                 display_name=f"User {firebase_uid[:8]}",
+                firebase_uid=firebase_uid,
+                password_hash="",  # Default empty password hash
+                email=f"user_{firebase_uid}@firebase.com",  # Temporary email, can be updated later
                 is_active=True,
-                status=UserStatus.ONLINE,
-                password_hash=""  # Default empty password hash
+                status=UserStatus.ONLINE
             )
             
             # Save to database
@@ -336,10 +336,10 @@ class UserRepository:
         return User(
             id=UUID(data["id"]),
             display_name=data["display_name"],
-            email=data.get("email"),
-            phone_number=data.get("phone_number"),
             firebase_uid=data["firebase_uid"],  # Firebase Auth UID
             password_hash=data["password_hash"],
+            email=data.get("email"),
+            phone_number=data.get("phone_number"),
             push_token=data.get("push_token"),
             status=UserStatus(data.get("status", UserStatus.OFFLINE.value)),
             last_seen=datetime.fromisoformat(data["last_seen"]),

@@ -62,10 +62,10 @@ class User:
     """
     id: UUID
     display_name: str
-    email: Optional[str] = None
-    phone_number: Optional[str] = None
     firebase_uid: str  # Firebase Auth UID - Used for Firebase ID Token verification
     password_hash: str
+    email: Optional[str] = None
+    phone_number: Optional[str] = None
     push_token: Optional[str] = None    # APNs / FCM token
     status: UserStatus = UserStatus.OFFLINE
     last_seen: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -399,14 +399,14 @@ class AIHostSession:
 
 
 # Factory functions for creating entities
-def new_user(display_name: str, email: Optional[str] = None, phone_number: Optional[str] = None, password_hash: str = "", firebase_uid: str = "") -> User:
+def new_user(display_name: str, firebase_uid: str, password_hash: str = "", email: Optional[str] = None, phone_number: Optional[str] = None) -> User:
     return User(
         id=uuid4(),
         display_name=display_name,
-        email=email,
-        phone_number=phone_number,
         firebase_uid=firebase_uid,
-        password_hash=password_hash
+        password_hash=password_hash,
+        email=email,
+        phone_number=phone_number
     )
 
 
