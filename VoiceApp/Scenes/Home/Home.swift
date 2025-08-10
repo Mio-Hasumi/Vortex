@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var isTyping = false
     @State private var showCursor = true // For blinking cursor effect
     @State private var cursorTimer: Timer?
+    @State private var showTestChat = false
     
     // Voice matching related text
     private let matchingTexts = [
@@ -85,6 +86,11 @@ struct HomeView: View {
                 }
             }
         }
+    }
+    
+    private func navigateToTestChat() {
+        print("🧪 [HomeView] Navigating to test chat")
+        showTestChat = true
     }
     
     // Simulate API text updates with typing effect
@@ -209,7 +215,32 @@ struct HomeView: View {
                             }
                             .foregroundColor(.white)
                         }
+                        
                         Spacer()
+                        
+                        // Test Chat Button
+                        Button(action: {
+                            navigateToTestChat()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "message.circle.fill")
+                                    .font(.system(size: 16))
+                                
+                                Text("Test Chat")
+                                    .font(.system(size: 14, weight: .medium))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 20)
+                                    .fill(Color.blue.opacity(0.3))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 20)
+                                            .stroke(Color.blue.opacity(0.6), lineWidth: 1)
+                                    )
+                            )
+                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 20)
@@ -342,6 +373,9 @@ struct HomeView: View {
             }
         }
         .navigationBarHidden(true)
+        .navigationDestination(isPresented: $showTestChat) {
+            TestChatView()
+        }
         .onAppear {
             print("🏠 [HomeView] View appeared")
             startTypingNewText()

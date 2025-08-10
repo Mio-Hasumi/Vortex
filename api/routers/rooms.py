@@ -475,12 +475,21 @@ async def websocket_room_conversation(
             "room_id": room_id,
             "connection_id": room_connection_id,
             "participants": room_participants,
-            "ai_enabled": True,
+            "ai_enabled": False,  # 🔴 AI DISABLED
             "supported_features": [
                 "voice_input", "voice_output", "real_time_moderation", 
                 "fact_checking", "conversation_guidance", "topic_suggestions"
             ]
         })
+
+        # 🔴 BLOCK AI PROCESSING IF DISABLED
+        AI_PROCESSING_ENABLED = False  # Set to False to block all OpenAI processing
+        
+        if not AI_PROCESSING_ENABLED:
+            await websocket.send_json({
+                "type": "system_message",
+                "message": "AI processing is currently disabled. Voice and text messages will be broadcast but not processed by AI."
+            })
 
         # Initialize conversation context for AI moderator
         conversation_context = []
@@ -495,6 +504,18 @@ async def websocket_room_conversation(
             logger.info(f"📥 Received: {message_type} in room {room_id}")
             
             if message_type == "voice_message":
+                # 🔴 BLOCK AI PROCESSING IF DISABLED
+                if not AI_PROCESSING_ENABLED:
+                    # Still broadcast the voice message but don't process with AI
+                    await broadcast_to_room(livekit_name, {
+                        "type": "user_voice_message",
+                        "user_id": user_id,
+                        "audio_data": data.get("audio_data"),
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "note": "AI processing disabled"
+                    })
+                    continue
+                
                 # User sends voice message - process with GPT-4o Audio
                 await handle_voice_message(
                     websocket, livekit_name, user_id, data, 
@@ -502,6 +523,18 @@ async def websocket_room_conversation(
                 )
                 
             elif message_type == "text_message":
+                # 🔴 BLOCK AI PROCESSING IF DISABLED
+                if not AI_PROCESSING_ENABLED:
+                    # Still broadcast the text message but don't process with AI
+                    await broadcast_to_room(livekit_name, {
+                        "type": "user_text_message",
+                        "user_id": user_id,
+                        "text": data.get("text"),
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "note": "AI processing disabled"
+                    })
+                    continue
+                
                 # User sends text message
                 await handle_text_message(
                     websocket, livekit_name, user_id, data,
@@ -509,6 +542,14 @@ async def websocket_room_conversation(
                 )
                 
             elif message_type == "request_ai_assistance":
+                # 🔴 BLOCK AI PROCESSING IF DISABLED
+                if not AI_PROCESSING_ENABLED:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "AI processing is currently disabled"
+                    })
+                    continue
+                
                 # User explicitly requests AI help
                 await handle_ai_assistance_request(
                     websocket, livekit_name, user_id, data,
@@ -516,6 +557,10 @@ async def websocket_room_conversation(
                 )
                 
             elif message_type == "conversation_pause":
+                # 🔴 BLOCK AI PROCESSING IF DISABLED
+                if not AI_PROCESSING_ENABLED:
+                    continue
+                
                 # Handle conversation silence - AI suggests topics
                 await handle_conversation_pause(
                     websocket, livekit_name, openai_service, 
@@ -552,6 +597,16 @@ async def handle_voice_message(
     """
     Process user voice messages - Use GPT-4o Audio for real-time response
     """
+    # 🔴 BLOCK AI PROCESSING IF DISABLED
+    AI_PROCESSING_ENABLED = False  # Set to False to block all OpenAI processing
+    
+    if not AI_PROCESSING_ENABLED:
+        await websocket.send_json({
+            "type": "error",
+            "message": "AI processing is currently disabled"
+        })
+        return
+    
     try:
         audio_data = data.get("audio_data")  # base64 encoded audio
         if not audio_data:
@@ -634,6 +689,9 @@ async def handle_text_message(
     """
     Handle user text messages - AI provides intelligent replies and suggestions
     """
+    # 🔴 BLOCK AI PROCESSING IF DISABLED
+    AI_PROCESSING_ENABLED = False  # Set to False to block all OpenAI processing
+    
     try:
         text_content = data.get("text", "")
         if not text_content.strip():
@@ -657,6 +715,14 @@ async def handle_text_message(
             "text": text_content,
             "timestamp": datetime.utcnow().isoformat()
         })
+        
+        # 🔴 BLOCK AI PROCESSING IF DISABLED
+        if not AI_PROCESSING_ENABLED:
+            await websocket.send_json({
+                "type": "error",
+                "message": "AI processing is currently disabled"
+            })
+            return
         
         # Get AI moderator response (text + optional voice)
         ai_response = await openai_service.moderate_room_conversation(
@@ -701,6 +767,16 @@ async def handle_ai_assistance_request(
     """
     Handle user request for AI assistance
     """
+    # 🔴 BLOCK AI PROCESSING IF DISABLED
+    AI_PROCESSING_ENABLED = False  # Set to False to block all OpenAI processing
+    
+    if not AI_PROCESSING_ENABLED:
+        await websocket.send_json({
+            "type": "error",
+            "message": "AI processing is currently disabled"
+        })
+        return
+    
     try:
         request_type = data.get("assistance_type", "general")  # general, fact_check, topic_suggestion
         
@@ -740,6 +816,16 @@ async def handle_conversation_pause(
     """
     Handle conversation pause - AI suggests topics to keep conversation active
     """
+    # 🔴 BLOCK AI PROCESSING IF DISABLED
+    AI_PROCESSING_ENABLED = False  # Set to False to block all OpenAI processing
+    
+    if not AI_PROCESSING_ENABLED:
+        await websocket.send_json({
+            "type": "error",
+            "message": "AI processing is currently disabled"
+        })
+        return
+    
     try:
         logger.info(f"⏸️ Conversation pause detected in room {room_id}")
         
