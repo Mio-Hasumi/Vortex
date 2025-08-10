@@ -16,6 +16,9 @@ from infrastructure.middleware.firebase_auth_middleware import get_current_user
 from domain.entities import RoomStatus, User, Room
 from uuid import uuid4
 
+# Import the global AI processing flag from ai_host
+from api.routers.ai_host import AI_PROCESSING_ENABLED
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -483,8 +486,6 @@ async def websocket_room_conversation(
         })
 
         # 🔴 BLOCK AI PROCESSING IF DISABLED
-        AI_PROCESSING_ENABLED = False  # Set to False to block all OpenAI processing
-        
         if not AI_PROCESSING_ENABLED:
             await websocket.send_json({
                 "type": "system_message",
@@ -598,8 +599,6 @@ async def handle_voice_message(
     Process user voice messages - Use GPT-4o Audio for real-time response
     """
     # 🔴 BLOCK AI PROCESSING IF DISABLED
-    AI_PROCESSING_ENABLED = False  # Set to False to block all OpenAI processing
-    
     if not AI_PROCESSING_ENABLED:
         await websocket.send_json({
             "type": "error",
@@ -689,9 +688,6 @@ async def handle_text_message(
     """
     Handle user text messages - AI provides intelligent replies and suggestions
     """
-    # 🔴 BLOCK AI PROCESSING IF DISABLED
-    AI_PROCESSING_ENABLED = False  # Set to False to block all OpenAI processing
-    
     try:
         text_content = data.get("text", "")
         if not text_content.strip():
@@ -767,9 +763,6 @@ async def handle_ai_assistance_request(
     """
     Handle user request for AI assistance
     """
-    # 🔴 BLOCK AI PROCESSING IF DISABLED
-    AI_PROCESSING_ENABLED = False  # Set to False to block all OpenAI processing
-    
     if not AI_PROCESSING_ENABLED:
         await websocket.send_json({
             "type": "error",
@@ -816,9 +809,6 @@ async def handle_conversation_pause(
     """
     Handle conversation pause - AI suggests topics to keep conversation active
     """
-    # 🔴 BLOCK AI PROCESSING IF DISABLED
-    AI_PROCESSING_ENABLED = False  # Set to False to block all OpenAI processing
-    
     if not AI_PROCESSING_ENABLED:
         await websocket.send_json({
             "type": "error",
