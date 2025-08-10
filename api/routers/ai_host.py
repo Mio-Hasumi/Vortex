@@ -295,7 +295,16 @@ async def text_to_speech_get(
     GET endpoint for TTS (convenient for frontend)
     Usage: /api/ai-host/tts/HelloWorld?voice=nova&speed=1.0
     """
+    # 🔴 BLOCK AI PROCESSING IF DISABLED
+    if not AI_PROCESSING_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI processing is currently disabled"
+        )
+    
     try:
+        logger.info(f"🔊 TTS GET request for text: '{text[:50]}...'")
+
         # Generate TTS audio
         audio_bytes = await openai_service.text_to_speech(
             text=text, voice=voice, speed=speed
