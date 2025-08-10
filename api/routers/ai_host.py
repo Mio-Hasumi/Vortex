@@ -85,7 +85,6 @@ class ProcessInputResponse(BaseModel):
     extracted_topics: List[str] = []
     generated_hashtags: List[str] = []
     next_action: Optional[str] = None
-)
 
 
 class TTSRequest(BaseModel):
