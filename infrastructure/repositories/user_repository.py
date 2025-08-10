@@ -318,7 +318,8 @@ class UserRepository:
             "bio": user.bio,
             "preferred_language": user.preferred_language,
             "topic_preferences": user.topic_preferences,
-            "interest_levels": user.interest_levels
+            "interest_levels": user.interest_levels,
+            "ai_enabled": user.ai_enabled
         }
     
     def _dict_to_entity(self, data: dict) -> User:
@@ -349,5 +350,6 @@ class UserRepository:
             bio=data.get("bio"),
             preferred_language=data.get("preferred_language", "en"),
             topic_preferences=data.get("topic_preferences", []),
-            interest_levels=data.get("interest_levels", {})
+            interest_levels=data.get("interest_levels", {}),
+            ai_enabled=data.get("ai_enabled", False)
         ) 
