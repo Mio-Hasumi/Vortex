@@ -20,14 +20,13 @@ from infrastructure.repositories.matching_repository import MatchingRepository
 from infrastructure.repositories.recording_repository import RecordingRepository
 from infrastructure.repositories.topic_repository import TopicRepository
 from infrastructure.repositories.friend_repository import FriendRepository
-from infrastructure.middleware.firebase_auth_middleware import FirebaseAuthMiddleware
+from infrastructure.middleware.firebase_auth_middleware import FirebaseAuthMiddleware, get_current_user
 from infrastructure.livekit.livekit_service import LiveKitService
 from infrastructure.redis.redis_service import RedisService
 from infrastructure.websocket.connection_manager import ConnectionManager
 from infrastructure.websocket.event_broadcaster import EventBroadcaster
 
-from domain.entities import User, Room, Match, Topic, Friend, Recording
-from domain.policies import MatchingPolicy, RoomPolicy, RecordingPolicy
+from domain.entities import User, Room, Match, Topic, Friendship, Recording
 
 from fastapi import (
     APIRouter,
@@ -86,6 +85,7 @@ class ProcessInputResponse(BaseModel):
     extracted_topics: List[str] = []
     generated_hashtags: List[str] = []
     next_action: Optional[str] = None
+)
 
 
 class TTSRequest(BaseModel):
