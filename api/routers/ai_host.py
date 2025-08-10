@@ -1501,7 +1501,8 @@ async def ai_host_health_check(openai_service=Depends(get_openai_service)):
 @router.post("/toggle-ai")
 async def toggle_ai_features(
     enabled: bool,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    user_repository=Depends(lambda: container.get_user_repository())
 ):
     """
     Toggle AI features for the current user
@@ -1519,15 +1520,14 @@ async def toggle_ai_features(
         # Update user's AI preference
         current_user.ai_enabled = enabled
         
-        # Save to database (you'll need to implement this based on your repository pattern)
-        # For now, we'll just return the updated status
-        # TODO: Implement user repository save method
+        # Save to database using user repository
+        updated_user = user_repository.update(current_user)
         
         logger.info(f"✅ AI features {'enabled' if enabled else 'disabled'} for user {current_user.id}")
         
         return {
-            "ai_enabled": enabled,
-            "user_id": str(current_user.id),
+            "ai_enabled": updated_user.ai_enabled,
+            "user_id": str(updated_user.id),
             "message": f"AI features {'enabled' if enabled else 'disabled'} successfully",
             "timestamp": datetime.utcnow().isoformat()
         }
