@@ -213,17 +213,19 @@ async def process_user_input(
 # Text-to-Speech Endpoints (Urgently needed by frontend!)
 @router.post("/tts")
 async def text_to_speech(
-    request: TTSRequest, openai_service=Depends(get_openai_service)
+    request: TTSRequest, 
+    current_user: User = Depends(get_current_user),
+    openai_service=Depends(get_openai_service)
 ):
     """
     Convert text to speech using OpenAI TTS
     This endpoint can be called directly by the frontend to obtain AI voice
     """
-    # 🔴 BLOCK AI PROCESSING IF DISABLED
-    if not AI_PROCESSING_ENABLED:
+    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
+    if not current_user.ai_enabled:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI processing is currently disabled"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="AI features not enabled for this user. Please enable AI features first."
         )
     
     try:
@@ -289,17 +291,18 @@ async def text_to_speech_get(
     text: str,
     voice: str = "nova",
     speed: float = 1.0,
+    current_user: User = Depends(get_current_user),
     openai_service=Depends(get_openai_service),
 ):
     """
     GET endpoint for TTS (convenient for frontend)
     Usage: /api/ai-host/tts/HelloWorld?voice=nova&speed=1.0
     """
-    # 🔴 BLOCK AI PROCESSING IF DISABLED
-    if not AI_PROCESSING_ENABLED:
+    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
+    if not current_user.ai_enabled:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI processing is currently disabled"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="AI features not enabled for this user. Please enable AI features first."
         )
     
     try:
@@ -333,11 +336,11 @@ async def extract_topics(
     """
     Extract topics and generate hashtags from text input
     """
-    # 🔴 BLOCK AI PROCESSING IF DISABLED
-    if not AI_PROCESSING_ENABLED:
+    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
+    if not current_user.ai_enabled:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI processing is currently disabled"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="AI features not enabled for this user. Please enable AI features first."
         )
     
     try:
@@ -377,11 +380,11 @@ async def extract_topics_from_voice(
     """
     Extract topics and hashtags from voice input using GPT-4o Audio
     """
-    # 🔴 BLOCK AI PROCESSING IF DISABLED
-    if not AI_PROCESSING_ENABLED:
+    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
+    if not current_user.ai_enabled:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI processing is currently disabled"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="AI features not enabled for this user. Please enable AI features first."
         )
     
     try:
@@ -442,11 +445,11 @@ async def upload_audio_for_stt(
     """
     Upload audio file for speech-to-text conversion and optional topic extraction
     """
-    # 🔴 BLOCK AI PROCESSING IF DISABLED
-    if not AI_PROCESSING_ENABLED:
+    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
+    if not current_user.ai_enabled:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI processing is currently disabled"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="AI features not enabled for this user. Please enable AI features first."
         )
     
     try:
@@ -697,6 +700,14 @@ async def websocket_voice_chat(websocket: WebSocket):
                     continue
 
                 if data.get("type") == "start_session":
+                    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
+                    if not authenticated_user.ai_enabled:
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": "AI features not enabled for this user. Please enable AI features first."
+                        }))
+                        continue
+                    
                     # Start AI host session
                     ai_host_service = container.get_ai_host_service()
 
@@ -747,11 +758,11 @@ async def websocket_voice_chat(websocket: WebSocket):
                         )
 
                 elif data.get("type") == "user_input":
-                    # 🔴 BLOCK AI PROCESSING IF DISABLED
-                    if not AI_PROCESSING_ENABLED:
+                    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
+                    if not authenticated_user.ai_enabled:
                         await websocket.send_text(json.dumps({
                             "type": "error",
-                            "message": "AI processing is currently disabled"
+                            "message": "AI features not enabled for this user. Please enable AI features first."
                         }))
                         continue
                     
@@ -1465,34 +1476,91 @@ async def process_ai_response(websocket: WebSocket, user_text: str, session_id: 
 @router.get("/health")
 async def ai_host_health_check(openai_service=Depends(get_openai_service)):
     """
-    Check AI host service health
+    Health check for AI Host service
     """
     try:
-        # Check OpenAI connectivity
-        if openai_service:
-            openai_health = openai_service.health_check()
-        else:
-            openai_health = {
-                "status": "unavailable",
-                "error": "OpenAI service not initialized",
-            }
-
+        # Test OpenAI service connection
+        await openai_service.test_connection()
+        
         return {
-            "status": "healthy" if openai_health["status"] == "healthy" else "degraded",
+            "status": "healthy",
+            "service": "ai_host",
+            "ai_processing_enabled": AI_PROCESSING_ENABLED,
             "timestamp": datetime.utcnow().isoformat(),
-            "services": {"openai": openai_health["status"], "ai_host": "active"},
-            "features": {
-                "tts": True,
-                "stt": True,
-                "topic_extraction": True,
-                "conversation_hosting": True,
-            },
+            "openai_status": "connected"
         }
-
     except Exception as e:
-        logger.error(f"❌ AI host health check failed: {e}")
+        logger.error(f"❌ AI Host health check failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"AI Host service unhealthy: {str(e)}"
+        )
+
+
+# AI Features Toggle Endpoint
+@router.post("/toggle-ai")
+async def toggle_ai_features(
+    enabled: bool,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Toggle AI features for the current user
+    
+    Args:
+        enabled: Whether to enable (True) or disable (False) AI features
+        current_user: Current authenticated user
+        
+    Returns:
+        Updated AI status for the user
+    """
+    try:
+        logger.info(f"🔄 User {current_user.id} toggling AI features to: {enabled}")
+        
+        # Update user's AI preference
+        current_user.ai_enabled = enabled
+        
+        # Save to database (you'll need to implement this based on your repository pattern)
+        # For now, we'll just return the updated status
+        # TODO: Implement user repository save method
+        
+        logger.info(f"✅ AI features {'enabled' if enabled else 'disabled'} for user {current_user.id}")
+        
         return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": datetime.utcnow().isoformat(),
+            "ai_enabled": enabled,
+            "user_id": str(current_user.id),
+            "message": f"AI features {'enabled' if enabled else 'disabled'} successfully",
+            "timestamp": datetime.utcnow().isoformat()
         }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to toggle AI features for user {current_user.id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to toggle AI features: {str(e)}"
+        )
+
+
+# Get User AI Status
+@router.get("/ai-status")
+async def get_user_ai_status(current_user: User = Depends(get_current_user)):
+    """
+    Get current AI features status for the authenticated user
+    
+    Returns:
+        Current AI status and global system status
+    """
+    try:
+        return {
+            "user_ai_enabled": current_user.ai_enabled,
+            "global_ai_enabled": AI_PROCESSING_ENABLED,
+            "user_id": str(current_user.id),
+            "message": "AI status retrieved successfully",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get AI status for user {current_user.id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get AI status: {str(e)}"
+        )

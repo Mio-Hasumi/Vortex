@@ -78,6 +78,9 @@ class User:
     # Topic preferences for matching
     topic_preferences: List[str] = field(default_factory=list)
     interest_levels: Dict[str, int] = field(default_factory=dict)  # topic_id -> interest_level (1-5)
+    
+    # AI features control
+    ai_enabled: bool = False  # User can toggle AI features on/off
 
     def update_status(self, status: UserStatus) -> None:
         """Update user status"""
