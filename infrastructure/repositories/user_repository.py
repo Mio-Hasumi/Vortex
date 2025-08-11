@@ -148,12 +148,12 @@ class UserRepository:
             from uuid import uuid4
             new_user = User(
                 id=uuid4(),  # Generate a new UUID
-                display_name=f"User {firebase_uid[:8]}",
                 firebase_uid=firebase_uid,
-                password_hash="",  # Default empty password hash
                 email=f"user_{firebase_uid}@firebase.com",  # Temporary email, can be updated later
+                display_name=f"User {firebase_uid[:8]}",
                 is_active=True,
-                status=UserStatus.ONLINE
+                status=UserStatus.ONLINE,
+                password_hash=""  # Default empty password hash
             )
             
             # Save to database
@@ -318,8 +318,7 @@ class UserRepository:
             "bio": user.bio,
             "preferred_language": user.preferred_language,
             "topic_preferences": user.topic_preferences,
-            "interest_levels": user.interest_levels,
-            "ai_enabled": user.ai_enabled
+            "interest_levels": user.interest_levels
         }
     
     def _dict_to_entity(self, data: dict) -> User:
@@ -337,10 +336,10 @@ class UserRepository:
         return User(
             id=UUID(data["id"]),
             display_name=data["display_name"],
-            firebase_uid=data["firebase_uid"],  # Firebase Auth UID
-            password_hash=data["password_hash"],
             email=data.get("email"),
             phone_number=data.get("phone_number"),
+            firebase_uid=data["firebase_uid"],  # Firebase Auth UID
+            password_hash=data["password_hash"],
             push_token=data.get("push_token"),
             status=UserStatus(data.get("status", UserStatus.OFFLINE.value)),
             last_seen=datetime.fromisoformat(data["last_seen"]),
@@ -350,6 +349,5 @@ class UserRepository:
             bio=data.get("bio"),
             preferred_language=data.get("preferred_language", "en"),
             topic_preferences=data.get("topic_preferences", []),
-            interest_levels=data.get("interest_levels", {}),
-            ai_enabled=data.get("ai_enabled", False)
+            interest_levels=data.get("interest_levels", {})
         ) 

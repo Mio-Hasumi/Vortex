@@ -8,26 +8,6 @@ Provides endpoints for AI-driven conversation hosting:
 - AI conversation management
 """
 
-import asyncio
-from datetime import datetime
-
-from infrastructure.container import container
-from infrastructure.ai.openai_service import OpenAIService
-from infrastructure.ai.ai_host_service import AIHostService
-from infrastructure.repositories.user_repository import UserRepository
-from infrastructure.repositories.room_repository import RoomRepository
-from infrastructure.repositories.matching_repository import MatchingRepository
-from infrastructure.repositories.recording_repository import RecordingRepository
-from infrastructure.repositories.topic_repository import TopicRepository
-from infrastructure.repositories.friend_repository import FriendRepository
-from infrastructure.middleware.firebase_auth_middleware import FirebaseAuthMiddleware, get_current_user
-from infrastructure.livekit.livekit_service import LiveKitService
-from infrastructure.redis.redis_service import RedisService
-from infrastructure.websocket.connection_manager import ConnectionManager
-from infrastructure.websocket.event_broadcaster import EventBroadcaster
-
-from domain.entities import User, Room, Match, Topic, Friendship, Recording
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -39,9 +19,9 @@ from fastapi import (
     File,
     Form,
 )
-from fastapi.responses import StreamingResponse, Response, JSONResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
 from uuid import UUID
 import json
 import io
@@ -50,8 +30,9 @@ import base64
 import asyncio
 from datetime import datetime
 
-# 🔴 AI PROCESSING CONTROL FLAG
-AI_PROCESSING_ENABLED = False  # Set to False to block all OpenAI processing
+from infrastructure.container import container
+from infrastructure.middleware.firebase_auth_middleware import get_current_user
+from domain.entities import User
 
 logger = logging.getLogger(__name__)
 
@@ -178,13 +159,6 @@ async def process_user_input(
     """
     Process user input and get AI host response
     """
-    # 🔴 BLOCK AI PROCESSING IF DISABLED
-    if not AI_PROCESSING_ENABLED:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI processing is currently disabled"
-        )
-    
     try:
         logger.info(f"🎙️ Processing user input for session: {request.session_id}")
 
@@ -213,21 +187,12 @@ async def process_user_input(
 # Text-to-Speech Endpoints (Urgently needed by frontend!)
 @router.post("/tts")
 async def text_to_speech(
-    request: TTSRequest, 
-    current_user: User = Depends(get_current_user),
-    openai_service=Depends(get_openai_service)
+    request: TTSRequest, openai_service=Depends(get_openai_service)
 ):
     """
     Convert text to speech using OpenAI TTS
     This endpoint can be called directly by the frontend to obtain AI voice
     """
-    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
-    if not current_user.ai_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="AI features not enabled for this user. Please enable AI features first."
-        )
-    
     try:
         logger.info(f"🔊 TTS request for text: '{request.text[:50]}...'")
 
@@ -262,7 +227,7 @@ async def text_to_speech(
         logger.error(f"❌ TTS generation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="TTS generation failed: {str(e)}",
+            detail=f"TTS generation failed: {str(e)}",
         )
 
 
@@ -291,23 +256,13 @@ async def text_to_speech_get(
     text: str,
     voice: str = "nova",
     speed: float = 1.0,
-    current_user: User = Depends(get_current_user),
     openai_service=Depends(get_openai_service),
 ):
     """
     GET endpoint for TTS (convenient for frontend)
     Usage: /api/ai-host/tts/HelloWorld?voice=nova&speed=1.0
     """
-    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
-    if not current_user.ai_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="AI features not enabled for this user. Please enable AI features first."
-        )
-    
     try:
-        logger.info(f"🔊 TTS GET request for text: '{text[:50]}...'")
-
         # Generate TTS audio
         audio_bytes = await openai_service.text_to_speech(
             text=text, voice=voice, speed=speed
@@ -334,34 +289,33 @@ async def extract_topics(
     request: TopicExtractionRequest, current_user: User = Depends(get_current_user)
 ):
     """
-    Extract topics and generate hashtags from text input
+    Extract topics and hashtags from text input using GPT-4
+
+    This endpoint analyzes text and extracts:
+    - Main topics (3-5 key topics)
+    - Relevant hashtags (5-8 hashtags for matching)
+    - Content category
+    - Sentiment analysis
+    - Conversation style
     """
-    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
-    if not current_user.ai_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="AI features not enabled for this user. Please enable AI features first."
-        )
-    
     try:
-        logger.info(f"🔍 Extracting topics from text: '{request.text[:50]}...'")
-
-        # Get OpenAI service
         openai_service = container.get_openai_service()
+        if not openai_service:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI service not available",
+            )
 
-        # Extract topics and hashtags
+        logger.info(f"🧠 Extracting topics from: '{request.text[:100]}...'")
+
+        # Extract topics and hashtags using GPT-4
         result = await openai_service.extract_topics_and_hashtags(
-            text_input=request.text, user_context=request.user_context
+            text=request.text,
+            context=request.user_context if request.user_context else {},
+            language="en-US",
         )
 
-        return TopicExtractionResponse(
-            main_topics=result.get("main_topics", []),
-            hashtags=result.get("hashtags", []),
-            category=result.get("category", "general"),
-            sentiment=result.get("sentiment", "neutral"),
-            conversation_style=result.get("conversation_style", "casual"),
-            confidence=result.get("confidence", 0.0),
-        )
+        return TopicExtractionResponse(**result)
 
     except Exception as e:
         logger.error(f"❌ Topic extraction failed: {e}")
@@ -378,43 +332,64 @@ async def extract_topics_from_voice(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Extract topics and hashtags from voice input using GPT-4o Audio
+    Extract topics and hashtags from voice input using Whisper + GPT-4
+
+    This endpoint processes voice input and extracts:
+    - Speech transcription (using Whisper)
+    - Main topics (using GPT-4)
+    - Relevant hashtags for matching
+    - Content analysis (sentiment, style, category)
+
+    The voice-to-hashtag pipeline:
+    Voice → Whisper STT → GPT-4 Topic Analysis → Hashtags for Matching
     """
-    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
-    if not current_user.ai_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="AI features not enabled for this user. Please enable AI features first."
-        )
-    
     try:
-        logger.info(f"🎙️ Processing voice input for topic extraction")
-
-        # Get OpenAI service
         openai_service = container.get_openai_service()
+        if not openai_service:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI service not available",
+            )
 
-        # Read audio file
+        # Validate file type
+        if not audio_file.content_type or not audio_file.content_type.startswith(
+            "audio/"
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an audio file",
+            )
+
+        # Read audio content
         audio_content = await audio_file.read()
-        logger.info(f"📁 Audio file size: {len(audio_content)} bytes")
 
-        # Process with GPT-4o Audio
-        result = await openai_service.process_voice_input(
+        # Check file size (max 25MB)
+        if len(audio_content) > 25 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Audio file too large. Maximum size is 25MB.",
+            )
+
+        logger.info(
+            f"🎙️ Processing voice input for topic extraction: {len(audio_content)/1024/1024:.2f}MB"
+        )
+
+        # Process voice to extract topics and hashtags
+        result = await openai_service.process_voice_for_hashtags(
             audio_data=audio_content,
+            audio_format=audio_file.content_type.split("/")[-1],
             language=language,
-            extract_topics=True,
-            generate_hashtags=True,
         )
 
-        return VoiceTopicExtractionResponse(
-            transcription=result.get("transcription", ""),
-            main_topics=result.get("main_topics", []),
-            hashtags=result.get("hashtags", []),
-            category=result.get("category", "general"),
-            sentiment=result.get("sentiment", "neutral"),
-            conversation_style=result.get("conversation_style", "casual"),
-            confidence=result.get("confidence", 0.0),
-        )
+        if result.get("error"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"]
+            )
 
+        return VoiceTopicExtractionResponse(**result)
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ Voice topic extraction failed: {e}")
         raise HTTPException(
@@ -443,41 +418,99 @@ async def upload_audio_for_stt(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Upload audio file for speech-to-text conversion and optional topic extraction
+    Upload audio file for speech-to-text transcription
+
+    Core user workflow: User registers and directly uploads speech saying what they want to talk about
     """
-    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
-    if not current_user.ai_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="AI features not enabled for this user. Please enable AI features first."
-        )
-    
     try:
-        logger.info(f"🎙️ Processing audio upload for STT")
+        logger.info(f"🎙️ Processing audio upload for user: {current_user.id}")
+        logger.info(f"📁 File: {audio_file.filename}, type: {audio_file.content_type}")
 
-        # Read audio file
+        # Critical: Check if OpenAI service is available
+        if openai_service is None:
+            logger.error("❌ OpenAI service is not available - check OPENAI_API_KEY configuration")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Speech-to-text service is not available. Please check server configuration."
+            )
+        
+        logger.info("✅ OpenAI service is available, proceeding with audio processing")
+
+        # Validate file type
+        allowed_types = [
+            "audio/wav",
+            "audio/mpeg",
+            "audio/mp3",
+            "audio/m4a",
+            "audio/ogg",
+        ]
+        if audio_file.content_type not in allowed_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported audio format. Allowed: {', '.join(allowed_types)}",
+            )
+
+        # Check file size (max 25MB for OpenAI Whisper)
+        max_size = 25 * 1024 * 1024  # 25MB
         audio_content = await audio_file.read()
-        logger.info(f"📁 Audio file size: {len(audio_content)} bytes")
+        if len(audio_content) > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Audio file too large. Maximum size is 25MB.",
+            )
 
-        # Process with OpenAI
-        result = await openai_service.process_audio_upload(
-            audio_data=audio_content,
-            language=language or "en-US",
-            extract_topics=extract_topics,
+        logger.info(f"📏 Audio file size: {len(audio_content)/1024/1024:.2f}MB")
+
+        # Create BytesIO object for OpenAI API
+        audio_buffer = io.BytesIO(audio_content)
+        audio_buffer.name = audio_file.filename or "audio.mp3"
+
+        # Perform STT using OpenAI Whisper
+        stt_result = await openai_service.speech_to_text(
+            audio_file=audio_buffer, language=language
         )
+
+        transcription = stt_result["text"]
+        logger.info(f"✅ STT completed: '{transcription[:100]}...'")
+
+        # Optional: Extract topics and hashtags
+        extracted_topics = None
+        generated_hashtags = None
+
+        if extract_topics and transcription.strip():
+            try:
+                topic_data = await openai_service.extract_topics_and_hashtags(
+                    text=transcription,
+                    context={
+                        "user_id": str(current_user.id),
+                        "source": "voice_upload",
+                        "language": stt_result.get("language", "en-US"),
+                    },
+                )
+
+                extracted_topics = topic_data.get("main_topics", [])
+                generated_hashtags = topic_data.get("hashtags", [])
+
+                logger.info(f"🏷️ Extracted hashtags: {generated_hashtags}")
+
+            except Exception as e:
+                logger.warning(f"⚠️ Topic extraction failed, but STT succeeded: {e}")
 
         return STTResponse(
-            transcription=result.get("transcription", ""),
-            language=result.get("language", language or "en-US"),
-            duration=result.get("duration", 0.0),
-            confidence=result.get("confidence", 0.0),
-            words=result.get("words", []),
-            extracted_topics=result.get("extracted_topics") if extract_topics else None,
-            generated_hashtags=result.get("generated_hashtags") if extract_topics else None,
+            transcription=transcription,
+            language=stt_result.get("language", "unknown"),
+            duration=stt_result.get("duration", 0.0),
+            confidence=stt_result.get("confidence", 0.0),
+            words=stt_result.get("words", []),
+            extracted_topics=extracted_topics,
+            generated_hashtags=generated_hashtags,
         )
 
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
-        logger.error(f"❌ Audio upload processing failed: {e}")
+        logger.error(f"❌ Audio upload STT failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Audio processing failed: {str(e)}",
@@ -700,14 +733,6 @@ async def websocket_voice_chat(websocket: WebSocket):
                     continue
 
                 if data.get("type") == "start_session":
-                    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
-                    if not authenticated_user.ai_enabled:
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "message": "AI features not enabled for this user. Please enable AI features first."
-                        }))
-                        continue
-                    
                     # Start AI host session
                     ai_host_service = container.get_ai_host_service()
 
@@ -758,14 +783,6 @@ async def websocket_voice_chat(websocket: WebSocket):
                         )
 
                 elif data.get("type") == "user_input":
-                    # 🔴 BLOCK AI PROCESSING IF USER HASN'T ENABLED IT
-                    if not authenticated_user.ai_enabled:
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "message": "AI features not enabled for this user. Please enable AI features first."
-                        }))
-                        continue
-                    
                     user_text = data.get("text")
                     if not user_text:
                         await websocket.send_text(
@@ -821,14 +838,6 @@ async def websocket_voice_chat(websocket: WebSocket):
 
                 # Handle audio input for streaming STT
                 elif data.get("type") == "input_audio_buffer.append":
-                    # 🔴 BLOCK AI PROCESSING IF DISABLED
-                    if not AI_PROCESSING_ENABLED:
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "message": "AI processing is currently disabled"
-                        }))
-                        continue
-                    
                     audio_data = data.get("audio")  # base64 encoded
                     if not audio_data:
                         await websocket.send_text(json.dumps({
@@ -1154,14 +1163,6 @@ Current conversation context:
                     
                     # Handle audio streaming - support both legacy and official OpenAI formats
                     if message_type == "input_audio_buffer.append":
-                        # 🔴 BLOCK AI PROCESSING IF DISABLED
-                        if not AI_PROCESSING_ENABLED:
-                            await websocket.send_text(json.dumps({
-                                "type": "error",
-                                "message": "AI processing is currently disabled"
-                            }))
-                            continue
-                        
                         # Official OpenAI Realtime API format
                         audio_data = data.get("audio")  # base64 encoded
                         if audio_data:
@@ -1182,14 +1183,6 @@ Current conversation context:
                                 logger.error(f"❌ [OpenAI-Official] Audio processing failed: {e}")
                     
                     elif message_type == "audio_chunk":
-                        # 🔴 BLOCK AI PROCESSING IF DISABLED
-                        if not AI_PROCESSING_ENABLED:
-                            await websocket.send_text(json.dumps({
-                                "type": "error",
-                                "message": "AI processing is currently disabled"
-                            }))
-                            continue
-                        
                         # Legacy format for backward compatibility
                         audio_data = data.get("audio_data")  # base64 encoded
                         if audio_data:
@@ -1476,91 +1469,34 @@ async def process_ai_response(websocket: WebSocket, user_text: str, session_id: 
 @router.get("/health")
 async def ai_host_health_check(openai_service=Depends(get_openai_service)):
     """
-    Health check for AI Host service
+    Check AI host service health
     """
     try:
-        # Test OpenAI service connection
-        await openai_service.test_connection()
-        
+        # Check OpenAI connectivity
+        if openai_service:
+            openai_health = openai_service.health_check()
+        else:
+            openai_health = {
+                "status": "unavailable",
+                "error": "OpenAI service not initialized",
+            }
+
         return {
-            "status": "healthy",
-            "service": "ai_host",
-            "ai_processing_enabled": AI_PROCESSING_ENABLED,
+            "status": "healthy" if openai_health["status"] == "healthy" else "degraded",
             "timestamp": datetime.utcnow().isoformat(),
-            "openai_status": "connected"
+            "services": {"openai": openai_health["status"], "ai_host": "active"},
+            "features": {
+                "tts": True,
+                "stt": True,
+                "topic_extraction": True,
+                "conversation_hosting": True,
+            },
         }
+
     except Exception as e:
-        logger.error(f"❌ AI Host health check failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"AI Host service unhealthy: {str(e)}"
-        )
-
-
-# AI Features Toggle Endpoint
-@router.post("/toggle-ai")
-async def toggle_ai_features(
-    enabled: bool,
-    current_user: User = Depends(get_current_user),
-    user_repository=Depends(lambda: container.get_user_repository())
-):
-    """
-    Toggle AI features for the current user
-    
-    Args:
-        enabled: Whether to enable (True) or disable (False) AI features
-        current_user: Current authenticated user
-        
-    Returns:
-        Updated AI status for the user
-    """
-    try:
-        logger.info(f"🔄 User {current_user.id} toggling AI features to: {enabled}")
-        
-        # Update user's AI preference
-        current_user.ai_enabled = enabled
-        
-        # Save to database using user repository
-        updated_user = user_repository.update(current_user)
-        
-        logger.info(f"✅ AI features {'enabled' if enabled else 'disabled'} for user {current_user.id}")
-        
+        logger.error(f"❌ AI host health check failed: {e}")
         return {
-            "ai_enabled": updated_user.ai_enabled,
-            "user_id": str(updated_user.id),
-            "message": f"AI features {'enabled' if enabled else 'disabled'} successfully",
-            "timestamp": datetime.utcnow().isoformat()
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
         }
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to toggle AI features for user {current_user.id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to toggle AI features: {str(e)}"
-        )
-
-
-# Get User AI Status
-@router.get("/ai-status")
-async def get_user_ai_status(current_user: User = Depends(get_current_user)):
-    """
-    Get current AI features status for the authenticated user
-    
-    Returns:
-        Current AI status and global system status
-    """
-    try:
-        return {
-            "user_ai_enabled": current_user.ai_enabled,
-            "global_ai_enabled": AI_PROCESSING_ENABLED,
-            "user_id": str(current_user.id),
-            "message": "AI status retrieved successfully",
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to get AI status for user {current_user.id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get AI status: {str(e)}"
-        )
