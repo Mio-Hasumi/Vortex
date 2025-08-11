@@ -529,7 +529,7 @@ async def websocket_room_conversation(
                     openai_service, conversation_context, room_participants
                 )
                 
-                        elif message_type == "text_message":
+            elif message_type == "text_message":
                 # 🔴 BLOCK AI PROCESSING IF DISABLED (global + user-specific)
                 if not AI_PROCESSING_ENABLED or not user_ai_enabled:
                     # Still broadcast the text message but don't process with AI
