@@ -80,7 +80,7 @@ class User:
     interest_levels: Dict[str, int] = field(default_factory=dict)  # topic_id -> interest_level (1-5)
     
     # AI preferences
-    ai_enabled: bool = True  # Whether AI processing is enabled for this user
+    ai_enabled: bool = False  # Whether AI processing is enabled for this user (starts disabled)
 
     def update_status(self, status: UserStatus) -> None:
         """Update user status"""
@@ -410,7 +410,7 @@ def new_user(display_name: str, email: Optional[str] = None, phone_number: Optio
         password_hash=password_hash,
         email=email,
         phone_number=phone_number,
-        ai_enabled=True  # Default to AI enabled
+        ai_enabled=False  # AI starts disabled by default
     )
 
 

@@ -273,7 +273,9 @@ struct TestChatView: View {
             await liveKitService.connect(
                 roomId: updatedRoom.id,
                 token: updatedRoom.livekit_token,
-                participants: [testParticipant]
+                participants: [testParticipant],
+                livekitName: updatedRoom.livekit_room_name ?? updatedRoom.id,
+                userId: testParticipant.userId
             )
             
             print("✅ [TestChatView] Connected to LiveKit room: \(updatedRoom.id)")

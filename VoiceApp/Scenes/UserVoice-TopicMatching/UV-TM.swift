@@ -16,6 +16,8 @@ struct LiveMatchData {
     let sessionId: String
     let roomId: String
     let livekitToken: String
+    let livekitName: String  // LiveKit room name for WebSocket connection
+    let userId: String       // Current user ID for WebSocket authentication
     let participants: [MatchParticipant]
     let topics: [String]
     let hashtags: [String]
@@ -1518,6 +1520,8 @@ Start the conversation now with your greeting and a question about their interes
             sessionId: sessionId,
             roomId: roomId,
             livekitToken: livekitToken,
+            livekitName: roomId,  // Use roomId as livekitName for now
+            userId: participants.first(where: { $0.isCurrentUser })?.userId ?? "",  // Get current user ID
             participants: participants,
             topics: topics,
             hashtags: hashtags

@@ -30,7 +30,7 @@ protocol WebSocketDelegate: AnyObject {
 class WebSocketService: NSObject, URLSessionWebSocketDelegate {
     private var webSocket: URLSessionWebSocketTask?
     private var session: URLSession!
-    private var isConnected = false
+    private(set) var isConnected = false
     private var authToken: String?
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 3
@@ -48,6 +48,14 @@ class WebSocketService: NSObject, URLSessionWebSocketDelegate {
         authToken = token
         webSocket = session.webSocketTask(with: url)
         webSocket?.resume()
+        
+        // Set connected state when WebSocket is created
+        isConnected = true
+        
+        // Notify delegate of connection
+        DispatchQueue.main.async {
+            self.delegate?.webSocketDidConnect(self)
+        }
         
         receiveMessage()
     }

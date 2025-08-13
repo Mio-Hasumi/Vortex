@@ -10,6 +10,8 @@ import AVFoundation
 // LiveKit imports
 import LiveKit
 import LiveKitComponents
+// WebSocket for AI control
+import Foundation
 
 struct HashtagScreen: View {
     let matchData: LiveMatchData
@@ -113,10 +115,9 @@ struct HashtagScreen: View {
                 Spacer()
                 
                 HStack(spacing: 20) {
-                    // AI Control Button - Visual only (no functionality)
+                    // AI Control Button - Now functional with backend communication
                     Button(action: {
-                        // No functionality - just visual toggle
-                        liveKitService.isAIListening.toggle()
+                        liveKitService.toggleAI()
                     }) {
                         Image(systemName: liveKitService.isAIListening ? "brain.head.profile.fill" : "brain.head.profile")
                             .font(.system(size: 30))
@@ -272,7 +273,9 @@ struct HashtagScreen: View {
                 await liveKitService.connect(
                     roomId: matchData.roomId,
                     token: matchData.livekitToken,
-                    participants: matchData.participants
+                    participants: matchData.participants,
+                    livekitName: matchData.livekitName,
+                    userId: matchData.userId
                 )
             }
         }
@@ -449,16 +452,22 @@ private struct CirclePic: View {
 
 // Real LiveKit service implementation
 @MainActor
-class LiveKitCallService: ObservableObject, @unchecked Sendable {
+class LiveKitCallService: ObservableObject, @unchecked Sendable, WebSocketDelegate {
     @Published var isConnected = false
     @Published var isMuted = false
-    @Published var isAIListening = false
+    @Published var isAIListening = false  // AI starts disabled by default
     @Published var participants: [MatchParticipant] = []
     @Published var connectionState: String = "Disconnected"
     
     // MARK: - LiveKit Integration
     private var room: Room?
     private var localParticipant: LocalParticipant?
+    
+    // MARK: - WebSocket Integration for AI Control
+    private var webSocketService: WebSocketService?
+    private var roomId: String?
+    private var livekitName: String?
+    private var userId: String?
     
     // Audio session for LiveKit
     private var audioSession: AVAudioSession?
@@ -468,6 +477,7 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
     
     init() {
         setupAudioSession()
+        initializeAIState()  // Ensure AI starts disabled
     }
     
     private func setupAudioSession() {
@@ -482,10 +492,112 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
         }
     }
     
-
+    // MARK: - AI Toggle Functionality
+    func toggleAI() {
+        guard let webSocketService = webSocketService else {
+            print("⚠️ [AI] WebSocket service not initialized")
+            return
+        }
+        
+        guard webSocketService.isConnected else {
+            print("⚠️ [AI] WebSocket not connected, attempting to reconnect...")
+            // Try to reconnect if not connected
+            if let roomId = roomId, let livekitName = livekitName, let userId = userId {
+                // Use Task to handle async call
+                Task {
+                    await connectToRoomWebSocket(token: AuthService.shared.firebaseToken ?? "")
+                }
+            }
+            return
+        }
+        
+        // Toggle the local state first for immediate UI feedback
+        isAIListening.toggle()
+        
+        // Send toggle message to backend
+        let toggleMessage: [String: Any] = [
+            "type": "toggle_ai",
+            "ai_enabled": isAIListening,
+            "user_id": userId ?? "",
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        
+        webSocketService.send(toggleMessage)
+        print("🎛️ [AI] Sent AI toggle message: \(isAIListening ? "enabled" : "disabled")")
+        
+        // Show user feedback
+        print("🎛️ [AI] AI is now \(isAIListening ? "enabled" : "disabled") - waiting for backend confirmation")
+    }
     
-    func connect(roomId: String, token: String, participants: [MatchParticipant]) async {
+    // MARK: - AI Initialization
+    func initializeAIState() {
+        // Ensure AI starts in disabled state
+        isAIListening = false
+        print("🎛️ [AI] AI initialized in disabled state")
+    }
+    
+    // MARK: - AI Status Methods
+    func getAIStatus() -> Bool {
+        return isAIListening
+    }
+    
+    func isWebSocketConnected() -> Bool {
+        return webSocketService?.isConnected ?? false
+    }
+    
+    // MARK: - WebSocket Delegate Methods
+    func webSocket(_ service: WebSocketService, didReceiveMessage message: [String: Any]) {
+        guard let messageType = message["type"] as? String else { return }
+        
+        switch messageType {
+        case "ai_toggle_response":
+            if let aiEnabled = message["ai_enabled"] as? Bool {
+                Task { @MainActor in
+                    self.isAIListening = aiEnabled
+                }
+                print("✅ [AI] Backend confirmed AI toggle: \(aiEnabled ? "enabled" : "disabled")")
+            }
+            
+        case "room_joined":
+            print("✅ [WebSocket] Successfully joined room WebSocket")
+            
+            // Update AI status based on backend response
+            if let aiEnabled = message["ai_enabled"] as? Bool {
+                Task { @MainActor in
+                    self.isAIListening = aiEnabled
+                }
+                print("🎛️ [AI] Backend confirmed initial AI state: \(aiEnabled ? "enabled" : "disabled")")
+            }
+            
+        case "error":
+            if let errorMessage = message["message"] as? String {
+                print("❌ [WebSocket] Error: \(errorMessage)")
+            }
+            
+        default:
+            print("📨 [WebSocket] Received message: \(messageType)")
+        }
+    }
+    
+    func webSocket(_ service: WebSocketService, didEncounterError error: Error) {
+        print("❌ [WebSocket] Error: \(error)")
+    }
+    
+    func webSocketDidConnect(_ service: WebSocketService) {
+        print("✅ [WebSocket] Connected to room WebSocket")
+    }
+    
+    nonisolated func webSocketDidDisconnect(_ service: WebSocketService) {
+        print("📡 [WebSocket] Disconnected from room WebSocket")
+    }
+    
+    func connect(roomId: String, token: String, participants: [MatchParticipant], livekitName: String, userId: String) async {
         print("🔗 [LiveKit] Connecting to room: \(roomId)")
+        
+        // Store room information for WebSocket
+        self.roomId = roomId
+        self.livekitName = livekitName
+        self.userId = userId
         
         await MainActor.run {
             // Initialize with the provided participants from match data
@@ -495,6 +607,9 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
             self.isDisconnecting = false
             print("👥 [LiveKit] Initialized with \(participants.count) participants from match data")
         }
+        
+        // Connect to room WebSocket for AI control
+        await connectToRoomWebSocket(token: token)
         
         // REAL LIVEKIT IMPLEMENTATION:
         do {
@@ -540,6 +655,34 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
         print("   👥 Participants: \(participants.count)")
     }
     
+    private func connectToRoomWebSocket(token: String) async {
+        guard let roomId = roomId, let livekitName = livekitName, let userId = userId else {
+            print("❌ [WebSocket] Missing room information for WebSocket connection")
+            return
+        }
+        
+        // Create WebSocket endpoint with query parameters
+        let endpoint = "/api/rooms/ws/\(roomId)?livekit_name=\(livekitName)&user_id=\(userId)"
+        
+        // Create and configure WebSocket service
+        webSocketService = WebSocketService()
+        webSocketService?.delegate = self
+        
+        // Connect to the room WebSocket
+        webSocketService?.connect(to: endpoint, with: token)
+        
+        print("🔌 [WebSocket] Connecting to room WebSocket: \(endpoint)")
+        
+        // Wait a moment for connection to establish
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        
+        if let webSocketService = webSocketService, webSocketService.isConnected {
+            print("✅ [WebSocket] Successfully connected to room WebSocket")
+        } else {
+            print("⚠️ [WebSocket] WebSocket connection may not be ready yet")
+        }
+    }
+    
     // REAL LIVEKIT EVENT HANDLERS:
     private func setupRoomEventHandlers() {
         guard let room = room else { return }
@@ -566,6 +709,10 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable {
         }
         
         isDisconnecting = true
+        
+        // Disconnect WebSocket for AI control
+        webSocketService?.disconnect()
+        webSocketService = nil
         
         // REAL LIVEKIT DISCONNECT:
         Task { @MainActor in
@@ -782,6 +929,8 @@ extension LiveKitCallService: RoomDelegate {
         sessionId: "preview_session",
         roomId: "preview_room",
         livekitToken: "mock_token",
+        livekitName: "preview_room",  // Add missing parameter
+        userId: "user1",              // Add missing parameter
         participants: [
             MatchParticipant(userId: "user1", displayName: "You", isCurrentUser: true),
             MatchParticipant(userId: "user2", displayName: "Alex", isCurrentUser: false),

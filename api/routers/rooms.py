@@ -475,13 +475,15 @@ async def websocket_room_conversation(
             "room_id": room_id,
             "connection_id": room_connection_id,
             "participants": room_participants,
-            "ai_enabled": user_ai_enabled,  # Send current AI status
+            "ai_enabled": user_ai_enabled,  # Send current AI status (starts disabled)
             "supported_features": [
                 "voice_input", "voice_output", "real_time_moderation", 
                 "fact_checking", "conversation_guidance", "topic_suggestions",
                 "ai_toggle"  # Add AI toggle as supported feature
             ]
         })
+        
+        logger.info(f"🎭 User {user_id} joined room {room_id} with AI {'enabled' if user_ai_enabled else 'disabled'}")
 
         # Initialize conversation context for AI moderator
         conversation_context = []
@@ -490,7 +492,7 @@ async def websocket_room_conversation(
         # Get user repository to check AI status
         user_repo = get_user_repository()
         current_user = user_repo.find_by_id(UUID(user_id))
-        user_ai_enabled = current_user.ai_enabled if current_user else True
+        user_ai_enabled = current_user.ai_enabled if current_user else False  # AI starts disabled by default
         
         # Main message handling loop
         while True:
@@ -546,7 +548,7 @@ async def websocket_room_conversation(
                 # 🔄 Refresh user AI status for subsequent messages
                 user_repo = get_user_repository() # Re-get user_repo to ensure it's the latest
                 current_user = user_repo.find_by_id(UUID(user_id))
-                user_ai_enabled = current_user.ai_enabled if current_user else True
+                user_ai_enabled = current_user.ai_enabled if current_user else False  # AI starts disabled by default
                 continue
                 
             elif message_type == "request_ai_assistance":
