@@ -10,9 +10,10 @@ import FirebaseCore
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
+import UserNotifications
 
 // Firebase initialization delegate
-class AppDelegate: NSObject, UIApplicationDelegate {
+class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
         FirebaseApp.configure()
@@ -23,8 +24,66 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         settings.isPersistenceEnabled = true  // Enable offline support
         db.settings = settings
         
+        // Request notification permissions for Firebase phone auth
+        UNUserNotificationCenter.current().delegate = self
+        requestNotificationPermissions()
+        
         print("🔥 Firebase configured with Auth, Firestore, and Storage")
         return true
+    }
+    
+    // MARK: - Notification Permissions
+    
+    private func requestNotificationPermissions() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+            DispatchQueue.main.async {
+                if granted {
+                    print("✅ Notification permissions granted")
+                    // Register for remote notifications
+                    UIApplication.shared.registerForRemoteNotifications()
+                } else {
+                    print("❌ Notification permissions denied: \(error?.localizedDescription ?? "Unknown error")")
+                }
+            }
+        }
+    }
+    
+    // MARK: - Remote Notification Handling for Firebase Phone Auth
+    
+    func application(_ application: UIApplication,
+                    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        // Forward device token to Firebase for phone authentication
+        Auth.auth().setAPNSToken(deviceToken, type: .prod)
+        print("📱 Device token registered for Firebase phone auth")
+    }
+    
+    func application(_ application: UIApplication,
+                    didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("❌ Failed to register for remote notifications: \(error)")
+    }
+    
+    func application(_ application: UIApplication,
+                    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        
+        // Check if this notification is for Firebase phone authentication
+        if Auth.auth().canHandleNotification(userInfo) {
+            print("📱 Firebase phone auth notification received")
+            completionHandler(.noData)
+            return
+        }
+        
+        // Handle other remote notifications if needed
+        completionHandler(.noData)
+    }
+    
+    // MARK: - User Notification Center Delegate
+    
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                              willPresent notification: UNNotification,
+                              withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        // Show notification even when app is in foreground
+        completionHandler([.alert, .badge, .sound])
     }
 }
 

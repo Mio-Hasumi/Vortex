@@ -101,12 +101,16 @@ struct SignInFormView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var authService = AuthService.shared
     
-    @State private var emailOrPhone = ""
-    @State private var password = ""
+    @State private var selectedOption: SignInOption = .email
     @State private var isLoading = false
     @State private var errorMessage = ""
     @State private var showError = false
-    @State private var showForgotPassword = false
+    @State private var showSignInForm = false
+    
+    enum SignInOption: String, CaseIterable {
+        case email = "Email"
+        case phone = "Phone Number"
+    }
     
     var body: some View {
         NavigationView {
@@ -116,19 +120,38 @@ struct SignInFormView: View {
                     .foregroundColor(.white)
                     .padding(.top, 40)
                 
+                Text("Choose how you'd like to sign in:")
+                    .font(.rajdhaniBody)
+                    .foregroundColor(.gray)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                
+                // Sign In Options
                 VStack(spacing: 16) {
-                    TextField("Email or Phone Number", text: $emailOrPhone)
-                        .textFieldStyle(CustomTextFieldStyle())
-                        .keyboardType(.emailAddress)
-                        .autocapitalization(.none)
-                        .onChange(of: emailOrPhone) { newValue in
-                            if isPhoneNumber(newValue) {
-                                emailOrPhone = formatPhoneNumber(newValue)
+                    ForEach(SignInOption.allCases, id: \.self) { option in
+                        Button(action: {
+                            selectedOption = option
+                        }) {
+                            HStack {
+                                Text(option.rawValue)
+                                    .font(.rajdhaniBody)
+                                    .foregroundColor(.white)
+                                Spacer()
+                                if selectedOption == option {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.blue)
+                                }
                             }
+                            .padding()
+                            .background(selectedOption == option ? Color.blue.opacity(0.3) : Color(red: 0.1, green: 0.1, blue: 0.1))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(selectedOption == option ? Color.blue : Color(red: 0.3, green: 0.3, blue: 0.3), lineWidth: 1)
+                            )
                         }
-                    
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(CustomTextFieldStyle())
+                        .buttonStyle(PlainButtonStyle())
+                    }
                 }
                 .padding(.horizontal, 40)
                 
@@ -139,14 +162,15 @@ struct SignInFormView: View {
                         .padding(.horizontal, 40)
                 }
                 
-                Button(action: signIn) {
+                // Continue Button
+                Button(action: continueWithSelectedOption) {
                     HStack {
                         if isLoading {
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                 .scaleEffect(0.8)
                         }
-                        Text(isLoading ? "Signing In..." : "Sign In")
+                        Text(isLoading ? "Processing..." : "Continue")
                             .font(.rajdhaniBody)
                             .foregroundColor(.white)
                     }
@@ -154,53 +178,8 @@ struct SignInFormView: View {
                     .background(Color.blue)
                     .cornerRadius(8)
                 }
-                .disabled(isLoading || !isFormValid)
-                .padding(.top, 20)
-                
-                // Modify forgot password button
-                Button("Forgot Password?") {
-                    showForgotPassword = true
-                }
-                .foregroundColor(.blue)
-                .padding(.top, 8)
-                
-                // Add separator line
-                HStack {
-                    Rectangle()
-                        .frame(height: 1)
-                        .foregroundColor(.gray.opacity(0.3))
-                    Text("OR")
-                        .foregroundColor(.gray)
-                        .font(.caption)
-                    Rectangle()
-                        .frame(height: 1)
-                        .foregroundColor(.gray.opacity(0.3))
-                }
-                .padding(.horizontal, 40)
-                .padding(.vertical, 20)
-                
-                // Add Google login button
-                Button(action: signInWithGoogle) {
-                    HStack(spacing: 12) {
-                        // Official Google logo (should be an asset)
-                        Image("google_logo") // You'll need to add this asset
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 18, height: 18)
-                        
-                        Text("Sign in with Google")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(Color(red: 60/255, green: 64/255, blue: 67/255))
-                    }
-                    .frame(width: 280, height: 44)
-                    .background(Color.white)
-                    .cornerRadius(4)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(Color(red: 218/255, green: 220/255, blue: 224/255), lineWidth: 1)
-                    )
-                }
                 .disabled(isLoading)
+                .padding(.top, 20)
                 
                 Spacer()
             }
@@ -214,100 +193,19 @@ struct SignInFormView: View {
                     .foregroundColor(.white)
                 }
             }
-        }
-        .sheet(isPresented: $showForgotPassword) {
-            ForgotPasswordView()
-        }
-    }
-    
-    private var isFormValid: Bool {
-        return !emailOrPhone.isEmpty && !password.isEmpty
-    }
-    
-    private func isPhoneNumber(_ input: String) -> Bool {
-        let cleaned = input.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
-        return cleaned.count >= 10 && cleaned.count <= 15
-    }
-    
-    private func formatPhoneNumber(_ phone: String) -> String {
-        let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
-        let mask = "(XXX) XXX-XXXX"
-        var result = ""
-        var index = cleaned.startIndex
-        for ch in mask where index < cleaned.endIndex {
-            if ch == "X" {
-                result.append(cleaned[index])
-                index = cleaned.index(after: index)
-            } else {
-                result.append(ch)
-            }
-        }
-        return result
-    }
-    
-    private func signIn() {
-        isLoading = true
-        showError = false
-        errorMessage = ""
-        
-        Task {
-            do {
-                let isPhone = isPhoneNumber(emailOrPhone)
-                print("📧 Starting \(isPhone ? "phone" : "email") sign in...")
-                
-                if isPhone {
-                    _ = try await authService.signInWithPhone(phoneNumber: emailOrPhone, password: password)
-                } else {
-                    _ = try await authService.signInWithEmail(email: emailOrPhone, password: password)
-                }
-                
-                await MainActor.run {
-                    print("📧 \(isPhone ? "phone" : "email") sign in completed. Auth status: \(authService.isAuthenticated)")
-                    isLoading = false
-                    // Check authentication status and close form
-                    if authService.isAuthenticated {
-                        print("📧 Dismissing sign in form...")
-                        dismiss()
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    print("📧 Sign in failed: \(error)")
-                    errorMessage = error.localizedDescription
-                    showError = true
-                    isLoading = false
+            .sheet(isPresented: $showSignInForm) {
+                switch selectedOption {
+                case .email:
+                    EmailSignInView()
+                case .phone:
+                    PhoneSignInView()
                 }
             }
         }
     }
     
-    private func signInWithGoogle() {
-        isLoading = true
-        showError = false
-        errorMessage = ""
-        
-        Task {
-            do {
-                print("🔴 Starting Google sign in...")
-                _ = try await authService.signInWithGoogle()
-                await MainActor.run {
-                    print("🔴 Google sign in completed. Auth status: \(authService.isAuthenticated)")
-                    isLoading = false
-                    // Check authentication status and close form
-                    if authService.isAuthenticated {
-                        print("🔴 Dismissing sign in form...")
-                        dismiss()
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    print("🔴 Google sign in failed: \(error)")
-                    errorMessage = error.localizedDescription
-                    showError = true
-                    isLoading = false
-                }
-            }
-        }
+    private func continueWithSelectedOption() {
+        showSignInForm = true
     }
 }
 
@@ -316,7 +214,120 @@ struct RegisterFormView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var authService = AuthService.shared
     
-    @State private var emailOrPhone = ""
+    @State private var selectedOption: RegistrationOption = .email
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    @State private var showError = false
+    @State private var showRegistrationForm = false
+    
+    enum RegistrationOption: String, CaseIterable {
+        case email = "Email"
+        case phone = "Phone Number"
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Text("Create Account")
+                    .font(.rajdhaniTitle)
+                    .foregroundColor(.white)
+                    .padding(.top, 40)
+                
+                Text("Choose how you'd like to register:")
+                    .font(.rajdhaniBody)
+                    .foregroundColor(.gray)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                
+                // Registration Options
+                VStack(spacing: 16) {
+                    ForEach(RegistrationOption.allCases, id: \.self) { option in
+                        Button(action: {
+                            selectedOption = option
+                        }) {
+                            HStack {
+                                Text(option.rawValue)
+                                    .font(.rajdhaniBody)
+                                    .foregroundColor(.white)
+                                Spacer()
+                                if selectedOption == option {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                            .padding()
+                            .background(selectedOption == option ? Color.blue.opacity(0.3) : Color(red: 0.1, green: 0.1, blue: 0.1))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(selectedOption == option ? Color.blue : Color(red: 0.3, green: 0.3, blue: 0.3), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 40)
+                
+                if showError {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                        .font(.caption)
+                        .padding(.horizontal, 40)
+                }
+                
+                // Continue Button
+                Button(action: continueWithSelectedOption) {
+                    HStack {
+                        if isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                        }
+                        Text(isLoading ? "Processing..." : "Continue")
+                            .font(.rajdhaniBody)
+                            .foregroundColor(.white)
+                    }
+                    .frame(width: 280, height: 44)
+                    .background(Color.blue)
+                    .cornerRadius(8)
+                }
+                .disabled(isLoading)
+                .padding(.top, 20)
+                
+                Spacer()
+            }
+            .background(Color.black)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+            .sheet(isPresented: $showRegistrationForm) {
+                switch selectedOption {
+                case .email:
+                    EmailRegistrationView()
+                case .phone:
+                    PhoneRegistrationView()
+                }
+            }
+        }
+    }
+    
+    private func continueWithSelectedOption() {
+        showRegistrationForm = true
+    }
+}
+
+// MARK: - Email Registration View
+struct EmailRegistrationView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var authService = AuthService.shared
+    
+    @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var displayName = ""
@@ -327,7 +338,7 @@ struct RegisterFormView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
-                Text("Register")
+                Text("Register with Email")
                     .font(.rajdhaniTitle)
                     .foregroundColor(.white)
                     .padding(.top, 40)
@@ -336,15 +347,10 @@ struct RegisterFormView: View {
                     TextField("Display Name", text: $displayName)
                         .textFieldStyle(CustomTextFieldStyle())
                     
-                    TextField("Email or Phone Number", text: $emailOrPhone)
+                    TextField("Email", text: $email)
                         .textFieldStyle(CustomTextFieldStyle())
                         .keyboardType(.emailAddress)
                         .autocapitalization(.none)
-                        .onChange(of: emailOrPhone) { newValue in
-                            if isPhoneNumber(newValue) {
-                                emailOrPhone = formatPhoneNumber(newValue)
-                            }
-                        }
                     
                     SecureField("Password", text: $password)
                         .textFieldStyle(CustomTextFieldStyle())
@@ -397,8 +403,7 @@ struct RegisterFormView: View {
                 // Add Google sign up button
                 Button(action: signUpWithGoogle) {
                     HStack(spacing: 12) {
-                        // Official Google logo (should be an asset)
-                        Image("google_logo") // You'll need to add this asset
+                        Image("google_logo")
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 18, height: 18)
@@ -423,7 +428,7 @@ struct RegisterFormView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                    Button("Back") {
                         dismiss()
                     }
                     .foregroundColor(.white)
@@ -433,11 +438,283 @@ struct RegisterFormView: View {
     }
     
     private var isFormValid: Bool {
-        return !emailOrPhone.isEmpty && 
+        return !email.isEmpty && 
         !password.isEmpty && 
         !displayName.isEmpty && 
         password == confirmPassword &&
         password.count >= 6
+    }
+    
+    private func register() {
+        guard password == confirmPassword else {
+            errorMessage = "Passwords don't match"
+            showError = true
+            return
+        }
+        
+        isLoading = true
+        showError = false
+        errorMessage = ""
+        
+        Task {
+            do {
+                _ = try await authService.signUpWithEmail(
+                    email: email,
+                    password: password,
+                    displayName: displayName
+                )
+                
+                await MainActor.run {
+                    isLoading = false
+                    if authService.isAuthenticated {
+                        dismiss()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func signUpWithGoogle() {
+        isLoading = true
+        showError = false
+        errorMessage = ""
+        
+        Task {
+            do {
+                _ = try await authService.signInWithGoogle()
+                await MainActor.run {
+                    isLoading = false
+                    if authService.isAuthenticated {
+                        dismiss()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Phone Registration View
+struct PhoneRegistrationView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var authService = AuthService.shared
+    
+    @State private var phoneNumber = ""
+    @State private var verificationCode = ""
+    @State private var displayName = ""
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    @State private var showError = false
+    @State private var showSuccessMessage = false
+    @State private var successMessage = ""
+    @State private var currentStep: PhoneRegistrationStep = .phoneInput
+    
+    enum PhoneRegistrationStep {
+        case phoneInput
+        case codeVerification
+        case displayName
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Text("Register with Phone")
+                    .font(.rajdhaniTitle)
+                    .foregroundColor(.white)
+                    .padding(.top, 40)
+                
+                switch currentStep {
+                case .phoneInput:
+                    phoneInputView
+                case .codeVerification:
+                    codeVerificationView
+                case .displayName:
+                    displayNameView
+                }
+                
+                Spacer()
+            }
+            .background(Color.black)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Back") {
+                        if currentStep == .phoneInput {
+                            dismiss()
+                        } else {
+                            currentStep = .phoneInput
+                        }
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+        }
+    }
+    
+    private var phoneInputView: some View {
+        VStack(spacing: 20) {
+            Text("Enter your phone number")
+                .font(.rajdhaniBody)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            TextField("Phone Number", text: $phoneNumber)
+                .textFieldStyle(CustomTextFieldStyle())
+                .keyboardType(.phonePad)
+                .onChange(of: phoneNumber) { newValue in
+                    if isPhoneNumber(newValue) {
+                        phoneNumber = formatPhoneNumber(newValue)
+                    }
+                }
+                .padding(.horizontal, 40)
+            
+            Text("Enter your phone number (e.g., 555-123-4567)")
+                .font(.caption)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            Text("Make sure notifications are enabled to receive SMS verification codes")
+                .font(.caption)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            if showError {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .padding(.horizontal, 40)
+            }
+            
+            Button(action: sendVerificationCode) {
+                HStack {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    }
+                    Text(isLoading ? "Sending..." : "Send Verification Code")
+                        .font(.rajdhaniBody)
+                        .foregroundColor(.white)
+                }
+                .frame(width: 280, height: 44)
+                .background(Color.blue)
+                .cornerRadius(8)
+            }
+            .disabled(isLoading || !isValidPhoneNumber)
+            .padding(.top, 20)
+        }
+    }
+    
+    private var codeVerificationView: some View {
+        VStack(spacing: 20) {
+            Text("Enter the 6-digit code sent to \(phoneNumber)")
+                .font(.rajdhaniBody)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            TextField("Verification Code", text: $verificationCode)
+                .textFieldStyle(CustomTextFieldStyle())
+                .keyboardType(.numberPad)
+                .padding(.horizontal, 40)
+            
+            if showError {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .padding(.horizontal, 40)
+            }
+            
+            Button(action: verifyCode) {
+                HStack {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    }
+                    Text(isLoading ? "Verifying..." : "Verify Code")
+                        .font(.rajdhaniBody)
+                        .foregroundColor(.white)
+                }
+                .frame(width: 280, height: 44)
+                .background(Color.blue)
+                .cornerRadius(8)
+            }
+            .disabled(isLoading || verificationCode.count != 6)
+            .padding(.top, 20)
+            
+            Button("Resend Code") {
+                sendVerificationCode()
+            }
+            .foregroundColor(.blue)
+            .disabled(isLoading)
+        }
+    }
+    
+    private var displayNameView: some View {
+        VStack(spacing: 20) {
+            Text("Enter your display name")
+                .font(.rajdhaniBody)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            TextField("Display Name", text: $displayName)
+                .textFieldStyle(CustomTextFieldStyle())
+                .padding(.horizontal, 40)
+            
+            if showError {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .padding(.horizontal, 40)
+            }
+            
+            if showSuccessMessage {
+                Text(successMessage)
+                    .foregroundColor(.green)
+                    .font(.caption)
+                    .padding(.horizontal, 40)
+            }
+            
+            Button(action: completeRegistration) {
+                HStack {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    }
+                    Text(isLoading ? "Creating Account..." : "Complete Registration")
+                        .font(.rajdhaniBody)
+                        .foregroundColor(.white)
+                }
+                .frame(width: 280, height: 44)
+                .background(Color.blue)
+                .cornerRadius(8)
+            }
+            .disabled(isLoading || displayName.isEmpty)
+            .padding(.top, 20)
+        }
+    }
+    
+    private var isValidPhoneNumber: Bool {
+        let cleaned = phoneNumber.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+        // Allow 10-15 digits (US numbers and international numbers)
+        return cleaned.count >= 10 && cleaned.count <= 15
     }
     
     private func isPhoneNumber(_ input: String) -> Bool {
@@ -461,47 +738,86 @@ struct RegisterFormView: View {
         return result
     }
     
-    private func register() {
-        guard password == confirmPassword else {
-            errorMessage = "Passwords don't match"
-            showError = true
-            return
+    // Convert phone number to E.164 format for Firebase
+    private func formatPhoneNumberForFirebase(_ phone: String) -> String {
+        let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+        
+        // If it's a US number (10 digits), add +1
+        if cleaned.count == 10 {
+            return "+1\(cleaned)"
+        }
+        // If it already has country code (11+ digits starting with 1), add +
+        else if cleaned.count >= 11 && cleaned.hasPrefix("1") {
+            return "+\(cleaned)"
+        }
+        // If it has other country code, add +
+        else if cleaned.count >= 10 {
+            return "+\(cleaned)"
         }
         
+        // Fallback - return as is with +
+        return "+\(cleaned)"
+    }
+    
+    private func sendVerificationCode() {
         isLoading = true
         showError = false
         errorMessage = ""
         
         Task {
             do {
-                let isPhone = isPhoneNumber(emailOrPhone)
-                print("📧 Starting \(isPhone ? "phone" : "email") registration...")
+                // Convert to E.164 format for Firebase
+                let firebasePhoneNumber = formatPhoneNumberForFirebase(phoneNumber)
+                print("📱 Sending verification to Firebase format: \(firebasePhoneNumber)")
                 
-                if isPhone {
-                    _ = try await authService.signUpWithPhone(
-                        phoneNumber: emailOrPhone, 
-                        password: password, 
-                        displayName: displayName
-                    )
-                } else {
-                    _ = try await authService.signUpWithEmail(
-                        email: emailOrPhone, 
-                        password: password, 
-                        displayName: displayName
-                    )
-                }
-                
+                try await authService.sendPhoneVerificationCode(phoneNumber: firebasePhoneNumber)
                 await MainActor.run {
-                    print("📧 \(isPhone ? "phone" : "email") registration completed. Auth status: \(authService.isAuthenticated)")
                     isLoading = false
-                    // Check authentication status and close form
-                    if authService.isAuthenticated {
-                        dismiss()
-                    }
+                    currentStep = .codeVerification
                 }
             } catch {
                 await MainActor.run {
-                    print("📧 Registration failed: \(error)")
+                    isLoading = false
+                    
+                    // Provide user-friendly error messages
+                    if let authError = error as? AuthError {
+                        switch authError {
+                        case .phoneVerificationFailed:
+                            errorMessage = "Phone verification failed. Please check your phone number and try again."
+                        case .unknown(let message):
+                            if message.contains("notification") || message.contains("NOTIFICATION_NOT_FORWARDED") {
+                                errorMessage = "Please enable notifications in Settings to receive SMS verification codes."
+                            } else if message.contains("Invalid format") || message.contains("ERROR_INVALID_PHONE_NUMBER") {
+                                errorMessage = "Please enter a valid phone number with country code (e.g., +1 for US)."
+                            } else {
+                                errorMessage = message
+                            }
+                        default:
+                            errorMessage = error.localizedDescription
+                        }
+                    } else {
+                        errorMessage = error.localizedDescription
+                    }
+                    
+                    showError = true
+                }
+            }
+        }
+    }
+    
+    private func verifyCode() {
+        isLoading = true
+        showError = false
+        errorMessage = ""
+        
+        Task {
+            do {
+                // For registration, we'll verify the code and then move to display name step
+                // The actual registration will happen in completeRegistration
+                currentStep = .displayName
+                isLoading = false
+            } catch {
+                await MainActor.run {
                     errorMessage = error.localizedDescription
                     showError = true
                     isLoading = false
@@ -510,27 +826,31 @@ struct RegisterFormView: View {
         }
     }
     
-    private func signUpWithGoogle() {
+    private func completeRegistration() {
         isLoading = true
         showError = false
         errorMessage = ""
         
         Task {
             do {
-                print("🔴 Starting Google sign up...")
-                _ = try await authService.signInWithGoogle()
+                // Convert to E.164 format for Firebase
+                let firebasePhoneNumber = formatPhoneNumberForFirebase(phoneNumber)
+                print("📱 Completing registration with Firebase format: \(firebasePhoneNumber)")
+                
+                _ = try await authService.verifyPhoneCodeAndSignUp(
+                    phoneNumber: firebasePhoneNumber,
+                    verificationCode: verificationCode,
+                    displayName: displayName
+                )
+                
                 await MainActor.run {
-                    print("🔴 Google sign up completed. Auth status: \(authService.isAuthenticated)")
                     isLoading = false
-                    // Check authentication status and close form
                     if authService.isAuthenticated {
-                        print("🔴 Dismissing sign up form...")
                         dismiss()
                     }
                 }
             } catch {
                 await MainActor.run {
-                    print("🔴 Google sign up failed: \(error)")
                     errorMessage = error.localizedDescription
                     showError = true
                     isLoading = false
@@ -538,6 +858,457 @@ struct RegisterFormView: View {
             }
         }
     }
+}
+
+// MARK: - Email Sign In View
+struct EmailSignInView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var authService = AuthService.shared
+    
+    @State private var email = ""
+    @State private var password = ""
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    @State private var showError = false
+    @State private var showForgotPassword = false
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Text("Sign In with Email")
+                    .font(.rajdhaniTitle)
+                    .foregroundColor(.white)
+                    .padding(.top, 40)
+                
+                VStack(spacing: 16) {
+                    TextField("Email", text: $email)
+                        .textFieldStyle(CustomTextFieldStyle())
+                        .keyboardType(.emailAddress)
+                        .autocapitalization(.none)
+                    
+                    SecureField("Password", text: $password)
+                        .textFieldStyle(CustomTextFieldStyle())
+                }
+                .padding(.horizontal, 40)
+                
+                if showError {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                        .font(.caption)
+                        .padding(.horizontal, 40)
+                }
+                
+                Button(action: signIn) {
+                    HStack {
+                        if isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                        }
+                        Text(isLoading ? "Signing In..." : "Sign In")
+                            .font(.rajdhaniBody)
+                            .foregroundColor(.white)
+                    }
+                    .frame(width: 280, height: 44)
+                    .background(Color.blue)
+                    .cornerRadius(8)
+                }
+                .disabled(isLoading || !isFormValid)
+                .padding(.top, 20)
+                
+                // Forgot password button
+                Button("Forgot Password?") {
+                    showForgotPassword = true
+                }
+                .foregroundColor(.blue)
+                .padding(.top, 8)
+                
+                // Add separator line
+                HStack {
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(.gray.opacity(0.3))
+                    Text("OR")
+                        .foregroundColor(.gray)
+                        .font(.caption)
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(.gray.opacity(0.3))
+                }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 20)
+                
+                // Add Google sign in button
+                Button(action: signInWithGoogle) {
+                    HStack(spacing: 12) {
+                        Image("google_logo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 18, height: 18)
+                        
+                        Text("Sign in with Google")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color(red: 60/255, green: 64/255, blue: 67/255))
+                    }
+                    .frame(width: 280, height: 44)
+                    .background(Color.white)
+                    .cornerRadius(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color(red: 218/255, green: 220/255, blue: 224/255), lineWidth: 1)
+                    )
+                }
+                .disabled(isLoading)
+                
+                Spacer()
+            }
+            .background(Color.black)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Back") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+            .sheet(isPresented: $showForgotPassword) {
+                ForgotPasswordView()
+            }
+        }
+    }
+    
+    private var isFormValid: Bool {
+        return !email.isEmpty && !password.isEmpty
+    }
+    
+    private func signIn() {
+        isLoading = true
+        showError = false
+        errorMessage = ""
+        
+        Task {
+            do {
+                _ = try await authService.signInWithEmail(email: email, password: password)
+                
+                await MainActor.run {
+                    isLoading = false
+                    if authService.isAuthenticated {
+                        dismiss()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func signInWithGoogle() {
+        isLoading = true
+        showError = false
+        errorMessage = ""
+        
+        Task {
+            do {
+                _ = try await authService.signInWithGoogle()
+                await MainActor.run {
+                    isLoading = false
+                    if authService.isAuthenticated {
+                        dismiss()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Phone Sign In View
+struct PhoneSignInView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var authService = AuthService.shared
+    
+    @State private var phoneNumber = ""
+    @State private var verificationCode = ""
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    @State private var showError = false
+    @State private var currentStep: PhoneSignInStep = .phoneInput
+    
+    enum PhoneSignInStep {
+        case phoneInput
+        case codeVerification
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Text("Sign In with Phone")
+                    .font(.rajdhaniTitle)
+                    .foregroundColor(.white)
+                    .padding(.top, 40)
+                
+                switch currentStep {
+                case .phoneInput:
+                    phoneInputView
+                case .codeVerification:
+                    codeVerificationView
+                }
+                
+                Spacer()
+            }
+            .background(Color.black)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Back") {
+                        if currentStep == .phoneInput {
+                            dismiss()
+                        } else {
+                            currentStep = .phoneInput
+                        }
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+        }
+    }
+    
+    private var phoneInputView: some View {
+        VStack(spacing: 20) {
+            Text("Enter your phone number")
+                .font(.rajdhaniBody)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            TextField("Phone Number", text: $phoneNumber)
+                .textFieldStyle(CustomTextFieldStyle())
+                .keyboardType(.phonePad)
+                .onChange(of: phoneNumber) { newValue in
+                    if isPhoneNumber(newValue) {
+                        phoneNumber = formatPhoneNumber(newValue)
+                    }
+                }
+                .padding(.horizontal, 40)
+            
+            Text("Enter your phone number (e.g., 555-123-4567)")
+                .font(.caption)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            Text("Make sure notifications are enabled to receive SMS verification codes")
+                .font(.caption)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            if showError {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .padding(.horizontal, 40)
+            }
+            
+            Button(action: sendVerificationCode) {
+                HStack {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    }
+                    Text(isLoading ? "Sending..." : "Send Verification Code")
+                        .font(.rajdhaniBody)
+                        .foregroundColor(.white)
+                }
+                .frame(width: 280, height: 44)
+                .background(Color.blue)
+                .cornerRadius(8)
+            }
+            .disabled(isLoading || !isValidPhoneNumber)
+            .padding(.top, 20)
+        }
+    }
+    
+    private var codeVerificationView: some View {
+        VStack(spacing: 20) {
+            Text("Enter the 6-digit code sent to \(phoneNumber)")
+                .font(.rajdhaniBody)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            TextField("Verification Code", text: $verificationCode)
+                .textFieldStyle(CustomTextFieldStyle())
+                .keyboardType(.numberPad)
+                .padding(.horizontal, 40)
+            
+            if showError {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .padding(.horizontal, 40)
+            }
+            
+            Button(action: verifyCode) {
+                HStack {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    }
+                    Text(isLoading ? "Verifying..." : "Verify Code")
+                        .font(.rajdhaniBody)
+                        .foregroundColor(.white)
+                }
+                .frame(width: 280, height: 44)
+                .background(Color.blue)
+                .cornerRadius(8)
+            }
+            .disabled(isLoading || verificationCode.count != 6)
+            .padding(.top, 20)
+            
+            Button("Resend Code") {
+                sendVerificationCode()
+            }
+            .foregroundColor(.blue)
+            .disabled(isLoading)
+        }
+    }
+    
+    private var isValidPhoneNumber: Bool {
+        let cleaned = phoneNumber.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+        return cleaned.count >= 10 && cleaned.count <= 15
+    }
+    
+    private func sendVerificationCode() {
+        isLoading = true
+        showError = false
+        errorMessage = ""
+        
+        Task {
+            do {
+                let firebasePhoneNumber = formatPhoneNumberForFirebase(phoneNumber)
+                print("📱 Sending verification to Firebase format: \(firebasePhoneNumber)")
+                
+                try await authService.sendPhoneVerificationCode(phoneNumber: firebasePhoneNumber)
+                await MainActor.run {
+                    isLoading = false
+                    currentStep = .codeVerification
+                }
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    
+                    if let authError = error as? AuthError {
+                        switch authError {
+                        case .phoneVerificationFailed:
+                            errorMessage = "Phone verification failed. Please check your phone number and try again."
+                        case .unknown(let message):
+                            if message.contains("notification") || message.contains("NOTIFICATION_NOT_FORWARDED") {
+                                errorMessage = "Please enable notifications in Settings to receive SMS verification codes."
+                            } else if message.contains("Invalid format") || message.contains("ERROR_INVALID_PHONE_NUMBER") {
+                                errorMessage = "Please enter a valid phone number with country code (e.g., +1 for US)."
+                            } else {
+                                errorMessage = message
+                            }
+                        default:
+                            errorMessage = error.localizedDescription
+                        }
+                    } else {
+                        errorMessage = error.localizedDescription
+                    }
+                    
+                    showError = true
+                }
+            }
+        }
+    }
+    
+    private func verifyCode() {
+        isLoading = true
+        showError = false
+        errorMessage = ""
+        
+        Task {
+            do {
+                let firebasePhoneNumber = formatPhoneNumberForFirebase(phoneNumber)
+                print("📱 Verifying code with Firebase format: \(firebasePhoneNumber)")
+                
+                _ = try await authService.verifyPhoneCodeAndSignIn(
+                    phoneNumber: firebasePhoneNumber,
+                    verificationCode: verificationCode
+                )
+                
+                await MainActor.run {
+                    isLoading = false
+                    if authService.isAuthenticated {
+                        dismiss()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Helper Functions
+
+private func isPhoneNumber(_ input: String) -> Bool {
+    let cleaned = input.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+    return cleaned.count >= 10 && cleaned.count <= 15
+}
+
+private func formatPhoneNumber(_ phone: String) -> String {
+    let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+    let mask = "(XXX) XXX-XXXX"
+    var result = ""
+    var index = cleaned.startIndex
+    for ch in mask where index < cleaned.endIndex {
+        if ch == "X" {
+            result.append(cleaned[index])
+            index = cleaned.index(after: index)
+        } else {
+            result.append(ch)
+        }
+    }
+    return result
+}
+
+// Convert phone number to E.164 format for Firebase
+private func formatPhoneNumberForFirebase(_ phone: String) -> String {
+    let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+    
+    // If it's a US number (10 digits), add +1
+    if cleaned.count == 10 {
+        return "+1\(cleaned)"
+    }
+    // If it already has country code (11+ digits starting with 1), add +
+    else if cleaned.count >= 11 && cleaned.hasPrefix("1") {
+        return "+\(cleaned)"
+    }
+    // If it has other country code, add +
+    else if cleaned.count >= 10 {
+        return "+\(cleaned)"
+    }
+    
+    // Fallback - return as is with +
+    return "+\(cleaned)"
 }
 
 // MARK: - Custom Text Field Style

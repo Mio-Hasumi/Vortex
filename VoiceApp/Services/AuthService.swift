@@ -16,6 +16,10 @@ class AuthService: ObservableObject {
     // Store the real Gmail address from Google Sign-In
     @Published var realEmail: String?
     
+    // Phone verification state
+    @Published var phoneVerificationID: String?
+    @Published var isPhoneVerificationSent = false
+    
     // Computed property to always show first name from real Gmail address in UI
     var uiDisplayName: String {
         print("🔍 [AuthService] uiDisplayName called - realEmail: \(realEmail ?? "nil"), email: \(email ?? "nil"), displayName: \(displayName ?? "nil")")
@@ -199,6 +203,143 @@ class AuthService: ObservableObject {
             // If error is not notFound, rethrow it
             throw error
         }
+    }
+    
+    // MARK: - Phone Number Authentication (SMS Verification)
+    
+    @MainActor
+    func sendPhoneVerificationCode(phoneNumber: String) async throws {
+        // Reset verification state
+        phoneVerificationID = nil
+        isPhoneVerificationSent = false
+        
+        do {
+            // Send verification code via Firebase
+            try await PhoneAuthProvider.provider().verifyPhoneNumber(phoneNumber, uiDelegate: nil) { verificationID, error in
+                DispatchQueue.main.async {
+                    if let error = error {
+                        print("❌ Phone verification error: \(error)")
+                        
+                        // Check if it's a notification error
+                        if let authError = error as? AuthErrorCode {
+                            switch authError.code {
+                            case .notificationNotForwarded:
+                                print("📱 Notification not forwarded - user needs to enable notifications")
+                                // You could show a user-friendly message here
+                            case .quotaExceeded:
+                                print("📱 SMS quota exceeded")
+                            case .invalidPhoneNumber:
+                                print("📱 Invalid phone number")
+                            default:
+                                print("📱 Other phone auth error: \(authError.code)")
+                            }
+                        }
+                        return
+                    }
+                    
+                    if let verificationID = verificationID {
+                        self.phoneVerificationID = verificationID
+                        self.isPhoneVerificationSent = true
+                        print("✅ Phone verification code sent to \(phoneNumber)")
+                    }
+                }
+            }
+        } catch {
+            print("❌ Phone verification failed: \(error)")
+            throw error
+        }
+    }
+    
+    @MainActor
+    func verifyPhoneCodeAndSignUp(phoneNumber: String, verificationCode: String, displayName: String) async throws -> AuthResponse {
+        guard let verificationID = phoneVerificationID else {
+            throw AuthError.unknown("No verification ID found. Please request a new code.")
+        }
+        
+        // Create credential with verification code
+        let credential = PhoneAuthProvider.provider().credential(
+            withVerificationID: verificationID,
+            verificationCode: verificationCode
+        )
+        
+        // Sign in with Firebase using phone credential
+        let authResult = try await Auth.auth().signIn(with: credential)
+        
+        // Update Firebase profile
+        let changeRequest = authResult.user.createProfileChangeRequest()
+        changeRequest.displayName = displayName
+        try await changeRequest.commitChanges()
+        
+        // Get Firebase ID token
+        let token = try await authResult.user.getIDToken()
+        
+        // Register with backend
+        let signUpRequest = SignUpRequest(
+            firebase_uid: authResult.user.uid,
+            display_name: displayName,
+            phone_number: phoneNumber
+        )
+        
+        APIService.shared.setAuthToken(token)
+        
+        let requestData = try JSONEncoder().encode(signUpRequest)
+        let authResponse: AuthResponse = try await APIService.shared.request(
+            endpoint: APIConfig.Endpoints.register,
+            method: "POST",
+            body: requestData
+        )
+        
+        // Update local user state
+        updateAuthState(userResponse: authResponse, token: token)
+        
+        // Reset phone verification state
+        phoneVerificationID = nil
+        isPhoneVerificationSent = false
+        
+        return authResponse
+    }
+    
+    @MainActor
+    func verifyPhoneCodeAndSignIn(phoneNumber: String, verificationCode: String) async throws -> AuthResponse {
+        guard let verificationID = phoneVerificationID else {
+            throw AuthError.unknown("No verification ID found. Please request a new code.")
+        }
+        
+        // Create credential with verification code
+        let credential = PhoneAuthProvider.provider().credential(
+            withVerificationID: verificationID,
+            verificationCode: verificationCode
+        )
+        
+        // Sign in with Firebase using phone credential
+        let authResult = try await Auth.auth().signIn(with: credential)
+        
+        // Get Firebase ID token
+        let token = try await authResult.user.getIDToken()
+        
+        // Sign in with backend
+        let signInRequest = SignInRequest(
+            firebase_uid: authResult.user.uid,
+            phone_number: phoneNumber
+        )
+        
+        APIService.shared.setAuthToken(token)
+        
+        let requestData = try JSONEncoder().encode(signInRequest)
+        let authResponse: AuthResponse = try await APIService.shared.request(
+            endpoint: APIConfig.Endpoints.login,
+            method: "POST",
+            body: requestData
+        )
+        
+        // Update local user state
+        updateAuthState(userResponse: authResponse, token: token)
+        
+        // Reset phone verification state
+        phoneVerificationID = nil
+        isPhoneVerificationSent = false
+        
+        return authResponse
     }
     
     // MARK: - Email Password Authentication
@@ -430,6 +571,7 @@ enum AuthError: Error, LocalizedError {
     case networkError
     case configError
     case presentationError
+    case phoneVerificationFailed
     case unknown(String)
     
     var errorDescription: String? {
@@ -450,6 +592,8 @@ enum AuthError: Error, LocalizedError {
             return "Firebase configuration error"
         case .presentationError:
             return "Could not present sign in screen"
+        case .phoneVerificationFailed:
+            return "Phone verification failed. Please try again."
         case .unknown(let message):
             return message
         }
