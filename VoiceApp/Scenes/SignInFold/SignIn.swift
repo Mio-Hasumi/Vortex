@@ -871,6 +871,8 @@ struct EmailSignInView: View {
     @State private var errorMessage = ""
     @State private var showError = false
     @State private var showForgotPassword = false
+    @State private var showCreateAccount = false
+    @State private var displayName = ""
     
     var body: some View {
         NavigationView {
@@ -896,6 +898,22 @@ struct EmailSignInView: View {
                         .foregroundColor(.red)
                         .font(.caption)
                         .padding(.horizontal, 40)
+                    
+                    // Show create account option when sign-in fails
+                    if !isLoading {
+                        VStack(spacing: 12) {
+                            Text("Don't have an account?")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            
+                            Button("Create Account with these credentials") {
+                                showCreateAccount = true
+                            }
+                            .foregroundColor(.blue)
+                            .font(.caption)
+                        }
+                        .padding(.top, 8)
+                    }
                 }
                 
                 Button(action: signIn) {
@@ -975,6 +993,16 @@ struct EmailSignInView: View {
             .sheet(isPresented: $showForgotPassword) {
                 ForgotPasswordView()
             }
+            .sheet(isPresented: $showCreateAccount) {
+                CreateAccountFromSignInView(
+                    email: email,
+                    password: password,
+                    onAccountCreated: {
+                        showCreateAccount = false
+                        dismiss()
+                    }
+                )
+            }
         }
     }
     
@@ -999,9 +1027,9 @@ struct EmailSignInView: View {
                 }
             } catch {
                 await MainActor.run {
+                    isLoading = false
                     errorMessage = error.localizedDescription
                     showError = true
-                    isLoading = false
                 }
             }
         }
@@ -1043,6 +1071,7 @@ struct PhoneSignInView: View {
     @State private var errorMessage = ""
     @State private var showError = false
     @State private var currentStep: PhoneSignInStep = .phoneInput
+    @State private var showCreateAccount = false
     
     enum PhoneSignInStep {
         case phoneInput
@@ -1079,6 +1108,15 @@ struct PhoneSignInView: View {
                     }
                     .foregroundColor(.white)
                 }
+            }
+            .sheet(isPresented: $showCreateAccount) {
+                CreateAccountFromPhoneSignInView(
+                    phoneNumber: phoneNumber,
+                    onAccountCreated: {
+                        showCreateAccount = false
+                        dismiss()
+                    }
+                )
             }
         }
     }
@@ -1158,6 +1196,22 @@ struct PhoneSignInView: View {
                     .foregroundColor(.red)
                     .font(.caption)
                     .padding(.horizontal, 40)
+                
+                // Show create account option when verification fails
+                if !isLoading {
+                    VStack(spacing: 12) {
+                        Text("Don't have an account?")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        
+                        Button("Create Account with this phone number") {
+                            showCreateAccount = true
+                        }
+                        .foregroundColor(.blue)
+                        .font(.caption)
+                    }
+                    .padding(.top, 8)
+                }
             }
             
             Button(action: verifyCode) {
@@ -1416,6 +1470,332 @@ struct ForgotPasswordView: View {
                     message = "❌ Failed to send reset email: \(error.localizedDescription)"
                     isSuccess = false
                     showMessage = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Create Account From Sign In View
+struct CreateAccountFromSignInView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var authService = AuthService.shared
+    
+    @State private var email: String
+    @State private var password: String
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    @State private var showError = false
+    @State private var displayName = ""
+    
+    let onAccountCreated: () -> Void
+    
+    init(email: String, password: String, onAccountCreated: @escaping () -> Void) {
+        self._email = State(initialValue: email)
+        self._password = State(initialValue: password)
+        self.onAccountCreated = onAccountCreated
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Text("Create Account with Email")
+                    .font(.rajdhaniTitle)
+                    .foregroundColor(.white)
+                    .padding(.top, 40)
+                
+                VStack(spacing: 16) {
+                    TextField("Display Name", text: $displayName)
+                        .textFieldStyle(CustomTextFieldStyle())
+                    
+                    TextField("Email", text: $email)
+                        .textFieldStyle(CustomTextFieldStyle())
+                        .keyboardType(.emailAddress)
+                        .autocapitalization(.none)
+                    
+                    SecureField("Password", text: $password)
+                        .textFieldStyle(CustomTextFieldStyle())
+                }
+                .padding(.horizontal, 40)
+                
+                if showError {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                        .font(.caption)
+                        .padding(.horizontal, 40)
+                }
+                
+                Button(action: createAccount) {
+                    HStack {
+                        if isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                        }
+                        Text(isLoading ? "Creating Account..." : "Create Account")
+                            .font(.rajdhaniBody)
+                            .foregroundColor(.white)
+                    }
+                    .frame(width: 280, height: 44)
+                    .background(Color.blue)
+                    .cornerRadius(8)
+                }
+                .disabled(isLoading || !isFormValid)
+                .padding(.top, 20)
+                
+                Spacer()
+            }
+            .background(Color.black)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+        }
+    }
+    
+    private var isFormValid: Bool {
+        return !displayName.isEmpty && 
+        !email.isEmpty && 
+        !password.isEmpty && 
+        password.count >= 6
+    }
+    
+    private func createAccount() {
+        isLoading = true
+        showError = false
+        errorMessage = ""
+        
+        Task {
+            do {
+                _ = try await authService.signUpWithEmail(
+                    email: email,
+                    password: password,
+                    displayName: displayName
+                )
+                
+                await MainActor.run {
+                    isLoading = false
+                    if authService.isAuthenticated {
+                        onAccountCreated()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Create Account From Phone Sign In View
+struct CreateAccountFromPhoneSignInView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var authService = AuthService.shared
+    
+    @State private var phoneNumber: String
+    @State private var verificationCode = ""
+    @State private var displayName = ""
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    @State private var showError = false
+    @State private var currentStep: PhoneCreateAccountStep = .displayName
+    
+    enum PhoneCreateAccountStep {
+        case displayName
+        case codeVerification
+    }
+    
+    let onAccountCreated: () -> Void
+    
+    init(phoneNumber: String, onAccountCreated: @escaping () -> Void) {
+        self._phoneNumber = State(initialValue: phoneNumber)
+        self.onAccountCreated = onAccountCreated
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Text("Create Account with Phone")
+                    .font(.rajdhaniTitle)
+                    .foregroundColor(.white)
+                    .padding(.top, 40)
+                
+                switch currentStep {
+                case .displayName:
+                    displayNameView
+                case .codeVerification:
+                    codeVerificationView
+                }
+                
+                Spacer()
+            }
+            .background(Color.black)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+        }
+    }
+    
+    private var displayNameView: some View {
+        VStack(spacing: 20) {
+            Text("Enter your display name")
+                .font(.rajdhaniBody)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            TextField("Display Name", text: $displayName)
+                .textFieldStyle(CustomTextFieldStyle())
+                .padding(.horizontal, 40)
+            
+            Text("Phone: \(phoneNumber)")
+                .font(.caption)
+                .foregroundColor(.gray)
+                .padding(.horizontal, 40)
+            
+            if showError {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .padding(.horizontal, 40)
+            }
+            
+            Button(action: sendVerificationCode) {
+                HStack {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    }
+                    Text(isLoading ? "Sending..." : "Send Verification Code")
+                        .font(.rajdhaniBody)
+                        .foregroundColor(.white)
+                }
+                .frame(width: 280, height: 44)
+                .background(Color.blue)
+                .cornerRadius(8)
+            }
+            .disabled(isLoading || !isFormValid)
+            .padding(.top, 20)
+        }
+    }
+    
+    private var codeVerificationView: some View {
+        VStack(spacing: 20) {
+            Text("Enter the 6-digit code sent to \(phoneNumber)")
+                .font(.rajdhaniBody)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            TextField("Verification Code", text: $verificationCode)
+                .textFieldStyle(CustomTextFieldStyle())
+                .keyboardType(.numberPad)
+                .padding(.horizontal, 40)
+            
+            if showError {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .font(.caption)
+                    .padding(.horizontal, 40)
+            }
+            
+            Button(action: createAccount) {
+                HStack {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    }
+                    Text(isLoading ? "Creating Account..." : "Create Account")
+                        .font(.rajdhaniBody)
+                        .foregroundColor(.white)
+                }
+                .frame(width: 280, height: 44)
+                .background(Color.blue)
+                .cornerRadius(8)
+            }
+            .disabled(isLoading || verificationCode.count != 6)
+            .padding(.top, 20)
+            
+            Button("Resend Code") {
+                sendVerificationCode()
+            }
+            .foregroundColor(.blue)
+            .disabled(isLoading)
+        }
+    }
+    
+    private var isFormValid: Bool {
+        return !displayName.isEmpty
+    }
+    
+    private func sendVerificationCode() {
+        isLoading = true
+        showError = false
+        errorMessage = ""
+        
+        Task {
+            do {
+                let firebasePhoneNumber = formatPhoneNumberForFirebase(phoneNumber)
+                print("📱 Sending verification to Firebase format: \(firebasePhoneNumber)")
+                
+                try await authService.sendPhoneVerificationCode(phoneNumber: firebasePhoneNumber)
+                await MainActor.run {
+                    isLoading = false
+                    currentStep = .codeVerification
+                }
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
+            }
+        }
+    }
+    
+    private func createAccount() {
+        isLoading = true
+        showError = false
+        errorMessage = ""
+        
+        Task {
+            do {
+                let firebasePhoneNumber = formatPhoneNumberForFirebase(phoneNumber)
+                print("📱 Creating account with Firebase format: \(firebasePhoneNumber)")
+                
+                _ = try await authService.verifyPhoneCodeAndSignUp(
+                    phoneNumber: firebasePhoneNumber,
+                    verificationCode: verificationCode,
+                    displayName: displayName
+                )
+                
+                await MainActor.run {
+                    isLoading = false
+                    if authService.isAuthenticated {
+                        onAccountCreated()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
                     isLoading = false
                 }
             }
