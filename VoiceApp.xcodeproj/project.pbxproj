@@ -47,22 +47,9 @@
 		DC6A41052E2A1FC700DF801C /* VoiceAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoiceAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		B64E6CCC2E2D3BAA0098077D /* Exceptions for "VoiceApp" folder in "VoiceApp" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = DC6A40ED2E2A1FC600DF801C /* VoiceApp */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		DC6A40F02E2A1FC600DF801C /* VoiceApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				B64E6CCC2E2D3BAA0098077D /* Exceptions for "VoiceApp" folder in "VoiceApp" target */,
-			);
 			path = VoiceApp;
 			sourceTree = "<group>";
 		};
