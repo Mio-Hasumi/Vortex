@@ -873,7 +873,7 @@ extension LiveKitCallService: RoomDelegate {
                 self.showParticipantLeftNotification(participant.displayName)
                 print("🎭 [DISCONNECT DEBUG] Total participants after removal: \(self.participants.count)")
                 print("🎭 [DISCONNECT DEBUG] AI hosts remaining: \(self.participants.filter { $0.isAIHost }.count)")
-d            } else {
+            } else {
                 print("❌ [LiveKit] Could not find participant with ID '\(participantId)' to remove from UI")
                 print("❌ [LiveKit] Tried IDs: \(possibleIds)")
                 print("❌ [LiveKit] Available participant IDs: \(self.participants.map { $0.userId })")

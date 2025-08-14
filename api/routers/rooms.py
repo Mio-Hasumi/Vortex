@@ -840,7 +840,9 @@ async def handle_ai_toggle_request(
             from infrastructure.container import container
             agent_manager = container.get_agent_manager_service()
             if agent_manager:
-                result = await agent_manager.set_room_ai_enabled(livekit_name, bool(ai_enabled))
+                # AgentManager tracks by LiveKit room name, which is typically 'room_<uuid>'
+                target_room_name = livekit_name if livekit_name.startswith("room_") else f"room_{room_id}"
+                result = await agent_manager.set_room_ai_enabled(target_room_name, bool(ai_enabled))
                 logger.info(f"🤖 Room-wide AI toggle applied: {result}")
         except Exception as apply_err:
             logger.warning(f"⚠️ Failed to apply room-wide AI toggle: {apply_err}")
