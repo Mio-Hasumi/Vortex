@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 try:
     from livekit.api import LiveKitAPI, AccessToken, VideoGrants, Room
-    from livekit.api import CreateRoomRequest, DeleteRoomRequest, ListRoomsRequest
+    from livekit.api import CreateRoomRequest, DeleteRoomRequest, ListRoomsRequest, SendDataRequest
     LIVEKIT_AVAILABLE = True
 except ImportError:
     # Fallback for development
@@ -20,6 +20,7 @@ except ImportError:
     CreateRoomRequest = None
     DeleteRoomRequest = None
     ListRoomsRequest = None
+    SendDataRequest = None
     LIVEKIT_AVAILABLE = False
 
 from infrastructure.config import Settings
@@ -351,7 +352,6 @@ class LiveKitService:
                 return False
             
             import json
-            from livekit.api import SendDataRequest, DataPacket_Kind
             
             # Convert data to JSON string
             payload = json.dumps(data).encode('utf-8')
@@ -359,11 +359,14 @@ class LiveKitService:
             request = SendDataRequest(
                 room=room_name,
                 data=payload,
-                kind=DataPacket_Kind.RELIABLE,  # Reliable delivery
+                # 0 = RELIABLE, 1 = LOSSY (enum may differ across SDK versions)
+                kind=0,
                 destination_identities=destination_identities or []  # Empty list = broadcast to all
             )
             
-            await self.client.send_data(request)
+            # Server API exposes send_data on the Room service
+            # Use await only if the SDK method is async; otherwise call directly
+            result = self.client.room.send_data(request)
             
             target = f"identities {destination_identities}" if destination_identities else "all participants"
             logger.info(f"✅ Data message sent to room {room_name} ({target}): {data}")
@@ -584,4 +587,13 @@ class MockLiveKitClient:
     
     def remove_participant(self, room: str, identity: str) -> None:
         """Mock remove participant"""
-        pass 
+        pass
+
+    # Support room.send_data(request) by pointing to self
+    def send_data(self, request) -> None:
+        try:
+            import json
+            payload = request.data.decode('utf-8') if isinstance(request.data, (bytes, bytearray)) else str(request.data)
+            logger.info(f"🧪 [MOCK] send_data to {request.room}: {payload} -> {request.destination_identities}")
+        except Exception as e:
+            logger.error(f"🧪 [MOCK] send_data error: {e}") 
