@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 try:
     from livekit.api import LiveKitAPI, AccessToken, VideoGrants, Room
-    from livekit.api import CreateRoomRequest, DeleteRoomRequest, ListRoomsRequest, SendDataRequest
+    from livekit.api import CreateRoomRequest, DeleteRoomRequest, ListRoomsRequest
     LIVEKIT_AVAILABLE = True
 except ImportError:
     # Fallback for development
@@ -20,7 +20,6 @@ except ImportError:
     CreateRoomRequest = None
     DeleteRoomRequest = None
     ListRoomsRequest = None
-    SendDataRequest = None
     LIVEKIT_AVAILABLE = False
 
 from infrastructure.config import Settings
@@ -314,17 +313,17 @@ class LiveKitService:
     
     def generate_room_token(self, room_id: UUID, user_id: UUID) -> str:
         """
-        Generate LiveKit token for a specific room and user
+        Generate token for a specific room and user
         
         Args:
-            room_id: Room's UUID
-            user_id: User's UUID
+            room_id: Room UUID
+            user_id: User UUID
             
         Returns:
-            JWT token for room access
+            JWT token
         """
         room_name = f"room_{room_id}"
-        identity = str(user_id)
+        identity = f"user_{user_id}"
         
         return self.generate_token(
             room_name=room_name,
@@ -333,48 +332,6 @@ class LiveKitService:
             can_subscribe=True,
             can_publish_data=True
         )
-    
-    async def send_data_message(self, room_name: str, data: dict, destination_identities: Optional[List[str]] = None) -> bool:
-        """
-        Send data message to LiveKit room participants
-        
-        Args:
-            room_name: LiveKit room name
-            data: Data payload to send
-            destination_identities: Optional list of participant identities to send to (None = broadcast to all)
-            
-        Returns:
-            True if sent successfully
-        """
-        try:
-            if not LIVEKIT_AVAILABLE or not self.client:
-                logger.warning("⚠️ LiveKit not available, cannot send data message")
-                return False
-            
-            import json
-            
-            # Convert data to JSON string
-            payload = json.dumps(data).encode('utf-8')
-            
-            request = SendDataRequest(
-                room=room_name,
-                data=payload,
-                # 0 = RELIABLE, 1 = LOSSY (enum may differ across SDK versions)
-                kind=0,
-                destination_identities=destination_identities or []  # Empty list = broadcast to all
-            )
-            
-            # Server API exposes send_data on the Room service
-            # Use await only if the SDK method is async; otherwise call directly
-            result = self.client.room.send_data(request)
-            
-            target = f"identities {destination_identities}" if destination_identities else "all participants"
-            logger.info(f"✅ Data message sent to room {room_name} ({target}): {data}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to send data message to room {room_name}: {e}")
-            return False
     
     # Participant Management
     def get_participants(self, room_name: str) -> List[Dict[str, Any]]:
@@ -587,13 +544,4 @@ class MockLiveKitClient:
     
     def remove_participant(self, room: str, identity: str) -> None:
         """Mock remove participant"""
-        pass
-
-    # Support room.send_data(request) by pointing to self
-    def send_data(self, request) -> None:
-        try:
-            import json
-            payload = request.data.decode('utf-8') if isinstance(request.data, (bytes, bytearray)) else str(request.data)
-            logger.info(f"🧪 [MOCK] send_data to {request.room}: {payload} -> {request.destination_identities}")
-        except Exception as e:
-            logger.error(f"🧪 [MOCK] send_data error: {e}") 
+        pass 

@@ -429,10 +429,6 @@ def get_websocket_manager():
     """Dependency injection: Get singleton ConnectionManager"""
     return container.get_websocket_manager()
 
-def get_livekit_service():
-    """Dependency injection: Get singleton LiveKitService"""
-    return container.get_livekit_service()
-
 
 # NEW: GPT-4o Audio Real-time Room WebSocket
 @router.websocket("/ws/{room_id}")
@@ -464,44 +460,35 @@ async def websocket_room_conversation(
             await websocket.close()
             return
 
-        # Get user AI preference and room AI state
+        # 2) Get user repository to check AI status FIRST
         user_repo = get_user_repository()
-        user = user_repo.find_by_id(UUID(user_id))
+        current_user = user_repo.find_by_id(UUID(user_id))
+        user_ai_enabled = current_user.ai_enabled if current_user else False  # AI starts disabled by default
         
-        if not user:
-            await websocket.close(code=1008, reason="User not found")
-            return
-            
-        if not room:
-            await websocket.close(code=1008, reason="Room not found")
-            return
+        # 3) Connect to LiveKit with livekit_name
+        room_participants = [str(uid) for uid in room.current_participants]
+        websocket_manager = get_websocket_manager()
+        room_connection_id = await websocket_manager.join_room(
+            room_name=livekit_name,
+            user_id=user_id,
+            websocket=websocket
+        )
         
-        # Use room-level AI state (room-wide control)
-        room_ai_enabled = room.ai_enabled
-        user_ai_enabled = user.ai_enabled  # Keep for backward compatibility
-        
-        logger.info(f"🎭 Room AI: {'enabled' if room_ai_enabled else 'disabled'}, User AI: {'enabled' if user_ai_enabled else 'disabled'}")
-
-        # Get room participants for broadcasting
-        room_participants = await room_repo.get_room_participants(room_id)
-        
-        # Send initial connection confirmation with room AI state
+        # 4) Send joined message
         await websocket.send_json({
             "type": "room_joined",
             "room_id": room_id,
-            "user_id": user_id,
-            "livekit_name": livekit_name,
+            "connection_id": room_connection_id,
             "participants": room_participants,
-            "ai_enabled": room_ai_enabled,  # Send room-wide AI state
+            "ai_enabled": user_ai_enabled,  # Send current AI status (starts disabled)
             "supported_features": [
-                "voice_message", 
-                "text_message", 
-                "ai_moderation",
+                "voice_input", "voice_output", "real_time_moderation", 
+                "fact_checking", "conversation_guidance", "topic_suggestions",
                 "ai_toggle"  # Add AI toggle as supported feature
             ]
         })
         
-        logger.info(f"🎭 User {user_id} joined room {room_id} with room AI {'enabled' if room_ai_enabled else 'disabled'}")
+        logger.info(f"🎭 User {user_id} joined room {room_id} with AI {'enabled' if user_ai_enabled else 'disabled'}")
 
         # Initialize conversation context for AI moderator
         conversation_context = []
@@ -515,16 +502,16 @@ async def websocket_room_conversation(
             
             logger.info(f"📥 Received: {message_type} in room {room_id}")
             
-            if message_type == "voice_message":
-                # 🔴 BLOCK AI PROCESSING IF DISABLED (room-wide)
-                if not room_ai_enabled:
+            if message_type == "   voice_message":
+                # 🔴 BLOCK AI PROCESSING IF DISABLED (user-specific)
+                if not user_ai_enabled:
                     # Still broadcast the voice message but don't process with AI
                     await broadcast_to_room(livekit_name, {
                         "type": "user_voice_message",
                         "user_id": user_id,
                         "audio_data": data.get("audio_data"),
                         "timestamp": datetime.utcnow().isoformat(),
-                        "note": "Room AI disabled"
+                        "note": "User AI disabled"
                     })
                     continue
                 
@@ -535,65 +522,51 @@ async def websocket_room_conversation(
                 )
                 
             elif message_type == "text_message":
-                # 🔴 BLOCK AI PROCESSING IF DISABLED (room-wide)
-                if not room_ai_enabled:
+                # 🔴 BLOCK AI PROCESSING IF DISABLED (user-specific)
+                if not user_ai_enabled:
                     # Still broadcast the text message but don't process with AI
                     await broadcast_to_room(livekit_name, {
                         "type": "user_text_message",
                         "user_id": user_id,
                         "text": data.get("text"),
                         "timestamp": datetime.utcnow().isoformat(),
-                        "note": "Room AI disabled"
+                        "note": "User AI disabled"
                     })
                     continue
                 
-                # User sends text message - process with AI
+                # User sends text message
                 await handle_text_message(
-                    websocket, livekit_name, user_id, data, 
+                    websocket, livekit_name, user_id, data,
                     openai_service, conversation_context, room_participants
                 )
                 
             elif message_type == "toggle_ai":
-                # Handle AI toggle request - room-wide control
+                # 🎛️ Handle AI toggle request from user
                 await handle_ai_toggle_request(
                     websocket, room_id, user_id, data, livekit_name
                 )
-                
-                # Update local room_ai_enabled state
-                room_ai_enabled = data.get("ai_enabled", True)
+                # 🔄 Refresh user AI status for subsequent messages
+                user_repo = get_user_repository() # Re-get user_repo to ensure it's the latest
+                current_user = user_repo.find_by_id(UUID(user_id))
+                user_ai_enabled = current_user.ai_enabled if current_user else False  # AI starts disabled by default
+                continue
                 
             elif message_type == "request_ai_assistance":
-                # 🔴 BLOCK AI ASSISTANCE IF DISABLED (room-wide)
-                if not room_ai_enabled:
-                    await websocket.send_json({
-                        "type": "error",
-                        "error": "AI assistance is disabled for this room"
-                    })
-                    continue
-                
-                # Handle AI assistance request
+                # User explicitly requests AI help
                 await handle_ai_assistance_request(
-                    websocket, livekit_name, user_id, data, 
-                    openai_service, conversation_context
+                    websocket, livekit_name, user_id, data,
+                    openai_service, conversation_context, room_participants
                 )
                 
             elif message_type == "conversation_pause":
-                # 🔴 BLOCK AI SUGGESTIONS IF DISABLED (room-wide)
-                if not room_ai_enabled:
-                    continue
-                
-                # Handle conversation pause - AI suggests topics
+                # Handle conversation silence - AI suggests topics
                 await handle_conversation_pause(
-                    websocket, livekit_name, user_id, data, 
-                    openai_service, conversation_context
+                    websocket, livekit_name, openai_service, 
+                    conversation_context, room_participants
                 )
                 
             else:
                 logger.warning(f"❓ Unknown message type: {message_type}")
-                await websocket.send_json({
-                    "type": "error",
-                    "error": f"Unknown message type: {message_type}"
-                })
                 
     except WebSocketDisconnect:
         logger.info(f"👋 User {user_id} disconnected from room {room_id}")
@@ -844,69 +817,54 @@ async def handle_ai_toggle_request(
 ):
     """
     Handle user request to toggle AI on/off.
-    Persist the room's ai_enabled flag and notify agents via LiveKit data channel.
+    Persist the user's ai_enabled flag and notify client.
+    Additionally, flip room-wide agent create_response and broadcast to room so UI persists.
     """
     try:
         ai_enabled = data.get("ai_enabled", True) # Default to True if not provided
-        logger.info(f"🎛️ Room AI toggle requested by {user_id}: {ai_enabled}")
+        logger.info(f"🎛️ AI toggle requested by {user_id}: {ai_enabled}")
 
-        # Persist to DB (room-level)
-        room_repo = get_room_repository()
-        success = room_repo.update_room_ai_enabled(UUID(room_id), ai_enabled)
-        
-        if not success:
-            await websocket.send_json({
-                "type": "ai_toggle_response",
-                "success": False,
-                "error": "Failed to update room AI state"
-            })
-            return
-
-        # Send LiveKit data message to control agents in real-time
-        livekit_service = get_livekit_service()
-        control_message = {
-            "type": "ai_control",
-            "ai_enabled": ai_enabled,
-            "room_id": room_id,
-            "timestamp": datetime.utcnow().isoformat(),
-            "source": "room_toggle"
-        }
-        
-        # Send to all participants in the LiveKit room (including agents)
-        data_sent = await livekit_service.send_data_message(
-            room_name=livekit_name,
-            data=control_message
-        )
-        
-        if data_sent:
-            logger.info(f"✅ AI control message sent to LiveKit room {livekit_name}")
+        # Persist to DB
+        user_repo = get_user_repository()
+        from uuid import UUID as _UUID
+        user_entity = user_repo.find_by_id(_UUID(user_id))
+        if user_entity:
+            user_entity.ai_enabled = bool(ai_enabled)
+            user_repo.update(user_entity)
+            logger.info(f"✅ Persisted ai_enabled={ai_enabled} for user {user_id}")
         else:
-            logger.warning(f"⚠️ Failed to send AI control message to LiveKit room {livekit_name}")
+            logger.warning(f"⚠️ Could not load user {user_id} to persist ai_enabled")
 
-        # Confirm toggle to client
+        # Flip room-wide agent create_response via AgentManagerService
+        try:
+            from infrastructure.container import container
+            agent_manager = container.get_agent_manager_service()
+            if agent_manager:
+                result = await agent_manager.set_room_ai_enabled(livekit_name, bool(ai_enabled))
+                logger.info(f"🤖 Room-wide AI toggle applied: {result}")
+        except Exception as apply_err:
+            logger.warning(f"⚠️ Failed to apply room-wide AI toggle: {apply_err}")
+
         await websocket.send_json({
             "type": "ai_toggle_response",
-            "success": True,
+            "user_id": user_id,
             "ai_enabled": ai_enabled,
-            "message": f"Room AI {'enabled' if ai_enabled else 'disabled'}"
+            "message": f"AI enabled: {ai_enabled}"
         })
-        
-        # Broadcast to all room participants
+
+        # Broadcast to all room clients so UI updates consistently
         await broadcast_to_room(livekit_name, {
-            "type": "room_ai_state_changed",
-            "ai_enabled": ai_enabled,
-            "changed_by": user_id,
+            "type": "ai_room_state",
+            "ai_enabled": bool(ai_enabled),
+            "updated_by": user_id,
             "timestamp": datetime.utcnow().isoformat()
         })
         
-        logger.info(f"✅ Room {room_id} AI state updated to {'enabled' if ai_enabled else 'disabled'}")
-        
     except Exception as e:
-        logger.error(f"❌ Failed to handle AI toggle request: {e}")
+        logger.error(f"❌ AI toggle handling failed: {e}")
         await websocket.send_json({
-            "type": "ai_toggle_response", 
-            "success": False,
-            "error": str(e)
+            "type": "error",
+            "message": f"Failed to process AI toggle: {str(e)}"
         })
 
 

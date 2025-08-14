@@ -131,9 +131,6 @@ class Room:
     # Recording settings
     is_recording_enabled: bool = True
     recording_id: Optional[UUID] = None
-    
-    # AI settings
-    ai_enabled: bool = True  # Room-wide AI control (starts enabled)
 
     # Domain behaviors
     def add_participant(self, user_id: UUID) -> None:

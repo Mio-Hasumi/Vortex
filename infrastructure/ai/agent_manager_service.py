@@ -50,7 +50,9 @@ class AgentManagerService:
             "auto_start": True,
             "greeting_enabled": True,
             "fact_checking_enabled": True,
-            "topic_suggestions_enabled": True
+            "topic_suggestions_enabled": True,
+            # Room-wide AI speak toggle: controls Realtime turn_detection.create_response
+            "create_response": True,
         }
         
         logger.info("[AGENT] ✅ AgentManagerService initialized")
@@ -103,7 +105,7 @@ class AgentManagerService:
                 "max_participants": room.max_participants,
                 "created_by": str(room.created_by),
                 "room_type": "voice_chat",
-                "room_settings": custom_settings or self.agent_settings
+                "room_settings": {**self.agent_settings, **(custom_settings or {})}
             }
             logger.info(f"[AGENT DEPLOY DEBUG] Room context prepared: {room_context}")
             
@@ -132,6 +134,7 @@ class AgentManagerService:
                 "agent_token": agent_token,
                 "deployment_time": datetime.utcnow(),
                 "context": room_context,
+                "metadata": job_metadata,
                 "process_info": deployment_result,
                 "status": "active"
             }
@@ -278,6 +281,9 @@ class AgentManagerService:
                 # Create AgentSession with OpenAI Realtime API (as per official guide)
                 from openai.types.beta.realtime.session import TurnDetection
                 
+                # Read create_response from metadata room settings (room-wide toggle)
+                create_resp = metadata.get("room_context", {}).get("room_settings", {}).get("create_response", True)
+
                 session = agents.AgentSession(
                     llm=openai.realtime.RealtimeModel(
                         model="gpt-4o-realtime-preview",
@@ -290,7 +296,7 @@ class AgentManagerService:
                             threshold=0.5,
                             prefix_padding_ms=300,
                             silence_duration_ms=500,
-                            create_response=True,
+                            create_response=create_resp,
                             interrupt_response=True,
                         ),
                         # Provide explicit HTTP session to avoid context errors
@@ -299,85 +305,9 @@ class AgentManagerService:
                 )
                 logger.info(f"[AGENT RUN DEBUG] ✅ AgentSession created with OpenAI Realtime API")
                 
-                # Start the session with connection handling
-                logger.info(f"[AGENT RUN DEBUG] ✅ Agent session started successfully!")
-                
-                # Store session for management
-                self.active_agents[room_name] = {
-                    "session": session,
-                    "room": room_name,
-                    "identity": agent_identity,
-                    "ai_enabled": True,  # Track AI state for this room
-                    "created_at": datetime.utcnow()
-                }
-                
-                # Log agent status
-                logger.info(f"[AGENT] ✅ VortexAgent is now ACTIVE and CONNECTED in room: {room_name}")
-                logger.info(f"[AGENT] ✅ Agent identity: {agent_identity}")
-                
-                # Get initial participant list
-                participants = await room.get_participants()
-                participant_identities = [p.identity for p in participants.values()]
-                logger.info(f"[AGENT] ✅ Room participants: {participant_identities}")
-                
-                # Add data message handler for AI control
-                @session.on("data_received")
-                def on_data_received(data_packet):
-                    """Handle LiveKit data messages for AI control"""
-                    try:
-                        import json
-                        payload = json.loads(data_packet.data.decode('utf-8'))
-                        
-                        if payload.get("type") == "ai_control":
-                            ai_enabled = payload.get("ai_enabled", True)
-                            room_id = payload.get("room_id")
-                            source = payload.get("source", "unknown")
-                            
-                            logger.info(f"🎛️ [AGENT] AI control received: {ai_enabled} (source: {source}, room: {room_id})")
-                            
-                            # Update agent's AI state
-                            if room_name in self.active_agents:
-                                self.active_agents[room_name]["ai_enabled"] = ai_enabled
-                                logger.info(f"🎛️ [AGENT] Agent AI state updated to {'enabled' if ai_enabled else 'disabled'}")
-                            
-                    except Exception as e:
-                        logger.error(f"❌ [AGENT] Failed to handle data message: {e}")
-                
-                # Override the session's response generation to respect AI control
-                original_llm = session.llm
-                
-                class ControlledRealtimeModel:
-                    def __init__(self, original_llm, agent_manager, room_name):
-                        self.original_llm = original_llm
-                        self.agent_manager = agent_manager
-                        self.room_name = room_name
-                        # Copy all attributes from original
-                        for attr in dir(original_llm):
-                            if not attr.startswith('_') and not callable(getattr(original_llm, attr)):
-                                setattr(self, attr, getattr(original_llm, attr))
-                    
-                    async def agenerate_response(self, *args, **kwargs):
-                        # Check if AI is enabled for this room
-                        room_info = self.agent_manager.active_agents.get(self.room_name)
-                        if room_info and not room_info.get("ai_enabled", True):
-                            logger.info(f"🔇 [AGENT] Skipping response - AI disabled for room {self.room_name}")
-                            return None  # Don't generate response when AI is disabled
-                        
-                        # AI is enabled, generate response normally
-                        return await self.original_llm.agenerate_response(*args, **kwargs)
-                    
-                    def __getattr__(self, name):
-                        # Delegate all other attributes to the original LLM
-                        return getattr(self.original_llm, name)
-                
-                # Replace the session's LLM with our controlled version
-                session.llm = ControlledRealtimeModel(original_llm, self, room_name)
-                
-                # Actually start the agent session with the room
+                # Start the agent session with the room
                 await session.start(agent=agent, room=room)
-                
-                await session.aclose()
-                logger.info(f"[AGENT] ✅ Agent session ended for room: {room_name}")
+                logger.info(f"[AGENT RUN DEBUG] ✅ Agent session started successfully!")
                 
             except Exception as session_error:
                 logger.error(f"[AGENT RUN DEBUG] ❌ Agent session creation/start failed: {session_error}")
@@ -497,6 +427,51 @@ class AgentManagerService:
                 "error": str(e),
                 "room_name": room_name
             }
+
+    async def set_room_ai_enabled(self, room_name: str, enabled: bool) -> Dict[str, Any]:
+        """
+        Room-wide toggle: enable/disable AI auto speech (create_response).
+        Strategy: update room settings, restart the agent session with the new flag.
+        """
+        try:
+            agent_info = self.active_agents.get(room_name)
+            if not agent_info:
+                return {"success": False, "error": "No active agent in room", "room_name": room_name}
+
+            # Update in-memory settings
+            agent_info["context"]["room_settings"]["create_response"] = bool(enabled)
+            agent_info["last_updated"] = datetime.utcnow()
+
+            # Capture token and metadata before removal
+            agent_token = agent_info.get("agent_token")
+            metadata = agent_info.get("metadata") or {"room_context": agent_info.get("context", {})}
+
+            # Remove current agent participant
+            await self.remove_agent_from_room(room_name)
+
+            # Start a new agent session with updated settings
+            logger.info(f"[AGENT] Restarting agent in {room_name} with create_response={enabled}")
+            start_result = await self._start_agent_process(
+                room_name=room_name,
+                agent_token=agent_token,
+                metadata=metadata
+            )
+            # Update process info
+            if room_name in self.active_agents:
+                self.active_agents[room_name]["process_info"] = start_result
+                self.active_agents[room_name]["status"] = "active"
+
+            return {"success": True, "room_name": room_name, "ai_enabled": bool(enabled)}
+        except Exception as e:
+            logger.error(f"[AGENT ERROR] ❌ Failed to set room ai_enabled in {room_name}: {e}")
+            return {"success": False, "error": str(e), "room_name": room_name}
+
+    def get_room_ai_enabled(self, room_name: str) -> Optional[bool]:
+        """Return current room-wide AI enabled (create_response) flag if available."""
+        info = self.active_agents.get(room_name)
+        if not info:
+            return None
+        return bool(info.get("context", {}).get("room_settings", {}).get("create_response", True))
 
     async def _cleanup_agent_after_delay(self, room_name: str, delay: int = 10):
         """Clean up agent info after a delay"""

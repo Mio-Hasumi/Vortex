@@ -561,22 +561,12 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable, WebSocketDelega
         case "room_joined":
             print("✅ [WebSocket] Successfully joined room WebSocket")
             
-            // Update AI status based on room-wide backend response
+            // Update AI status based on backend response
             if let aiEnabled = message["ai_enabled"] as? Bool {
                 Task { @MainActor in
                     self.isAIListening = aiEnabled
                 }
-                print("🎛️ [AI] Room-wide AI state initialized: \(aiEnabled ? "enabled" : "disabled")")
-            }
-            
-        case "room_ai_state_changed":
-            // Handle room-wide AI state changes from other participants
-            if let aiEnabled = message["ai_enabled"] as? Bool,
-               let changedBy = message["changed_by"] as? String {
-                Task { @MainActor in
-                    self.isAIListening = aiEnabled
-                }
-                print("🎛️ [AI] Room AI state changed by \(changedBy): \(aiEnabled ? "enabled" : "disabled")")
+                print("🎛️ [AI] Backend confirmed initial AI state: \(aiEnabled ? "enabled" : "disabled")")
             }
             
         case "error":
