@@ -345,7 +345,7 @@ class LiveKitService:
             List of participant information
         """
         try:
-            participants = self.client.room.list_participants(room=room_name)
+            participants = self.client.room.list_participants(room_name)
             
             return [
                 {
@@ -375,7 +375,7 @@ class LiveKitService:
             True if successful
         """
         try:
-            self.client.room.remove_participant(room=room_name, identity=identity)
+            self.client.room.remove_participant(room_name, identity)
             
             logger.info(f"✅ Removed participant {identity} from room {room_name}")
             return True

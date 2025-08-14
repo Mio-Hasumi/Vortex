@@ -283,6 +283,10 @@ class AgentManagerService:
                 
                 # Read create_response from metadata room settings (room-wide toggle)
                 create_resp = metadata.get("room_context", {}).get("room_settings", {}).get("create_response", True)
+                logger.info(f"[AGENT RUN DEBUG] 🎛️ create_response setting from metadata: {create_resp}")
+                logger.info(f"[AGENT RUN DEBUG] 🎛️ Full metadata structure: {metadata}")
+                logger.info(f"[AGENT RUN DEBUG] 🎛️ Room context: {metadata.get('room_context', {})}")
+                logger.info(f"[AGENT RUN DEBUG] 🎛️ Room settings: {metadata.get('room_context', {}).get('room_settings', {})}")
 
                 session = agents.AgentSession(
                     llm=openai.realtime.RealtimeModel(
@@ -304,6 +308,7 @@ class AgentManagerService:
                     )
                 )
                 logger.info(f"[AGENT RUN DEBUG] ✅ AgentSession created with OpenAI Realtime API")
+                logger.info(f"[AGENT RUN DEBUG] 🎛️ Final create_response setting in TurnDetection: {create_resp}")
                 
                 # Start the agent session with the room
                 await session.start(agent=agent, room=room)
@@ -401,12 +406,17 @@ class AgentManagerService:
             
             # Remove participant from LiveKit room
             try:
+                logger.info(f"[AGENT] 🗑️ Attempting to remove agent participant {agent_identity} from room {room_name}")
                 success = self.livekit.remove_participant(room_name, agent_identity)
                 if success:
                     logger.info(f"[AGENT] ✅ Removed agent participant {agent_identity} from room {room_name}")
+                else:
+                    logger.warning(f"[AGENT] ⚠️ LiveKit remove_participant returned False for {agent_identity} in room {room_name}")
                 
             except Exception as e:
-                logger.warning(f"[AGENT WARNING] Could not remove agent participant: {e}")
+                logger.error(f"[AGENT ERROR] ❌ Failed to remove agent participant {agent_identity} from room {room_name}: {e}")
+                logger.error(f"[AGENT ERROR] ❌ Exception type: {type(e).__name__}")
+                logger.error(f"[AGENT ERROR] ❌ Exception details: {str(e)}")
             
             # Mark agent as stopped
             agent_info["status"] = "stopped" 
@@ -442,39 +452,53 @@ class AgentManagerService:
             if not agent_info:
                 return {"success": False, "error": "No active agent in room", "room_name": room_name}
 
+            logger.info(f"[AGENT] 🎛️ Setting room AI enabled to {enabled} for room: {room_name}")
+
             # Update in-memory settings
             agent_info["context"]["room_settings"]["create_response"] = bool(enabled)
             agent_info["last_updated"] = datetime.utcnow()
 
             # Capture token and metadata before removal and propagate the toggle into metadata
             agent_token = agent_info.get("agent_token")
-            metadata = agent_info.get("metadata") or {"room_context": agent_info.get("context", {})}
-            try:
-                if "room_context" in metadata and "room_settings" in metadata["room_context"]:
-                    metadata["room_context"]["room_settings"]["create_response"] = bool(enabled)
-                else:
-                    metadata.setdefault("room_context", agent_info.get("context", {}))
-                    metadata["room_context"].setdefault("room_settings", {})
-                    metadata["room_context"]["room_settings"]["create_response"] = bool(enabled)
-            except Exception:
-                pass
+            
+            # Ensure metadata has the proper structure
+            metadata = agent_info.get("metadata", {})
+            if "room_context" not in metadata:
+                metadata["room_context"] = agent_info.get("context", {})
+            
+            # Ensure room_settings exists in room_context
+            if "room_settings" not in metadata["room_context"]:
+                metadata["room_context"]["room_settings"] = {}
+            
+            # Set the create_response flag
+            metadata["room_context"]["room_settings"]["create_response"] = bool(enabled)
+            
+            logger.info(f"[AGENT] 📋 Metadata prepared for restart: create_response={metadata['room_context']['room_settings']['create_response']}")
+            logger.info(f"[AGENT] 📋 Full metadata structure: {metadata}")
 
             # Remove current agent participant
+            logger.info(f"[AGENT] 🗑️ Removing current agent participant before restart...")
             await self.remove_agent_from_room(room_name)
 
             # Start a new agent session with updated settings
-            logger.info(f"[AGENT] Restarting agent in {room_name} with create_response={enabled}")
+            logger.info(f"[AGENT] 🔄 Restarting agent in {room_name} with create_response={enabled}")
             start_result = await self._start_agent_process(
                 room_name=room_name,
                 agent_token=agent_token,
                 metadata=metadata
             )
+            
             # Update process info
             if room_name in self.active_agents:
                 self.active_agents[room_name]["process_info"] = start_result
                 self.active_agents[room_name]["status"] = "active"
+                # Also update the context in active_agents to reflect the new setting
+                self.active_agents[room_name]["context"]["room_settings"]["create_response"] = bool(enabled)
+                self.active_agents[room_name]["metadata"] = metadata
 
+            logger.info(f"[AGENT] ✅ Agent restarted successfully with create_response={enabled}")
             return {"success": True, "room_name": room_name, "ai_enabled": bool(enabled)}
+            
         except Exception as e:
             logger.error(f"[AGENT ERROR] ❌ Failed to set room ai_enabled in {room_name}: {e}")
             return {"success": False, "error": str(e), "room_name": room_name}
