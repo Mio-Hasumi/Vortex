@@ -557,7 +557,14 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable, WebSocketDelega
                 }
                 print("✅ [AI] Backend confirmed AI toggle: \(aiEnabled ? "enabled" : "disabled")")
             }
-            
+        case "ai_room_state":
+            if let aiEnabled = message["ai_enabled"] as? Bool {
+                Task { @MainActor in
+                    self.isAIListening = aiEnabled
+                }
+                print("🔄 [AI] Room-wide AI state updated: \(aiEnabled ? "enabled" : "disabled")")
+            }
+        
         case "room_joined":
             print("✅ [WebSocket] Successfully joined room WebSocket")
             
