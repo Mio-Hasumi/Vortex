@@ -290,7 +290,7 @@ class AgentManagerService:
                             threshold=0.5,
                             prefix_padding_ms=300,
                             silence_duration_ms=500,
-                            create_response=False,
+                            create_response=True,
                             interrupt_response=True,
                         ),
                         # Provide explicit HTTP session to avoid context errors
