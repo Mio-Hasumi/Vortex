@@ -460,7 +460,12 @@ async def websocket_room_conversation(
             await websocket.close()
             return
 
-        # 2) Connect to LiveKit with livekit_name
+        # 2) Get user repository to check AI status FIRST
+        user_repo = get_user_repository()
+        current_user = user_repo.find_by_id(UUID(user_id))
+        user_ai_enabled = current_user.ai_enabled if current_user else False  # AI starts disabled by default
+        
+        # 3) Connect to LiveKit with livekit_name
         room_participants = [str(uid) for uid in room.current_participants]
         websocket_manager = get_websocket_manager()
         room_connection_id = await websocket_manager.join_room(
@@ -469,7 +474,7 @@ async def websocket_room_conversation(
             websocket=websocket
         )
         
-        # 3) Send joined message
+        # 4) Send joined message
         await websocket.send_json({
             "type": "room_joined",
             "room_id": room_id,
@@ -489,11 +494,6 @@ async def websocket_room_conversation(
         conversation_context = []
         openai_service = get_openai_service()
         
-        # Get user repository to check AI status
-        user_repo = get_user_repository()
-        current_user = user_repo.find_by_id(UUID(user_id))
-        user_ai_enabled = current_user.ai_enabled if current_user else False  # AI starts disabled by default
-        
         # Main message handling loop
         while True:
             # Receive message from client
@@ -502,7 +502,7 @@ async def websocket_room_conversation(
             
             logger.info(f"📥 Received: {message_type} in room {room_id}")
             
-            if message_type == "voice_message":
+            if message_type == "   voice_message":
                 # 🔴 BLOCK AI PROCESSING IF DISABLED (user-specific)
                 if not user_ai_enabled:
                     # Still broadcast the voice message but don't process with AI
@@ -817,15 +817,23 @@ async def handle_ai_toggle_request(
 ):
     """
     Handle user request to toggle AI on/off.
-    This is a placeholder and would require actual user state management.
-    For now, it just sends a message back.
+    Persist the user's ai_enabled flag and notify client.
     """
     try:
         ai_enabled = data.get("ai_enabled", True) # Default to True if not provided
         logger.info(f"🎛️ AI toggle requested by {user_id}: {ai_enabled}")
+
+        # Persist to DB
+        user_repo = get_user_repository()
+        from uuid import UUID as _UUID
+        user_entity = user_repo.find_by_id(_UUID(user_id))
+        if user_entity:
+            user_entity.ai_enabled = bool(ai_enabled)
+            user_repo.update(user_entity)
+            logger.info(f"✅ Persisted ai_enabled={ai_enabled} for user {user_id}")
+        else:
+            logger.warning(f"⚠️ Could not load user {user_id} to persist ai_enabled")
         
-        # In a real app, you would update the user's AI state in the DB
-        # For this example, we'll just send a confirmation back.
         await websocket.send_json({
             "type": "ai_toggle_response",
             "user_id": user_id,
