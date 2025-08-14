@@ -318,7 +318,11 @@ class AgentManagerService:
             # Log that the agent is now active
             logger.info(f"[AGENT] ✅ VortexAgent is now ACTIVE and CONNECTED in room: {room_name}")
             logger.info(f"[AGENT] ✅ Agent identity: {room.local_participant.identity}")
-            logger.info(f"[AGENT] ✅ Room participants: {[p.identity for p in room.remote_participants]}")
+            try:
+                # remote_participants is a dict mapping identity -> participant
+                logger.info(f"[AGENT] ✅ Room participants: {list(getattr(room, 'remote_participants', {}).keys())}")
+            except Exception:
+                logger.info(f"[AGENT] ✅ Room participants: (unavailable)")
             
             # Keep the agent running
             while room_name in self.active_agents and room.connection_state == rtc.ConnectionState.CONN_CONNECTED:
@@ -442,9 +446,18 @@ class AgentManagerService:
             agent_info["context"]["room_settings"]["create_response"] = bool(enabled)
             agent_info["last_updated"] = datetime.utcnow()
 
-            # Capture token and metadata before removal
+            # Capture token and metadata before removal and propagate the toggle into metadata
             agent_token = agent_info.get("agent_token")
             metadata = agent_info.get("metadata") or {"room_context": agent_info.get("context", {})}
+            try:
+                if "room_context" in metadata and "room_settings" in metadata["room_context"]:
+                    metadata["room_context"]["room_settings"]["create_response"] = bool(enabled)
+                else:
+                    metadata.setdefault("room_context", agent_info.get("context", {}))
+                    metadata["room_context"].setdefault("room_settings", {})
+                    metadata["room_context"]["room_settings"]["create_response"] = bool(enabled)
+            except Exception:
+                pass
 
             # Remove current agent participant
             await self.remove_agent_from_room(room_name)
