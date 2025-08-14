@@ -193,6 +193,36 @@ class RoomRepository:
             logger.error(f"❌ Failed to update room {room_id}: {e}")
             return False
     
+    def update_room_ai_enabled(self, room_id: UUID, ai_enabled: bool) -> bool:
+        """
+        Update room AI enabled state
+        
+        Args:
+            room_id: Room's UUID
+            ai_enabled: AI enabled state
+            
+        Returns:
+            True if updated successfully
+        """
+        try:
+            update_data = {
+                "ai_enabled": ai_enabled,
+                "updated_at": self.firebase.get_server_timestamp()
+            }
+            
+            self.firebase.update_document(
+                self.collection_name,
+                str(room_id),
+                update_data
+            )
+            
+            logger.info(f"✅ Room {room_id} AI state updated to {'enabled' if ai_enabled else 'disabled'}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to update room {room_id} AI state: {e}")
+            return False
+    
     def add_participant(self, room_id: UUID, user_id: UUID) -> bool:
         """
         Add participant to room
@@ -379,7 +409,8 @@ class RoomRepository:
             "is_private": room.is_private,
             "created_by": str(room.created_by),
             "is_recording_enabled": room.is_recording_enabled,
-            "recording_id": str(room.recording_id) if room.recording_id else None
+            "recording_id": str(room.recording_id) if room.recording_id else None,
+            "ai_enabled": room.ai_enabled
         }
     
     def _dict_to_entity(self, data: dict) -> Room:
@@ -399,5 +430,6 @@ class RoomRepository:
             is_private=data.get("is_private", False),
             created_by=UUID(data["created_by"]),
             is_recording_enabled=data.get("is_recording_enabled", True),
-            recording_id=UUID(data["recording_id"]) if data.get("recording_id") else None
+            recording_id=UUID(data["recording_id"]) if data.get("recording_id") else None,
+            ai_enabled=data.get("ai_enabled", False)
         ) 

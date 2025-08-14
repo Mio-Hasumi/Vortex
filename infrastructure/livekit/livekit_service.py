@@ -313,17 +313,17 @@ class LiveKitService:
     
     def generate_room_token(self, room_id: UUID, user_id: UUID) -> str:
         """
-        Generate token for a specific room and user
+        Generate LiveKit token for a specific room and user
         
         Args:
-            room_id: Room UUID
-            user_id: User UUID
+            room_id: Room's UUID
+            user_id: User's UUID
             
         Returns:
-            JWT token
+            JWT token for room access
         """
         room_name = f"room_{room_id}"
-        identity = f"user_{user_id}"
+        identity = str(user_id)
         
         return self.generate_token(
             room_name=room_name,
@@ -332,6 +332,46 @@ class LiveKitService:
             can_subscribe=True,
             can_publish_data=True
         )
+    
+    async def send_data_message(self, room_name: str, data: dict, destination_identities: Optional[List[str]] = None) -> bool:
+        """
+        Send data message to LiveKit room participants
+        
+        Args:
+            room_name: LiveKit room name
+            data: Data payload to send
+            destination_identities: Optional list of participant identities to send to (None = broadcast to all)
+            
+        Returns:
+            True if sent successfully
+        """
+        try:
+            if not LIVEKIT_AVAILABLE or not self.client:
+                logger.warning("⚠️ LiveKit not available, cannot send data message")
+                return False
+            
+            import json
+            from livekit.api import SendDataRequest, DataPacket_Kind
+            
+            # Convert data to JSON string
+            payload = json.dumps(data).encode('utf-8')
+            
+            request = SendDataRequest(
+                room=room_name,
+                data=payload,
+                kind=DataPacket_Kind.RELIABLE,  # Reliable delivery
+                destination_identities=destination_identities or []  # Empty list = broadcast to all
+            )
+            
+            await self.client.send_data(request)
+            
+            target = f"identities {destination_identities}" if destination_identities else "all participants"
+            logger.info(f"✅ Data message sent to room {room_name} ({target}): {data}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to send data message to room {room_name}: {e}")
+            return False
     
     # Participant Management
     def get_participants(self, room_name: str) -> List[Dict[str, Any]]:
