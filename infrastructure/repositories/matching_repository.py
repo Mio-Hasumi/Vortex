@@ -492,7 +492,8 @@ class MatchingRepository:
                             "confidence": confidence,
                             "intervention_mode": "on_demand",  # Only speak when called or needed
                             "timeout_explanation": True,  # Flag to explain timeout connection
-                            "topics_context": f"Since no one was immediately interested in the same topics, I've randomly connected you two. Let's see what interesting conversations emerge!"
+                            "topics_context": f"Since no one was immediately interested in the same topics, I've randomly connected you two. Let's see what interesting conversations emerge!",
+                            "create_response": True  # FORCE AGENT TO SPEAK IN MATCHMAKING
                         }
                     else:
                         agent_settings = {
@@ -504,10 +505,12 @@ class MatchingRepository:
                             "confidence": confidence,
                             "intervention_mode": "on_demand",  # Only speak when called or needed
                             "timeout_explanation": False,
-                            "topics_context": f"Users matched based on shared interests: {', '.join(hashtags_str)}"
+                            "topics_context": f"Users matched based on shared interests: {', '.join(hashtags_str)}",
+                            "create_response": True  # FORCE AGENT TO SPEAK IN MATCHMAKING
                         }
                     
                     # Deploy the agent with context-appropriate settings
+                    # NOTE: create_response: True is FORCED for matchmaking to ensure agent can speak
                     logger.info(f"🎯 AI MATCH: Deploying VortexAgent FIRST before user navigation...")
                     deployment_result = await agent_manager.deploy_agent_to_room(
                         room=saved_room,
