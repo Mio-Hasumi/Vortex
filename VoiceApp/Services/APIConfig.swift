@@ -10,6 +10,8 @@ enum APIConfig {
         static let login = "/api/auth/login"
         static let signout = "/api/auth/signout"
         static let profile = "/api/auth/profile"
+        static let updateDisplayName = "/api/auth/profile/display-name"
+        static let addAuthMethod = "/api/auth/profile/auth-methods"
         
         // Topics
         static let topics = "/api/topics"

@@ -38,6 +38,12 @@ struct UserResponse: Codable {
     let id: String
     let display_name: String
     let email: String
+    let phone_number: String?
+}
+
+struct UpdateProfileResponse: Codable {
+    let message: String
+    let user: UserResponse
 }
 
 // MARK: - Matching Models

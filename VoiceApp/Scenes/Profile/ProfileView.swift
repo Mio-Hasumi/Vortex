@@ -81,10 +81,71 @@ struct ProfileView: View {
                 
                 // Profile Info
                 VStack(spacing: 16) {
-                    ProfileInfoRow(title: "Display Name", value: authService.uiDisplayName)
+                    ProfileInfoRow(title: "Display Name", value: authService.displayName ?? "N/A")
                     ProfileInfoRow(title: "Email", value: authService.realEmail ?? authService.email ?? "N/A")
-                    ProfileInfoRow(title: "Phone Number", value: userStatsService.phoneNumber)
+                    ProfileInfoRow(title: "Phone Number", value: userStatsService.phoneNumber ?? "Not added")
                     ProfileInfoRow(title: "Status", value: "Active")
+                }
+                .padding(.horizontal, 20)
+                
+                // Authentication Methods Section
+                VStack(spacing: 16) {
+                    Text("Authentication Methods")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    VStack(spacing: 12) {
+                        // Email Method
+                        HStack {
+                            Image(systemName: "envelope.fill")
+                                .foregroundColor(.blue)
+                            Text("Email")
+                                .foregroundColor(.gray)
+                            Spacer()
+                            Text(authService.realEmail ?? authService.email ?? "Not set")
+                                .foregroundColor(.white)
+                                .font(.caption)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.gray.opacity(0.2))
+                        .cornerRadius(8)
+                        
+                        // Phone Method
+                        HStack {
+                            Image(systemName: "phone.fill")
+                                .foregroundColor(.green)
+                            Text("Phone")
+                                .foregroundColor(.gray)
+                            Spacer()
+                            Text(userStatsService.phoneNumber ?? "Not set")
+                                .foregroundColor(.white)
+                                .font(.caption)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.gray.opacity(0.2))
+                        .cornerRadius(8)
+                        
+                        // Gmail Method (if available)
+                        if let realEmail = authService.realEmail, realEmail.contains("@gmail.com") {
+                            HStack {
+                                Image(systemName: "person.circle.fill")
+                                    .foregroundColor(.red)
+                                Text("Google Account")
+                                    .foregroundColor(.gray)
+                                Spacer()
+                                Text("Connected")
+                                    .foregroundColor(.green)
+                                    .font(.caption)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.gray.opacity(0.2))
+                            .cornerRadius(8)
+                        }
+                    }
                 }
                 .padding(.horizontal, 20)
                 
@@ -141,13 +202,83 @@ struct EditProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var authService = AuthService.shared
     @State private var displayName = ""
+    @State private var newEmail = ""
+    @State private var newPhoneNumber = ""
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    @State private var showError = false
+    @State private var showSuccess = false
+    @State private var successMessage = ""
+    @State private var showAddAuthMethod = false
     
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
-                TextField("Display Name", text: $displayName)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding(.horizontal, 20)
+                ScrollView {
+                    VStack(spacing: 20) {
+                        // Display Name Section
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Display Name")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                            
+                            TextField("Display Name", text: $displayName)
+                                .textFieldStyle(CustomTextFieldStyle())
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        // Add Authentication Method Section
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Add Authentication Method")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                            
+                            VStack(spacing: 12) {
+                                TextField("Email (optional)", text: $newEmail)
+                                    .textFieldStyle(CustomTextFieldStyle())
+                                    .keyboardType(.emailAddress)
+                                    .autocapitalization(.none)
+                                
+                                TextField("Phone Number (optional)", text: $newPhoneNumber)
+                                    .textFieldStyle(CustomTextFieldStyle())
+                                    .keyboardType(.phonePad)
+                            }
+                            
+                            Button(action: addAuthMethod) {
+                                HStack {
+                                    if isLoading {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(0.8)
+                                    }
+                                    Text("Add Authentication Method")
+                                        .font(.subheadline)
+                                        .foregroundColor(.white)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 44)
+                                .background(Color.blue)
+                                .cornerRadius(8)
+                            }
+                            .disabled(isLoading || (newEmail.isEmpty && newPhoneNumber.isEmpty))
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        if showError {
+                            Text(errorMessage)
+                                .foregroundColor(.red)
+                                .font(.caption)
+                                .padding(.horizontal, 20)
+                        }
+                        
+                        if showSuccess {
+                            Text(successMessage)
+                                .foregroundColor(.green)
+                                .font(.caption)
+                                .padding(.horizontal, 20)
+                        }
+                    }
+                }
                 
                 Spacer()
             }
@@ -164,15 +295,87 @@ struct EditProfileView: View {
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
-                        // TODO: Implement save logic
-                        dismiss()
+                        saveChanges()
                     }
                     .foregroundColor(.blue)
+                    .disabled(isLoading)
                 }
             }
         }
         .onAppear {
             displayName = authService.displayName ?? ""
+        }
+    }
+    
+    private func saveChanges() {
+        guard !displayName.isEmpty else {
+            errorMessage = "Display name cannot be empty"
+            showError = true
+            return
+        }
+        
+        isLoading = true
+        showError = false
+        showSuccess = false
+        
+        Task {
+            do {
+                _ = try await authService.updateDisplayName(displayName)
+                
+                await MainActor.run {
+                    successMessage = "Display name updated successfully!"
+                    showSuccess = true
+                    isLoading = false
+                    
+                    // Dismiss after a short delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        dismiss()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func addAuthMethod() {
+        guard !newEmail.isEmpty || !newPhoneNumber.isEmpty else {
+            errorMessage = "Please provide either an email or phone number"
+            showError = true
+            return
+        }
+        
+        isLoading = true
+        showError = false
+        showSuccess = false
+        
+        Task {
+            do {
+                _ = try await authService.addAuthMethod(
+                    email: newEmail.isEmpty ? nil : newEmail,
+                    phoneNumber: newPhoneNumber.isEmpty ? nil : newPhoneNumber
+                )
+                
+                await MainActor.run {
+                    successMessage = "Authentication method added successfully!"
+                    showSuccess = true
+                    isLoading = false
+                    
+                    // Clear the fields
+                    newEmail = ""
+                    newPhoneNumber = ""
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
         }
     }
 }

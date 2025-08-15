@@ -36,6 +36,18 @@ class UserResponse(BaseModel):
     id: str
     display_name: str
     email: str
+    phone_number: Optional[str] = None
+
+class UpdateDisplayNameRequest(BaseModel):
+    display_name: str
+
+class AddAuthMethodRequest(BaseModel):
+    email: Optional[str] = None
+    phone_number: Optional[str] = None
+
+class UpdateProfileResponse(BaseModel):
+    message: str
+    user: UserResponse
 
 # Dependency injection
 def get_user_repository():
@@ -164,5 +176,110 @@ async def get_profile(current_user: User = Depends(get_current_user)):
     return UserResponse(
         id=str(current_user.id),
         display_name=current_user.display_name,
-        email=current_user.email
+        email=current_user.email,
+        phone_number=current_user.phone_number
+        ) 
+
+@router.put("/profile/display-name", response_model=UpdateProfileResponse)
+async def update_display_name(
+    request: UpdateDisplayNameRequest,
+    current_user: User = Depends(get_current_user),
+    user_repo = Depends(get_user_repository)
+):
+    """
+    Update user display name (requires Firebase ID Token)
+    """
+    try:
+        # Check if display name is already taken by another user
+        existing_user = user_repo.find_by_display_name(request.display_name)
+        if existing_user and existing_user.id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Display name already taken"
+            )
+        
+        # Update display name
+        current_user.display_name = request.display_name
+        current_user.update_profile()
+        
+        # Save updated user
+        updated_user = user_repo.update(current_user)
+        
+        return UpdateProfileResponse(
+            message="Display name updated successfully",
+            user=UserResponse(
+                id=str(updated_user.id),
+                display_name=updated_user.display_name,
+                email=updated_user.email,
+                phone_number=updated_user.phone_number
+            )
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+@router.post("/profile/auth-methods", response_model=UpdateProfileResponse)
+async def add_auth_method(
+    request: AddAuthMethodRequest,
+    current_user: User = Depends(get_current_user),
+    user_repo = Depends(get_user_repository)
+):
+    """
+    Add additional authentication method to existing account (requires Firebase ID Token)
+    """
+    try:
+        # Validate that at least one auth method is provided
+        if not request.email and not request.phone_number:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Either email or phone_number must be provided"
+            )
+        
+        # Check if email is already taken by another user
+        if request.email:
+            existing_user = user_repo.find_by_email(request.email)
+            if existing_user and existing_user.id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already associated with another account"
+                )
+            current_user.email = request.email
+        
+        # Check if phone number is already taken by another user
+        if request.phone_number:
+            existing_user = user_repo.find_by_phone_number(request.phone_number)
+            if existing_user and existing_user.id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number already associated with another account"
+                )
+            current_user.phone_number = request.phone_number
+        
+        # Update the profile timestamp
+        current_user.update_profile()
+        
+        # Save updated user
+        updated_user = user_repo.update(current_user)
+        
+        return UpdateProfileResponse(
+            message="Authentication method added successfully",
+            user=UserResponse(
+                id=str(updated_user.id),
+                display_name=updated_user.display_name,
+                email=updated_user.email,
+                phone_number=updated_user.phone_number
+            )
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
         ) 

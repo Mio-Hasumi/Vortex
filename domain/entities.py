@@ -70,6 +70,7 @@ class User:
     status: UserStatus = UserStatus.OFFLINE
     last_seen: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     is_active: bool = True
     profile_image_url: Optional[str] = None
     bio: Optional[str] = None
@@ -87,6 +88,10 @@ class User:
         self.status = status
         if status == UserStatus.OFFLINE:
             self.last_seen = datetime.now(timezone.utc)
+
+    def update_profile(self) -> None:
+        """Update the updated_at timestamp when profile changes are made"""
+        self.updated_at = datetime.now(timezone.utc)
 
 
 @dataclass

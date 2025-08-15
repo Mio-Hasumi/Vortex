@@ -539,6 +539,70 @@ class AuthService: ObservableObject {
         try await Auth.auth().sendPasswordReset(withEmail: email)
     }
     
+    // MARK: - Profile Management
+    
+    @MainActor
+    func updateDisplayName(_ newDisplayName: String) async throws -> AuthResponse {
+        guard let token = firebaseToken else {
+            throw AuthError.unknown("No authentication token available")
+        }
+        
+        APIService.shared.setAuthToken(token)
+        
+        let requestData = try JSONEncoder().encode(["display_name": newDisplayName])
+        let response: UpdateProfileResponse = try await APIService.shared.request(
+            endpoint: APIConfig.Endpoints.updateDisplayName,
+            method: "PUT",
+            body: requestData
+        )
+        
+        // Update local state
+        displayName = response.user.display_name
+        
+        return AuthResponse(
+            user_id: response.user.id,
+            display_name: response.user.display_name,
+            email: response.user.email,
+            message: response.message
+        )
+    }
+    
+    @MainActor
+    func addAuthMethod(email: String? = nil, phoneNumber: String? = nil) async throws -> AuthResponse {
+        guard let token = firebaseToken else {
+            throw AuthError.unknown("No authentication token available")
+        }
+        
+        APIService.shared.setAuthToken(token)
+        
+        var requestBody: [String: String] = [:]
+        if let email = email {
+            requestBody["email"] = email
+        }
+        if let phoneNumber = phoneNumber {
+            requestBody["phone_number"] = phoneNumber
+        }
+        
+        let requestData = try JSONEncoder().encode(requestBody)
+        let response: UpdateProfileResponse = try await APIService.shared.request(
+            endpoint: APIConfig.Endpoints.addAuthMethod,
+            method: "POST",
+            body: requestData
+        )
+        
+        // Update local state
+        if let email = email {
+            self.email = email
+        }
+        
+        return AuthResponse(
+            user_id: response.user.id,
+            display_name: response.user.display_name,
+            email: response.user.email,
+            message: response.message
+        )
+    }
+    
     // MARK: - User Profile
     
     func getCurrentUser() async throws -> UserResponse {
