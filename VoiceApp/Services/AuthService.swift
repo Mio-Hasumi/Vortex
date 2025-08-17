@@ -20,16 +20,26 @@ class AuthService: ObservableObject {
     @Published var phoneVerificationID: String?
     @Published var isPhoneVerificationSent = false
     
-    // Computed property to always show first name from real Gmail address in UI
+    // Computed property to show user's editable display name, falling back to email-extracted name
     var uiDisplayName: String {
         print("🔍 [AuthService] uiDisplayName called - realEmail: \(realEmail ?? "nil"), email: \(email ?? "nil"), displayName: \(displayName ?? "nil")")
+        
+        // First priority: User's editable display name
+        if let displayName = displayName, !displayName.isEmpty {
+            print("🔍 [AuthService] Using user's editable displayName: \(displayName)")
+            return displayName
+        }
+        
+        // Second priority: First name extracted from real Gmail address
         if let realEmail = realEmail, !realEmail.isEmpty {
             let firstName = extractFirstNameFromEmail(realEmail)
-            print("🔍 [AuthService] Extracted firstName: \(firstName) from realEmail: \(realEmail)")
+            print("🔍 [AuthService] Using extracted firstName: \(firstName) from realEmail: \(realEmail)")
             return firstName
         }
-        print("🔍 [AuthService] Using fallback displayName: \(displayName ?? "User")")
-        return displayName ?? "User"
+        
+        // Fallback: Generic user name
+        print("🔍 [AuthService] Using fallback: User")
+        return "User"
     }
     
     private init() {
