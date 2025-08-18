@@ -16,6 +16,9 @@ class AuthService: ObservableObject {
     // Store the real Gmail address from Google Sign-In
     @Published var realEmail: String?
     
+    // Track if user needs to set their display name (for new users)
+    @Published var needsDisplayNameSetup = false
+    
     // Phone verification state
     @Published var phoneVerificationID: String?
     @Published var isPhoneVerificationSent = false
@@ -120,6 +123,7 @@ class AuthService: ObservableObject {
             self.realEmail = nil
             self.firebaseToken = nil
             self.isAuthenticated = false
+            self.needsDisplayNameSetup = false // Reset this on logout
             print("🔐 Logged out - isAuthenticated: \(self.isAuthenticated)")
         }
     }
@@ -208,8 +212,11 @@ class AuthService: ObservableObject {
                 // Registration successful
                 updateAuthState(userResponse: authResponse, token: token, realEmail: realGmailAddress)
                 return authResponse
+            } else {
+                // If it's a different APIError, rethrow it
+                throw error
             }
-            
+        } catch {
             // If error is not notFound, rethrow it
             throw error
         }
@@ -535,6 +542,18 @@ class AuthService: ObservableObject {
             let realEmail = firebaseUser.email ?? userResponse.email
             updateAuthState(userResponse: authResponse, token: token, realEmail: realEmail)
             
+            // After the backend has set the display name, check if user wants to customize it
+            // Only prompt if they haven't set a custom one yet (i.e., their display name matches Gmail prefix)
+            let extractedName = extractFirstNameFromEmail(realEmail)
+            let needsCustomization = userResponse.display_name.lowercased() == extractedName.lowercased()
+            
+            if needsCustomization {
+                DispatchQueue.main.async {
+                    self.needsDisplayNameSetup = true
+                    print("🔐 User may want to customize their display name")
+                }
+            }
+            
         } catch {
             print("Failed to authenticate with backend: \(error)")
             // Sign out from Firebase if backend auth fails
@@ -568,6 +587,9 @@ class AuthService: ObservableObject {
         
         // Update local state
         displayName = response.user.display_name
+        
+        // Mark display name setup as complete
+        needsDisplayNameSetup = false
         
         return AuthResponse(
             user_id: response.user.id,

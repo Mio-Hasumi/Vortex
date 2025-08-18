@@ -508,3 +508,128 @@ struct ImagePicker: UIViewControllerRepresentable {
         }
     }
 } 
+
+// MARK: - Display Name Setup View for New Users
+struct DisplayNameSetupView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var authService = AuthService.shared
+    @State private var displayName = ""
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    @State private var showError = false
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 30) {
+                Spacer()
+                
+                // Welcome message
+                VStack(spacing: 16) {
+                    Image(systemName: "person.circle.fill")
+                        .font(.system(size: 80))
+                        .foregroundColor(.blue)
+                    
+                    Text("Welcome to Vortex!")
+                        .font(.title)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                    
+                    Text("Let's personalize your experience by setting a display name.")
+                        .font(.body)
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 20)
+                }
+                
+                // Display name input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Display Name")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    
+                    TextField("Enter your display name", text: $displayName)
+                        .textFieldStyle(CustomTextFieldStyle())
+                        .autocapitalization(.words)
+                }
+                .padding(.horizontal, 20)
+                
+                // Current default name info
+                VStack(spacing: 8) {
+                    Text("Currently using: \(authService.uiDisplayName)")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    
+                    Text("You can change this anytime in your profile settings.")
+                        .font(.caption2)
+                        .foregroundColor(.gray.opacity(0.7))
+                }
+                
+                // Continue button
+                Button(action: saveDisplayName) {
+                    HStack {
+                        if isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                        }
+                        Text("Continue")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(displayName.isEmpty ? Color.gray : Color.blue)
+                    .cornerRadius(12)
+                }
+                .disabled(displayName.isEmpty || isLoading)
+                .padding(.horizontal, 20)
+                
+                Spacer()
+            }
+            .background(Color.black)
+            .navigationTitle("Set Display Name")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Skip for now") {
+                        // Mark as complete and dismiss
+                        authService.needsDisplayNameSetup = false
+                        dismiss()
+                    }
+                    .foregroundColor(.gray)
+                }
+            }
+        }
+        .onAppear {
+            // Pre-fill with current uiDisplayName if it's not the default "User"
+            if authService.uiDisplayName != "User" {
+                displayName = authService.uiDisplayName
+            }
+        }
+    }
+    
+    private func saveDisplayName() {
+        guard !displayName.isEmpty else { return }
+        
+        isLoading = true
+        showError = false
+        
+        Task {
+            do {
+                _ = try await authService.updateDisplayName(displayName)
+                
+                await MainActor.run {
+                    isLoading = false
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+} 

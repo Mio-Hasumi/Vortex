@@ -110,14 +110,17 @@ struct RootView: View {
                 if authService.isAuthenticated {
                     HomeView()
                 } else {
-            SignIn()
-        }
-    }
+                    SignIn()
+                }
+            }
             .navigationDestination(isPresented: $voiceService.shouldNavigateToWaitingRoom) {
                 if let matchResult = voiceService.lastMatchResult {
                     UserVoiceTopicMatchingView(matchResult: matchResult)
                 }
             }
+        }
+        .sheet(isPresented: $authService.needsDisplayNameSetup) {
+            DisplayNameSetupView()
         }
         .onAppear {
             print("👀 RootView onAppear, isAuthenticated = \(authService.isAuthenticated)")
