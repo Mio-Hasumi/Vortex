@@ -16,6 +16,9 @@ class AuthService: ObservableObject {
     // Store the real Gmail address from Google Sign-In
     @Published var realEmail: String?
     
+    // Store the phone number used for phone authentication
+    @Published var phoneAuthNumber: String?
+    
     // Track if user needs to set their display name (for new users)
     @Published var needsDisplayNameSetup = false
     
@@ -121,6 +124,7 @@ class AuthService: ObservableObject {
             self.displayName = nil
             self.email = nil
             self.realEmail = nil
+            self.phoneAuthNumber = nil
             self.firebaseToken = nil
             self.isAuthenticated = false
             self.needsDisplayNameSetup = false // Reset this on logout
@@ -309,6 +313,9 @@ class AuthService: ObservableObject {
         // Update local user state
         updateAuthState(userResponse: authResponse, token: token)
         
+        // Store the phone number used for authentication
+        phoneAuthNumber = phoneNumber
+        
         // Reset phone verification state
         phoneVerificationID = nil
         isPhoneVerificationSent = false
@@ -351,6 +358,9 @@ class AuthService: ObservableObject {
         
         // Update local user state
         updateAuthState(userResponse: authResponse, token: token)
+        
+        // Store the phone number used for authentication
+        phoneAuthNumber = phoneNumber
         
         // Reset phone verification state
         phoneVerificationID = nil
@@ -538,13 +548,20 @@ class AuthService: ObservableObject {
                 message: "Authenticated successfully"
             )
             
-            // Use Firebase user's email as realEmail to preserve Gmail username
-            let realEmail = firebaseUser.email ?? userResponse.email
+            // Check if user signed in with phone (has phone number but Firebase-generated email)
+            let hasPhoneAuth = firebaseUser.phoneNumber != nil || (firebaseUser.email?.contains("firebase.com") == true)
+            
+            // Use Firebase user's email as realEmail only if not phone auth
+            let realEmail = hasPhoneAuth ? nil : (firebaseUser.email ?? userResponse.email)
             updateAuthState(userResponse: authResponse, token: token, realEmail: realEmail)
             
-            // After the backend has set the display name, check if user wants to customize it
-            // Only prompt if they haven't set a custom one yet (i.e., their display name matches Gmail prefix)
-            let extractedName = extractFirstNameFromEmail(realEmail)
+            // If user has phone auth, store the phone number for display
+            if hasPhoneAuth, let phoneNumber = firebaseUser.phoneNumber {
+                phoneAuthNumber = phoneNumber
+            }
+            
+            
+            let extractedName = extractFirstNameFromEmail(realEmail ?? "")
             let needsCustomization = userResponse.display_name.lowercased() == extractedName.lowercased()
             
             if needsCustomization {

@@ -82,8 +82,8 @@ struct ProfileView: View {
                 // Profile Info
                 VStack(spacing: 16) {
                     ProfileInfoRow(title: "Display Name", value: authService.displayName ?? "N/A")
-                    ProfileInfoRow(title: "Email", value: authService.realEmail ?? authService.email ?? "N/A")
-                    ProfileInfoRow(title: "Phone Number", value: userStatsService.phoneNumber ?? "Not added")
+                    ProfileInfoRow(title: "Email", value: authService.phoneAuthNumber != nil ? "N/A" : (authService.realEmail ?? authService.email ?? "N/A"))
+                    ProfileInfoRow(title: "Phone Number", value: authService.phoneAuthNumber ?? userStatsService.phoneNumber ?? "Not added")
                     ProfileInfoRow(title: "Status", value: "Active")
                 }
                 .padding(.horizontal, 20)
@@ -103,7 +103,7 @@ struct ProfileView: View {
                             Text("Email")
                                 .foregroundColor(.gray)
                             Spacer()
-                            Text(authService.realEmail ?? authService.email ?? "Not set")
+                            Text(authService.phoneAuthNumber != nil ? "N/A" : (authService.realEmail ?? authService.email ?? "Not set"))
                                 .foregroundColor(.white)
                                 .font(.caption)
                         }
@@ -119,7 +119,7 @@ struct ProfileView: View {
                             Text("Phone")
                                 .foregroundColor(.gray)
                             Spacer()
-                            Text(userStatsService.phoneNumber ?? "Not set")
+                            Text(authService.phoneAuthNumber ?? userStatsService.phoneNumber ?? "Not set")
                                 .foregroundColor(.white)
                                 .font(.caption)
                         }
@@ -202,14 +202,11 @@ struct EditProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var authService = AuthService.shared
     @State private var displayName = ""
-    @State private var newEmail = ""
-    @State private var newPhoneNumber = ""
     @State private var isLoading = false
     @State private var errorMessage = ""
     @State private var showError = false
     @State private var showSuccess = false
     @State private var successMessage = ""
-    @State private var showAddAuthMethod = false
     
     var body: some View {
         NavigationView {
@@ -227,42 +224,7 @@ struct EditProfileView: View {
                         }
                         .padding(.horizontal, 20)
                         
-                        // Add Authentication Method Section
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Add Authentication Method")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                            
-                            VStack(spacing: 12) {
-                                TextField("Email (optional)", text: $newEmail)
-                                    .textFieldStyle(CustomTextFieldStyle())
-                                    .keyboardType(.emailAddress)
-                                    .autocapitalization(.none)
-                                
-                                TextField("Phone Number (optional)", text: $newPhoneNumber)
-                                    .textFieldStyle(CustomTextFieldStyle())
-                                    .keyboardType(.phonePad)
-                            }
-                            
-                            Button(action: addAuthMethod) {
-                                HStack {
-                                    if isLoading {
-                                        ProgressView()
-                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                            .scaleEffect(0.8)
-                                    }
-                                    Text("Add Authentication Method")
-                                        .font(.subheadline)
-                                        .foregroundColor(.white)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 44)
-                                .background(Color.blue)
-                                .cornerRadius(8)
-                            }
-                            .disabled(isLoading || (newEmail.isEmpty && newPhoneNumber.isEmpty))
-                        }
-                        .padding(.horizontal, 20)
+
                         
                         if showError {
                             Text(errorMessage)
@@ -342,42 +304,7 @@ struct EditProfileView: View {
         }
     }
     
-    private func addAuthMethod() {
-        guard !newEmail.isEmpty || !newPhoneNumber.isEmpty else {
-            errorMessage = "Please provide either an email or phone number"
-            showError = true
-            return
-        }
-        
-        isLoading = true
-        showError = false
-        showSuccess = false
-        
-        Task {
-            do {
-                _ = try await authService.addAuthMethod(
-                    email: newEmail.isEmpty ? nil : newEmail,
-                    phoneNumber: newPhoneNumber.isEmpty ? nil : newPhoneNumber
-                )
-                
-                await MainActor.run {
-                    successMessage = "Authentication method added successfully!"
-                    showSuccess = true
-                    isLoading = false
-                    
-                    // Clear the fields
-                    newEmail = ""
-                    newPhoneNumber = ""
-                }
-            } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showError = true
-                    isLoading = false
-                }
-            }
-        }
-    }
+
 }
 
 #Preview {
