@@ -512,7 +512,6 @@ struct PhoneRegistrationView: View {
     
     @State private var phoneNumber = ""
     @State private var verificationCode = ""
-    @State private var displayName = ""
     @State private var isLoading = false
     @State private var errorMessage = ""
     @State private var showError = false
@@ -523,7 +522,6 @@ struct PhoneRegistrationView: View {
     enum PhoneRegistrationStep {
         case phoneInput
         case codeVerification
-        case displayName
     }
     
     var body: some View {
@@ -539,8 +537,6 @@ struct PhoneRegistrationView: View {
                     phoneInputView
                 case .codeVerification:
                     codeVerificationView
-                case .displayName:
-                    displayNameView
                 }
                 
                 Spacer()
@@ -639,6 +635,13 @@ struct PhoneRegistrationView: View {
                     .padding(.horizontal, 40)
             }
             
+            if showSuccessMessage {
+                Text(successMessage)
+                    .foregroundColor(.green)
+                    .font(.caption)
+                    .padding(.horizontal, 40)
+            }
+            
             Button(action: verifyCode) {
                 HStack {
                     if isLoading {
@@ -662,52 +665,6 @@ struct PhoneRegistrationView: View {
             }
             .foregroundColor(.blue)
             .disabled(isLoading)
-        }
-    }
-    
-    private var displayNameView: some View {
-        VStack(spacing: 20) {
-            Text("Enter your display name")
-                .font(.rajdhaniBody)
-                .foregroundColor(.gray)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-            
-            TextField("Display Name", text: $displayName)
-                .textFieldStyle(CustomTextFieldStyle())
-                .padding(.horizontal, 40)
-            
-            if showError {
-                Text(errorMessage)
-                    .foregroundColor(.red)
-                    .font(.caption)
-                    .padding(.horizontal, 40)
-            }
-            
-            if showSuccessMessage {
-                Text(successMessage)
-                    .foregroundColor(.green)
-                    .font(.caption)
-                    .padding(.horizontal, 40)
-            }
-            
-            Button(action: completeRegistration) {
-                HStack {
-                    if isLoading {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.8)
-                    }
-                    Text(isLoading ? "Creating Account..." : "Complete Registration")
-                        .font(.rajdhaniBody)
-                        .foregroundColor(.white)
-                }
-                .frame(width: 280, height: 44)
-                .background(Color.blue)
-                .cornerRadius(8)
-            }
-            .disabled(isLoading || displayName.isEmpty)
-            .padding(.top, 20)
         }
     }
     
@@ -748,10 +705,6 @@ struct PhoneRegistrationView: View {
         }
         // If it already has country code (11+ digits starting with 1), add +
         else if cleaned.count >= 11 && cleaned.hasPrefix("1") {
-            return "+\(cleaned)"
-        }
-        // If it has other country code, add +
-        else if cleaned.count >= 10 {
             return "+\(cleaned)"
         }
         
@@ -812,30 +765,12 @@ struct PhoneRegistrationView: View {
         
         Task {
             do {
-                // For registration, we'll verify the code and then move to display name step
-                // The actual registration will happen in completeRegistration
-                currentStep = .displayName
-                isLoading = false
-            } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showError = true
-                    isLoading = false
-                }
-            }
-        }
-    }
-    
-    private func completeRegistration() {
-        isLoading = true
-        showError = false
-        errorMessage = ""
-        
-        Task {
-            do {
                 // Convert to E.164 format for Firebase
                 let firebasePhoneNumber = formatPhoneNumberForFirebase(phoneNumber)
                 print("📱 Completing registration with Firebase format: \(firebasePhoneNumber)")
+                
+                // Generate display name from phone number (like Gmail registration does)
+                let displayName = generateDisplayNameFromPhone(phoneNumber)
                 
                 _ = try await authService.verifyPhoneCodeAndSignUp(
                     phoneNumber: firebasePhoneNumber,
@@ -857,6 +792,20 @@ struct PhoneRegistrationView: View {
                 }
             }
         }
+    }
+    
+    // Generate a display name from phone number (similar to Gmail registration)
+    private func generateDisplayNameFromPhone(_ phone: String) -> String {
+        let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+        
+        // Use last 4 digits as display name
+        if cleaned.count >= 4 {
+            let lastFour = String(cleaned.suffix(4))
+            return "User\(lastFour)"
+        }
+        
+        // Fallback
+        return "User"
     }
 }
 
@@ -1603,14 +1552,12 @@ struct CreateAccountFromPhoneSignInView: View {
     
     @State private var phoneNumber: String
     @State private var verificationCode = ""
-    @State private var displayName = ""
     @State private var isLoading = false
     @State private var errorMessage = ""
     @State private var showError = false
-    @State private var currentStep: PhoneCreateAccountStep = .displayName
+    @State private var currentStep: PhoneCreateAccountStep = .codeVerification
     
     enum PhoneCreateAccountStep {
-        case displayName
         case codeVerification
     }
     
@@ -1630,8 +1577,6 @@ struct CreateAccountFromPhoneSignInView: View {
                     .padding(.top, 40)
                 
                 switch currentStep {
-                case .displayName:
-                    displayNameView
                 case .codeVerification:
                     codeVerificationView
                 }
@@ -1649,49 +1594,9 @@ struct CreateAccountFromPhoneSignInView: View {
                 }
             }
         }
-    }
-    
-    private var displayNameView: some View {
-        VStack(spacing: 20) {
-            Text("Enter your display name")
-                .font(.rajdhaniBody)
-                .foregroundColor(.gray)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-            
-            TextField("Display Name", text: $displayName)
-                .textFieldStyle(CustomTextFieldStyle())
-                .padding(.horizontal, 40)
-            
-            Text("Phone: \(phoneNumber)")
-                .font(.caption)
-                .foregroundColor(.gray)
-                .padding(.horizontal, 40)
-            
-            if showError {
-                Text(errorMessage)
-                    .foregroundColor(.red)
-                    .font(.caption)
-                    .padding(.horizontal, 40)
-            }
-            
-            Button(action: sendVerificationCode) {
-                HStack {
-                    if isLoading {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.8)
-                    }
-                    Text(isLoading ? "Sending..." : "Send Verification Code")
-                        .font(.rajdhaniBody)
-                        .foregroundColor(.white)
-                }
-                .frame(width: 280, height: 44)
-                .background(Color.blue)
-                .cornerRadius(8)
-            }
-            .disabled(isLoading || !isFormValid)
-            .padding(.top, 20)
+        .onAppear {
+            // Automatically send verification code when view appears
+            sendVerificationCode()
         }
     }
     
@@ -1741,10 +1646,6 @@ struct CreateAccountFromPhoneSignInView: View {
         }
     }
     
-    private var isFormValid: Bool {
-        return !displayName.isEmpty
-    }
-    
     private func sendVerificationCode() {
         isLoading = true
         showError = false
@@ -1758,7 +1659,6 @@ struct CreateAccountFromPhoneSignInView: View {
                 try await authService.sendPhoneVerificationCode(phoneNumber: firebasePhoneNumber)
                 await MainActor.run {
                     isLoading = false
-                    currentStep = .codeVerification
                 }
             } catch {
                 await MainActor.run {
@@ -1780,6 +1680,9 @@ struct CreateAccountFromPhoneSignInView: View {
                 let firebasePhoneNumber = formatPhoneNumberForFirebase(phoneNumber)
                 print("📱 Creating account with Firebase format: \(firebasePhoneNumber)")
                 
+                // Generate display name from phone number (like Gmail registration does)
+                let displayName = generateDisplayNameFromPhone(phoneNumber)
+                
                 _ = try await authService.verifyPhoneCodeAndSignUp(
                     phoneNumber: firebasePhoneNumber,
                     verificationCode: verificationCode,
@@ -1800,6 +1703,37 @@ struct CreateAccountFromPhoneSignInView: View {
                 }
             }
         }
+    }
+    
+    // Generate a display name from phone number (similar to Gmail registration)
+    private func generateDisplayNameFromPhone(_ phone: String) -> String {
+        let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+        
+        // Use last 4 digits as display name
+        if cleaned.count >= 4 {
+            let lastFour = String(cleaned.suffix(4))
+            return "User\(lastFour)"
+        }
+        
+        // Fallback
+        return "User"
+    }
+    
+    // Convert phone number to E.164 format for Firebase
+    private func formatPhoneNumberForFirebase(_ phone: String) -> String {
+        let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+        
+        // If it's a US number (10 digits), add +1
+        if cleaned.count == 10 {
+            return "+1\(cleaned)"
+        }
+        // If it already has country code (11+ digits starting with 1), add +
+        else if cleaned.count >= 11 && cleaned.hasPrefix("1") {
+            return "+\(cleaned)"
+        }
+        
+        // Fallback - return as is with +
+        return "+\(cleaned)"
     }
 }
 

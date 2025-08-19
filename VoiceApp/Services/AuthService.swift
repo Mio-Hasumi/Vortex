@@ -89,6 +89,25 @@ class AuthService: ObservableObject {
             print("🔐 Auth state updated - isAuthenticated: \(self.isAuthenticated)")
             print("🔐 Auth state updated - email: \(userResponse.email ?? "nil")")
             print("🔐 Auth state updated - displayName: \(userResponse.display_name ?? "nil")")
+            
+            // Check if user should see display name setup (for both Gmail and phone users)
+            let displayName = userResponse.display_name
+            if !displayName.isEmpty {
+                // For phone users, check if display name is auto-generated (starts with "User")
+                if displayName.hasPrefix("User") && displayName.count > 4 {
+                    self.needsDisplayNameSetup = true
+                    print("🔐 Phone user may want to customize their display name")
+                }
+                // For Gmail users, check if display name matches extracted email name
+                else if let realEmail = realEmail, !realEmail.isEmpty {
+                    let extractedName = self.extractFirstNameFromEmail(realEmail)
+                    let needsCustomization = displayName.lowercased() == extractedName.lowercased()
+                    if needsCustomization {
+                        self.needsDisplayNameSetup = true
+                        print("🔐 Gmail user may want to customize their display name")
+                    }
+                }
+            }
         }
     }
     
