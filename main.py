@@ -47,13 +47,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     logger.info("🚀 Starting VoiceApp Backend...")
     
-    # Create uploads directory for profile pictures
-    try:
-        os.makedirs("uploads/profile_pictures", exist_ok=True)
-        logger.info("📁 Uploads directory created successfully")
-    except Exception as e:
-        logger.warning(f"⚠️ Could not create uploads directory: {e}")
-    
     # Initialize dependency injection container
     try:
         container.initialize()
@@ -104,8 +97,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="uploads"), name="static")
+# Robust static files mounting with self-healing directory creation
+from pathlib import Path
+
+# Allow overriding via env, falls back to ./uploads next to main.py
+BASE_DIR = Path(__file__).resolve().parent
+static_dir = Path(os.getenv("STATIC_DIR", BASE_DIR / "uploads"))
+
+try:
+    # Create if missing
+    static_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    logger.info(f"✅ Static files served from: {static_dir}")
+except Exception as e:
+    # If your runtime is read-only, fall back gracefully
+    logger.warning(f"⚠️ Could not mount static dir '{static_dir}': {e}. Static route disabled.")
 
 # Global exception handler
 @app.exception_handler(Exception)
