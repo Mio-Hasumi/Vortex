@@ -21,6 +21,20 @@ class Settings(BaseSettings):
     # Railway specific
     PORT: int = int(os.getenv("PORT", "8000"))
     
+    # Base URL for static files and API responses
+    @property
+    def BASE_URL(self) -> str:
+        # Allow manual override
+        if os.getenv("BASE_URL"):
+            return os.getenv("BASE_URL")
+        
+        # Use Railway public domain if available
+        if os.getenv("RAILWAY_PUBLIC_DOMAIN"):
+            return f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}"
+        
+        # Fallback to localhost
+        return "http://localhost:8000"
+    
     # API Settings
     API_V1_STR: str = "/api"
     

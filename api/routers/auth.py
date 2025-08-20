@@ -13,6 +13,10 @@ from datetime import datetime
 from domain.entities import User
 from infrastructure.container import container
 from infrastructure.middleware.firebase_auth_middleware import get_current_user
+from infrastructure.config import Settings
+
+# Get settings instance
+settings = Settings()
 
 router = APIRouter()
 security = HTTPBearer()
@@ -182,12 +186,17 @@ async def get_profile(current_user: User = Depends(get_current_user)):
     """
     Get current user profile (requires Firebase ID Token)
     """
+    # Ensure profile_image_url is a full URL
+    profile_image_url = current_user.profile_image_url
+    if profile_image_url and profile_image_url.startswith("/"):
+        profile_image_url = f"{settings.BASE_URL}{profile_image_url}"
+    
     return UserResponse(
         id=str(current_user.id),
         display_name=current_user.display_name,
         email=current_user.email,
         phone_number=current_user.phone_number,
-        profile_image_url=current_user.profile_image_url
+        profile_image_url=profile_image_url
         ) 
 
 @router.put("/profile/display-name", response_model=UpdateProfileResponse)
@@ -215,6 +224,11 @@ async def update_display_name(
         # Save updated user
         updated_user = user_repo.update(current_user)
         
+        # Ensure profile_image_url is a full URL
+        profile_image_url = updated_user.profile_image_url
+        if profile_image_url and profile_image_url.startswith("/"):
+            profile_image_url = f"{settings.BASE_URL}{profile_image_url}"
+        
         return UpdateProfileResponse(
             message="Display name updated successfully",
             user=UserResponse(
@@ -222,7 +236,7 @@ async def update_display_name(
                 display_name=updated_user.display_name,
                 email=updated_user.email,
                 phone_number=updated_user.phone_number,
-                profile_image_url=updated_user.profile_image_url
+                profile_image_url=profile_image_url
             )
         )
         
@@ -277,6 +291,11 @@ async def add_auth_method(
         # Save updated user
         updated_user = user_repo.update(current_user)
         
+        # Ensure profile_image_url is a full URL
+        profile_image_url = updated_user.profile_image_url
+        if profile_image_url and profile_image_url.startswith("/"):
+            profile_image_url = f"{settings.BASE_URL}{profile_image_url}"
+        
         return UpdateProfileResponse(
             message="Authentication method added successfully",
             user=UserResponse(
@@ -284,7 +303,7 @@ async def add_auth_method(
                 display_name=updated_user.display_name,
                 email=updated_user.email,
                 phone_number=updated_user.phone_number,
-                profile_image_url=updated_user.profile_image_url
+                profile_image_url=profile_image_url
             )
         )
         
@@ -337,7 +356,8 @@ async def upload_profile_picture(
             f.write(file_content)
         
         # Update user profile with image URL
-        profile_image_url = f"/static/profile_pictures/{filename}"
+        # Get the base URL from settings
+        profile_image_url = f"{settings.BASE_URL}/static/profile_pictures/{filename}"
         current_user.profile_image_url = profile_image_url
         current_user.update_profile()
         
@@ -352,7 +372,7 @@ async def upload_profile_picture(
                 display_name=updated_user.display_name,
                 email=updated_user.email,
                 phone_number=updated_user.phone_number,
-                profile_image_url=updated_user.profile_image_url
+                profile_image_url=profile_image_url  # Use the full URL we just created
             )
         )
         
