@@ -19,6 +19,9 @@ class AuthService: ObservableObject {
     // Store the phone number used for phone authentication
     @Published var phoneAuthNumber: String?
     
+    // Store the user's profile image URL
+    @Published var profileImageUrl: String?
+    
     // Track if user needs to set their display name (for new users)
     @Published var needsDisplayNameSetup = false
     
@@ -164,6 +167,7 @@ class AuthService: ObservableObject {
             self.email = nil
             self.realEmail = nil
             self.phoneAuthNumber = nil
+            self.profileImageUrl = nil
             self.firebaseToken = nil
             self.isAuthenticated = false
             self.needsDisplayNameSetup = false // Reset this on logout
@@ -595,6 +599,9 @@ class AuthService: ObservableObject {
             let realEmail = hasPhoneAuth ? nil : (firebaseUser.email ?? userResponse.email)
             updateAuthState(userResponse: authResponse, token: token, realEmail: realEmail)
             
+            // Store profile image URL if available
+            profileImageUrl = userResponse.profile_image_url
+            
             // If user has phone auth, store the phone number for display
             if hasPhoneAuth, let phoneNumber = firebaseUser.phoneNumber {
                 phoneAuthNumber = phoneNumber
@@ -646,6 +653,29 @@ class AuthService: ObservableObject {
             email: response.user.email,
             message: response.message
         )
+    }
+    
+    @MainActor
+    func uploadProfilePicture(_ image: UIImage) async throws -> ProfilePictureResponse {
+        guard let token = firebaseToken else {
+            throw AuthError.unknown("No authentication token available")
+        }
+        
+        APIService.shared.setAuthToken(token)
+        
+        // Convert UIImage to JPEG data
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            throw AuthError.unknown("Failed to convert image to data")
+        }
+        
+        // Upload image using multipart form data
+        let response: ProfilePictureResponse = try await APIService.shared.uploadImage(
+            endpoint: APIConfig.Endpoints.uploadProfilePicture,
+            imageData: imageData,
+            fieldName: "profile_picture"
+        )
+        
+        return response
     }
     
     // Method to manually reset login count (for testing purposes)

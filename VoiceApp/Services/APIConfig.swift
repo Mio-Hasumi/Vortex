@@ -12,6 +12,7 @@ enum APIConfig {
         static let profile = "/api/auth/profile"
         static let updateDisplayName = "/api/auth/profile/display-name"
         static let addAuthMethod = "/api/auth/profile/auth-methods"
+        static let uploadProfilePicture = "/api/auth/profile/picture"
         
         // Topics
         static let topics = "/api/topics"

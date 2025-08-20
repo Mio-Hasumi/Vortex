@@ -186,4 +186,87 @@ class APIService {
             throw APIError.networkError(error)
         }
     }
+    
+    func uploadImage<T: Codable>(
+        endpoint: String,
+        imageData: Data,
+        fieldName: String = "image",
+        mimeType: String = "image/jpeg"
+    ) async throws -> T {
+        print("📤 [APIService] Starting image upload to endpoint: \(endpoint)")
+        print("📤 [APIService] Image data size: \(imageData.count) bytes")
+        print("📤 [APIService] MIME type: \(mimeType)")
+        
+        guard let url = URL(string: APIConfig.baseURL + endpoint) else {
+            print("❌ [APIService] Invalid URL: \(APIConfig.baseURL + endpoint)")
+            throw APIError.invalidURL
+        }
+        
+        print("📤 [APIService] Full URL: \(url.absoluteString)")
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        if let token = authToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            print("📤 [APIService] Authorization header added")
+        } else {
+            print("⚠️ [APIService] No auth token available")
+        }
+        
+        var body = Data()
+        
+        // Add image file
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"profile_picture.jpg\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n".data(using: .utf8)!)
+        
+        // End boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        print("📤 [APIService] Form data size: \(body.count) bytes")
+        
+        request.httpBody = body
+        
+        do {
+            print("📤 [APIService] Sending request...")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+            
+            print("📤 [APIService] Response status: \(httpResponse.statusCode)")
+            
+            switch httpResponse.statusCode {
+            case 200...299:
+                do {
+                    let result = try JSONDecoder().decode(T.self, from: data)
+                    print("📤 [APIService] Image upload successful")
+                    return result
+                } catch {
+                    print("❌ [APIService] Decoding error: \(error)")
+                    throw APIError.decodingError(error)
+                }
+            case 401:
+                throw APIError.unauthorized
+            case 404:
+                throw APIError.notFound
+            default:
+                if let errorMessage = String(data: data, encoding: .utf8) {
+                    throw APIError.serverError(errorMessage)
+                } else {
+                    throw APIError.serverError("Unknown server error")
+                }
+            }
+        } catch {
+            print("❌ [APIService] Network error: \(error)")
+            throw APIError.networkError(error)
+        }
+    }
 } 

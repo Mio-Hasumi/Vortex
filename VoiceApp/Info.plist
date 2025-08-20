@@ -43,6 +43,8 @@
 	<string>We need access to your camera for video calls.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>We need access to your microphone to record your voice for matching.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>We need access to your photo library to select a profile picture.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

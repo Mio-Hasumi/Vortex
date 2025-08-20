@@ -131,20 +131,45 @@ struct SidebarContent: View {
                 VStack(spacing: 16) {
                     // Profile image
                     Button(action: { showProfile = true }) {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [.blue.opacity(0.8), .purple.opacity(0.8)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 80, height: 80)
-                        .overlay(
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 35))
-                                .foregroundColor(.white)
-                        )
+                        if let profileImageUrl = authService.profileImageUrl, !profileImageUrl.isEmpty {
+                            AsyncImage(url: URL(string: profileImageUrl)) { image in
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 80, height: 80)
+                                    .clipShape(Circle())
+                            } placeholder: {
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.blue.opacity(0.8), .purple.opacity(0.8)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .frame(width: 80, height: 80)
+                                    .overlay(
+                                        Image(systemName: "person.fill")
+                                            .font(.system(size: 35))
+                                            .foregroundColor(.white)
+                                    )
+                            }
+                        } else {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.blue.opacity(0.8), .purple.opacity(0.8)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 80, height: 80)
+                                .overlay(
+                                    Image(systemName: "person.fill")
+                                        .font(.system(size: 35))
+                                        .foregroundColor(.white)
+                                )
+                        }
                     }
                     
                     // User name - display first name from email

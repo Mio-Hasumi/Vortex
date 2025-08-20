@@ -39,10 +39,17 @@ struct UserResponse: Codable {
     let display_name: String
     let email: String
     let phone_number: String?
+    let profile_image_url: String?
 }
 
 struct UpdateProfileResponse: Codable {
     let message: String
+    let user: UserResponse
+}
+
+struct ProfilePictureResponse: Codable {
+    let message: String
+    let profile_image_url: String
     let user: UserResponse
 }
 

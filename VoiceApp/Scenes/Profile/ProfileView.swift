@@ -6,6 +6,15 @@ struct ProfileView: View {
     @ObservedObject private var userStatsService = UserStatsService.shared
     @State private var showEditProfile = false
     @State private var showImagePicker = false
+    @State private var showSourceTypeSelector = false
+    @State private var imagePickerSourceType: UIImagePickerController.SourceType = .photoLibrary
+    @State private var currentProfileImage: UIImage?
+    @State private var selectedImage: UIImage?
+    @State private var isLoading = false
+    @State private var showError = false
+    @State private var showSuccess = false
+    @State private var errorMessage = ""
+    @State private var successMessage = ""
     
     var body: some View {
         NavigationView {
@@ -14,24 +23,55 @@ struct ProfileView: View {
                 VStack(spacing: 16) {
                     // Profile Image with Change Button
                     ZStack(alignment: .bottomTrailing) {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [.blue.opacity(0.8), .purple.opacity(0.8)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
+                        if let profileImage = currentProfileImage {
+                            Image(uiImage: profileImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 120, height: 120)
+                                .clipShape(Circle())
+                        } else if let profileImageUrl = authService.profileImageUrl, !profileImageUrl.isEmpty {
+                            AsyncImage(url: URL(string: profileImageUrl)) { image in
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 120, height: 120)
+                                    .clipShape(Circle())
+                            } placeholder: {
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.blue.opacity(0.8), .purple.opacity(0.8)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .frame(width: 120, height: 120)
+                                    .overlay(
+                                        Image(systemName: "person.fill")
+                                            .font(.system(size: 50))
+                                            .foregroundColor(.white)
+                                    )
+                            }
+                        } else {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.blue.opacity(0.8), .purple.opacity(0.8)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
                                 )
-                            )
-                            .frame(width: 120, height: 120)
-                            .overlay(
-                                Image(systemName: "person.fill")
-                                    .font(.system(size: 50))
-                                    .foregroundColor(.white)
-                            )
+                                .frame(width: 120, height: 120)
+                                .overlay(
+                                    Image(systemName: "person.fill")
+                                        .font(.system(size: 50))
+                                        .foregroundColor(.white)
+                                )
+                        }
                         
                         // Profile Picture Change Button
                         Button(action: {
-                            showImagePicker = true
+                            showSourceTypeSelector = true
                         }) {
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 30))
@@ -167,11 +207,82 @@ struct ProfileView: View {
             EditProfileView()
         }
         .sheet(isPresented: $showImagePicker) {
-            ImagePickerView()
+            ImagePicker(selectedImage: $selectedImage, sourceType: imagePickerSourceType)
+        }
+        .actionSheet(isPresented: $showSourceTypeSelector) {
+            ActionSheet(
+                title: Text("Select Photo Source"),
+                buttons: [
+                    .default(Text("Photo Library")) {
+                        imagePickerSourceType = .photoLibrary
+                        showImagePicker = true
+                    },
+                    .default(Text("Camera")) {
+                        imagePickerSourceType = .camera
+                        showImagePicker = true
+                    },
+                    .cancel()
+                ]
+            )
+        }
+        .onChange(of: selectedImage) { newImage in
+            if let image = newImage {
+                currentProfileImage = image
+                uploadProfilePicture(image)
+            }
+        }
+        .alert("Success", isPresented: $showSuccess) {
+            Button("OK") { }
+        } message: {
+            Text(successMessage)
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage)
         }
         .onAppear {
             Task {
                 await userStatsService.refreshStats()
+                refreshProfileImage()
+            }
+        }
+    }
+    
+    private func refreshProfileImage() {
+        // If we have a profile image URL, try to load it
+        if let profileImageUrl = authService.profileImageUrl, !profileImageUrl.isEmpty {
+            // The AsyncImage will handle loading the image
+            // We just need to ensure the URL is set
+        }
+    }
+    
+    private func uploadProfilePicture(_ image: UIImage) {
+        isLoading = true
+        showError = false
+        showSuccess = false
+        
+        Task {
+            do {
+                let response = try await authService.uploadProfilePicture(image)
+                
+                await MainActor.run {
+                    // Update the profile image URL in AuthService
+                    authService.profileImageUrl = response.profile_image_url
+                    
+                    isLoading = false
+                    showSuccess = true
+                    successMessage = "Profile picture updated successfully!"
+                    
+                    // Clear the selected image after successful upload
+                    selectedImage = nil
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
             }
         }
     }
@@ -314,8 +425,15 @@ struct EditProfileView: View {
 // MARK: - Image Picker View
 struct ImagePickerView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedImage: UIImage?
+    @Binding var selectedImage: UIImage?
     @State private var showImagePicker = false
+    @State private var showSourceTypeSelector = false
+    @State private var imagePickerSourceType: UIImagePickerController.SourceType = .photoLibrary
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    @State private var showError = false
+    @State private var showSuccess = false
+    @ObservedObject private var authService = AuthService.shared
     
     var body: some View {
         NavigationView {
@@ -346,7 +464,7 @@ struct ImagePickerView: View {
                 
                 HStack(spacing: 20) {
                     Button("Choose Photo") {
-                        showImagePicker = true
+                        showSourceTypeSelector = true
                     }
                     .padding(.horizontal, 30)
                     .padding(.vertical, 12)
@@ -365,6 +483,20 @@ struct ImagePickerView: View {
                     .disabled(selectedImage == nil)
                 }
                 
+                if showError {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                        .font(.caption)
+                        .padding(.horizontal, 20)
+                }
+                
+                if showSuccess {
+                    Text("Profile picture updated successfully!")
+                        .foregroundColor(.green)
+                        .font(.caption)
+                        .padding(.horizontal, 20)
+                }
+                
                 Spacer()
             }
             .padding(.top, 40)
@@ -381,16 +513,64 @@ struct ImagePickerView: View {
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
-                        // TODO: Implement save profile picture logic
-                        dismiss()
+                        saveProfilePicture()
                     }
                     .foregroundColor(.blue)
-                    .disabled(selectedImage == nil)
+                    .disabled(selectedImage == nil || isLoading)
                 }
             }
         }
         .sheet(isPresented: $showImagePicker) {
-            ImagePicker(selectedImage: $selectedImage)
+            ImagePicker(selectedImage: $selectedImage, sourceType: imagePickerSourceType)
+        }
+        .actionSheet(isPresented: $showSourceTypeSelector) {
+            ActionSheet(
+                title: Text("Select Photo Source"),
+                buttons: [
+                    .default(Text("Photo Library")) {
+                        imagePickerSourceType = .photoLibrary
+                        showImagePicker = true
+                    },
+                    .default(Text("Camera")) {
+                        imagePickerSourceType = .camera
+                        showImagePicker = true
+                    },
+                    .cancel()
+                ]
+            )
+        }
+    }
+    
+    private func saveProfilePicture() {
+        guard let image = selectedImage else { return }
+        
+        isLoading = true
+        showError = false
+        showSuccess = false
+        
+        Task {
+            do {
+                let response = try await authService.uploadProfilePicture(image)
+                
+                await MainActor.run {
+                    // Update the profile image URL in AuthService
+                    authService.profileImageUrl = response.profile_image_url
+                    
+                    isLoading = false
+                    showSuccess = true
+                    
+                    // Dismiss after a short delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        dismiss()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
         }
     }
 }
@@ -399,11 +579,12 @@ struct ImagePickerView: View {
 struct ImagePicker: UIViewControllerRepresentable {
     @Binding var selectedImage: UIImage?
     @Environment(\.dismiss) private var dismiss
+    let sourceType: UIImagePickerController.SourceType
     
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.delegate = context.coordinator
-        picker.sourceType = .photoLibrary
+        picker.sourceType = sourceType
         picker.allowsEditing = true
         return picker
     }

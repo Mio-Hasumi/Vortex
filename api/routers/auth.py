@@ -2,10 +2,13 @@
 Authentication API routes - Pure Firebase Authentication
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Any
+import os
+import uuid
+from datetime import datetime
 
 from domain.entities import User
 from infrastructure.container import container
@@ -37,6 +40,7 @@ class UserResponse(BaseModel):
     display_name: str
     email: str
     phone_number: Optional[str] = None
+    profile_image_url: Optional[str] = None
 
 class UpdateDisplayNameRequest(BaseModel):
     display_name: str
@@ -47,6 +51,11 @@ class AddAuthMethodRequest(BaseModel):
 
 class UpdateProfileResponse(BaseModel):
     message: str
+    user: UserResponse
+
+class ProfilePictureResponse(BaseModel):
+    message: str
+    profile_image_url: str
     user: UserResponse
 
 # Dependency injection
@@ -177,7 +186,8 @@ async def get_profile(current_user: User = Depends(get_current_user)):
         id=str(current_user.id),
         display_name=current_user.display_name,
         email=current_user.email,
-        phone_number=current_user.phone_number
+        phone_number=current_user.phone_number,
+        profile_image_url=current_user.profile_image_url
         ) 
 
 @router.put("/profile/display-name", response_model=UpdateProfileResponse)
@@ -211,7 +221,8 @@ async def update_display_name(
                 id=str(updated_user.id),
                 display_name=updated_user.display_name,
                 email=updated_user.email,
-                phone_number=updated_user.phone_number
+                phone_number=updated_user.phone_number,
+                profile_image_url=updated_user.profile_image_url
             )
         )
         
@@ -272,7 +283,76 @@ async def add_auth_method(
                 id=str(updated_user.id),
                 display_name=updated_user.display_name,
                 email=updated_user.email,
-                phone_number=updated_user.phone_number
+                phone_number=updated_user.phone_number,
+                profile_image_url=updated_user.profile_image_url
+            )
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+@router.post("/profile/picture", response_model=ProfilePictureResponse)
+async def upload_profile_picture(
+    profile_picture: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    user_repo = Depends(get_user_repository)
+):
+    """
+    Upload profile picture (requires Firebase ID Token)
+    """
+    try:
+        # Validate file type
+        allowed_types = ["image/jpeg", "image/jpg", "image/png", "image/gif"]
+        if profile_picture.content_type not in allowed_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported image format. Allowed: {', '.join(allowed_types)}"
+            )
+        
+        # Check file size (max 5MB)
+        max_size = 5 * 1024 * 1024  # 5MB
+        file_content = await profile_picture.read()
+        if len(file_content) > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Image file too large. Maximum size is 5MB."
+            )
+        
+        # Create uploads directory if it doesn't exist
+        uploads_dir = "uploads/profile_pictures"
+        os.makedirs(uploads_dir, exist_ok=True)
+        
+        # Generate unique filename
+        file_extension = profile_picture.filename.split(".")[-1] if "." in profile_picture.filename else "jpg"
+        filename = f"{current_user.id}_{uuid.uuid4()}.{file_extension}"
+        file_path = os.path.join(uploads_dir, filename)
+        
+        # Save file
+        with open(file_path, "wb") as f:
+            f.write(file_content)
+        
+        # Update user profile with image URL
+        profile_image_url = f"/static/profile_pictures/{filename}"
+        current_user.profile_image_url = profile_image_url
+        current_user.update_profile()
+        
+        # Save updated user
+        updated_user = user_repo.update(current_user)
+        
+        return ProfilePictureResponse(
+            message="Profile picture uploaded successfully",
+            profile_image_url=profile_image_url,
+            user=UserResponse(
+                id=str(updated_user.id),
+                display_name=updated_user.display_name,
+                email=updated_user.email,
+                phone_number=updated_user.phone_number,
+                profile_image_url=updated_user.profile_image_url
             )
         )
         
