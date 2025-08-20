@@ -521,7 +521,7 @@ struct DisplayNameSetupView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Skip for now") {
                         // Mark as complete and dismiss
-                        authService.needsDisplayNameSetup = false
+                        authService.markDisplayNameSetupCompleted()
                         dismiss()
                     }
                     .foregroundColor(.gray)

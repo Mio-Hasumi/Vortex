@@ -26,6 +26,9 @@ class AuthService: ObservableObject {
     @Published var phoneVerificationID: String?
     @Published var isPhoneVerificationSent = false
     
+    // UserDefaults key for tracking if current user has completed display name setup
+    private let displayNameSetupCompletedKey = "displayNameSetupCompleted_"
+    
     // Computed property to show user's editable display name, falling back to email-extracted name
     var uiDisplayName: String {
         print("🔍 [AuthService] uiDisplayName called - realEmail: \(realEmail ?? "nil"), email: \(email ?? "nil"), displayName: \(displayName ?? "nil")")
@@ -72,6 +75,39 @@ class AuthService: ObservableObject {
         }
     }
     
+    // Check if the current user has completed display name setup
+    private var hasCompletedDisplayNameSetup: Bool {
+        get {
+            guard let userId = userId else { return false }
+            let key = displayNameSetupCompletedKey + userId
+            let value = UserDefaults.standard.bool(forKey: key)
+            print("🔐 [AuthService] hasCompletedDisplayNameSetup for user \(userId): \(value)")
+            return value
+        }
+        set {
+            guard let userId = userId else { return }
+            let key = displayNameSetupCompletedKey + userId
+            print("🔐 [AuthService] Setting hasCompletedDisplayNameSetup for user \(userId): \(newValue)")
+            UserDefaults.standard.set(newValue, forKey: key)
+        }
+    }
+    
+    // Check if display name setup should be shown for current user
+    private func checkDisplayNameSetup() {
+        guard let userId = userId else {
+            print("🔐 [AuthService] No userId available, skipping display name setup check")
+            return
+        }
+        
+        if hasCompletedDisplayNameSetup {
+            print("🔐 [AuthService] User \(userId) has already completed display name setup, skipping popup")
+            needsDisplayNameSetup = false
+        } else {
+            print("🔐 [AuthService] User \(userId) has NOT completed display name setup, showing popup")
+            needsDisplayNameSetup = true
+        }
+    }
+    
     private func updateAuthState(userResponse: AuthResponse, token: String, realEmail: String? = nil) {
         DispatchQueue.main.async {
             self.userId = userResponse.user_id
@@ -90,24 +126,8 @@ class AuthService: ObservableObject {
             print("🔐 Auth state updated - email: \(userResponse.email ?? "nil")")
             print("🔐 Auth state updated - displayName: \(userResponse.display_name ?? "nil")")
             
-            // Check if user should see display name setup (for both Gmail and phone users)
-            let displayName = userResponse.display_name
-            if !displayName.isEmpty {
-                // For phone users, check if display name is auto-generated (starts with "User")
-                if displayName.hasPrefix("User") && displayName.count > 4 {
-                    self.needsDisplayNameSetup = true
-                    print("🔐 Phone user may want to customize their display name")
-                }
-                // For Gmail users, check if display name matches extracted email name
-                else if let realEmail = realEmail, !realEmail.isEmpty {
-                    let extractedName = self.extractFirstNameFromEmail(realEmail)
-                    let needsCustomization = displayName.lowercased() == extractedName.lowercased()
-                    if needsCustomization {
-                        self.needsDisplayNameSetup = true
-                        print("🔐 Gmail user may want to customize their display name")
-                    }
-                }
-            }
+            // Increment login count and check if display name setup should be shown
+            self.checkDisplayNameSetup()
         }
     }
     
@@ -147,6 +167,7 @@ class AuthService: ObservableObject {
             self.firebaseToken = nil
             self.isAuthenticated = false
             self.needsDisplayNameSetup = false // Reset this on logout
+            // Note: We don't reset hasCompletedDisplayNameSetup here as it's per-user
             print("🔐 Logged out - isAuthenticated: \(self.isAuthenticated)")
         }
     }
@@ -579,16 +600,8 @@ class AuthService: ObservableObject {
                 phoneAuthNumber = phoneNumber
             }
             
-            
-            let extractedName = extractFirstNameFromEmail(realEmail ?? "")
-            let needsCustomization = userResponse.display_name.lowercased() == extractedName.lowercased()
-            
-            if needsCustomization {
-                DispatchQueue.main.async {
-                    self.needsDisplayNameSetup = true
-                    print("🔐 User may want to customize their display name")
-                }
-            }
+            // Increment login count and check if display name setup should be shown
+            self.checkDisplayNameSetup()
             
         } catch {
             print("Failed to authenticate with backend: \(error)")
@@ -625,7 +638,7 @@ class AuthService: ObservableObject {
         displayName = response.user.display_name
         
         // Mark display name setup as complete
-        needsDisplayNameSetup = false
+        markDisplayNameSetupCompleted()
         
         return AuthResponse(
             user_id: response.user.id,
@@ -633,6 +646,32 @@ class AuthService: ObservableObject {
             email: response.user.email,
             message: response.message
         )
+    }
+    
+    // Method to manually reset login count (for testing purposes)
+    func resetLoginCount() {
+        // This function is no longer needed as login count is replaced by display name setup
+        // Keeping it for now, but it will not have an effect on the new logic.
+        print("🔐 [AuthService] resetLoginCount called - no effect on new display name setup logic")
+    }
+    
+    // Method to get current login count (for debugging purposes)
+    func getCurrentLoginCount() -> Int {
+        // This function is no longer needed as login count is replaced by display name setup
+        // Keeping it for now, but it will not have an effect on the new logic.
+        return 0 // Always return 0 as the concept of login count is removed
+    }
+    
+    // Method to mark display name setup as completed (called when user skips or completes setup)
+    func markDisplayNameSetupCompleted() {
+        hasCompletedDisplayNameSetup = true
+        needsDisplayNameSetup = false
+        print("🔐 [AuthService] Display name setup marked as completed for current user")
+    }
+    
+    // Method to check if current user needs display name setup (for debugging)
+    func doesUserNeedDisplayNameSetup() -> Bool {
+        return !hasCompletedDisplayNameSetup
     }
     
     @MainActor
@@ -731,3 +770,4 @@ enum AuthError: Error, LocalizedError {
         }
     }
 } 
+
