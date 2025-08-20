@@ -22,7 +22,13 @@ struct ProfileView: View {
                 // Profile Header
                 VStack(spacing: 16) {
                     // Profile Image with Change Button
+                    // Profile Image Container - Fixed size to prevent layout shifts
                     ZStack(alignment: .bottomTrailing) {
+                        // Fixed frame container to maintain layout stability
+                        Rectangle()
+                            .fill(Color.clear)
+                            .frame(width: 120, height: 120)
+                        
                         if let profileImage = currentProfileImage {
                             Image(uiImage: profileImage)
                                 .resizable()
@@ -30,43 +36,33 @@ struct ProfileView: View {
                                 .frame(width: 120, height: 120)
                                 .clipShape(Circle())
                         } else if let profileImageUrl = authService.profileImageUrl, !profileImageUrl.isEmpty {
-                            AsyncImage(url: URL(string: profileImageUrl)) { image in
+                            CachedAsyncImage(url: profileImageUrl) { image in
                                 image
                                     .resizable()
                                     .aspectRatio(contentMode: .fill)
                                     .frame(width: 120, height: 120)
                                     .clipShape(Circle())
                             } placeholder: {
-                                Circle()
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [.blue.opacity(0.8), .purple.opacity(0.8)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                    .frame(width: 120, height: 120)
-                                    .overlay(
-                                        Image(systemName: "person.fill")
-                                            .font(.system(size: 50))
-                                            .foregroundColor(.white)
-                                    )
-                            }
-                        } else {
-                            Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [.blue.opacity(0.8), .purple.opacity(0.8)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
+                                ShimmerPlaceholder(
+                                    size: CGSize(width: 120, height: 120),
+                                    cornerRadius: 60
                                 )
-                                .frame(width: 120, height: 120)
                                 .overlay(
                                     Image(systemName: "person.fill")
                                         .font(.system(size: 50))
                                         .foregroundColor(.white)
                                 )
+                            }
+                        } else {
+                            ShimmerPlaceholder(
+                                size: CGSize(width: 120, height: 120),
+                                cornerRadius: 60
+                            )
+                            .overlay(
+                                Image(systemName: "person.fill")
+                                    .font(.system(size: 50))
+                                    .foregroundColor(.white)
+                            )
                         }
                         
                         // Profile Picture Change Button
@@ -80,12 +76,14 @@ struct ProfileView: View {
                         }
                         .offset(x: 5, y: 5)
                     }
+                    .frame(width: 120, height: 120) // Fixed container size
                     
                     VStack(spacing: 8) {
                         Text(authService.uiDisplayName)
                             .font(.title2)
                             .fontWeight(.bold)
                             .foregroundColor(.white)
+                            .fixedSize(horizontal: false, vertical: true) // Prevent text wrapping layout shifts
                         
                         // Friends and Uploads Count
                         HStack(spacing: 20) {
@@ -98,6 +96,7 @@ struct ProfileView: View {
                                     .fontWeight(.semibold)
                                     .foregroundColor(.white)
                             }
+                            .frame(minWidth: 60) // Fixed width to prevent layout shifts
                             
                             VStack(spacing: 4) {
                                 Text("Uploads")
@@ -108,6 +107,7 @@ struct ProfileView: View {
                                     .fontWeight(.semibold)
                                     .foregroundColor(.white)
                             }
+                            .frame(minWidth: 60) // Fixed width to prevent layout shifts
                         }
                     }
                     
@@ -118,6 +118,7 @@ struct ProfileView: View {
                     .padding(.top, 8)
                 }
                 .padding(.top, 20)
+                .animation(nil, value: authService.profileImageUrl) // Disable implicit animations
                 
                 // Profile Info
                 VStack(spacing: 16) {
@@ -127,6 +128,8 @@ struct ProfileView: View {
                     ProfileInfoRow(title: "Status", value: "Active")
                 }
                 .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity) // Ensure consistent width
+                .animation(nil, value: authService.displayName) // Disable implicit animations
                 
                 // Authentication Methods Section
                 VStack(spacing: 16) {
@@ -191,6 +194,7 @@ struct ProfileView: View {
                 
                 Spacer()
             }
+            .animation(nil) // Disable all animations in ProfileView
             .background(Color.black)
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
@@ -245,6 +249,10 @@ struct ProfileView: View {
             Task {
                 await userStatsService.refreshStats()
                 refreshProfileImage()
+                // Preload profile image for smoother experience
+                if let profileImageUrl = authService.profileImageUrl, !profileImageUrl.isEmpty {
+                    ImageCacheService.shared.preloadImage(from: profileImageUrl)
+                }
             }
         }
     }
@@ -298,14 +306,18 @@ struct ProfileInfoRow: View {
                 .font(.subheadline)
                 .foregroundColor(.gray)
                 .frame(width: 100, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true) // Prevent text wrapping
             
             Spacer()
             
             Text(value)
                 .font(.subheadline)
                 .foregroundColor(.white)
+                .fixedSize(horizontal: false, vertical: true) // Prevent text wrapping
+                .multilineTextAlignment(.trailing) // Align text to the right
         }
         .padding(.vertical, 8)
+        .frame(height: 36) // Fixed height to prevent layout shifts
     }
 }
 
@@ -355,6 +367,7 @@ struct EditProfileView: View {
                 
                 Spacer()
             }
+            .animation(nil) // Disable animations in EditProfileView
             .background(Color.black)
             .navigationTitle("Edit Profile")
             .navigationBarTitleDisplayMode(.inline)

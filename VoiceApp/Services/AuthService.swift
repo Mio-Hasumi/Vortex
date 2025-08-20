@@ -602,6 +602,11 @@ class AuthService: ObservableObject {
             // Store profile image URL if available
             profileImageUrl = userResponse.profile_image_url
             
+            // Preload the profile image for smoother UI experience
+            if let profileImageUrl = userResponse.profile_image_url, !profileImageUrl.isEmpty {
+                ImageCacheService.shared.preloadImage(from: profileImageUrl)
+            }
+            
             // If user has phone auth, store the phone number for display
             if hasPhoneAuth, let phoneNumber = firebaseUser.phoneNumber {
                 phoneAuthNumber = phoneNumber
@@ -674,6 +679,11 @@ class AuthService: ObservableObject {
             imageData: imageData,
             fieldName: "profile_picture"
         )
+        
+        // Preload the new profile image for immediate display
+        if !response.profile_image_url.isEmpty {
+            ImageCacheService.shared.preloadImage(from: response.profile_image_url)
+        }
         
         return response
     }
