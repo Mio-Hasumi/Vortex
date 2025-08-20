@@ -47,6 +47,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     logger.info("🚀 Starting VoiceApp Backend...")
     
+    # Create uploads directory for profile pictures
+    try:
+        os.makedirs("uploads/profile_pictures", exist_ok=True)
+        logger.info("📁 Uploads directory created successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not create uploads directory: {e}")
+    
     # Initialize dependency injection container
     try:
         container.initialize()
