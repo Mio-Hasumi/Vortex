@@ -349,27 +349,181 @@ async def block_user(
 @router.get("/search")
 async def search_users(
     q: str,
-    current_user = Depends(get_current_user),
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
     user_repo = Depends(get_user_repository),
     friend_repo = Depends(get_friend_repository)
 ):
-    """Search for users by display name or email"""
+    """Search for users by display name"""
     try:
-        logger.info(f"🔍 User {current_user['uid']} searching for: {q}")
+        logger.info(f"🔍 User {current_user.display_name} ({current_user.id}) searching for: '{q}'")
         
-        # Search users (mock implementation)
-        # In real implementation, you'd search in the user repository
-        search_results = []
+        if len(q.strip()) < 2:
+            return {
+                "users": [],
+                "query": q,
+                "total": 0,
+                "message": "Search query must be at least 2 characters"
+            }
+        
+        # Search users by display name
+        search_results = user_repo.search_by_display_name(
+            query=q.strip(),
+            limit=limit,
+            exclude_user_id=current_user.id
+        )
+        
+        # Get friendship status for each user
+        user_responses = []
+        for user in search_results:
+            # Check if there's an existing friendship
+            friendship_status = "none"  # Default: no relationship
+            
+            # Check for existing friendship in both directions
+            friendships = friend_repo.find_friendships_by_user_id(current_user.id)
+            for friendship in friendships:
+                if friendship.friend_id == user.id or friendship.user_id == user.id:
+                    if friendship.status.name.lower() == "accepted":
+                        friendship_status = "friends"
+                    elif friendship.status.name.lower() == "pending":
+                        if friendship.user_id == current_user.id:
+                            friendship_status = "pending_sent"  # Current user sent request
+                        else:
+                            friendship_status = "pending_received"  # Current user received request
+                    elif friendship.status.name.lower() == "blocked":
+                        friendship_status = "blocked"
+                    break
+            
+            # Build user response
+            profile_image_url = user.profile_image_url
+            if profile_image_url and profile_image_url.startswith("/"):
+                from infrastructure.config import settings
+                profile_image_url = f"{settings.BASE_URL}{profile_image_url}"
+            
+            user_responses.append({
+                "user_id": str(user.id),
+                "display_name": user.display_name,
+                "profile_image_url": profile_image_url,
+                "bio": user.bio,
+                "status": "online" if user.status.name.lower() == "online" else "offline",
+                "friendship_status": friendship_status,
+                "topic_preferences": user.topic_preferences[:5] if user.topic_preferences else []  # Show first 5 topics
+            })
+        
+        logger.info(f"✅ Found {len(user_responses)} users matching '{q}'")
         
         return {
-            "users": search_results,
+            "users": user_responses,
             "query": q,
-            "total": len(search_results)
+            "total": len(user_responses)
         }
         
     except Exception as e:
-        logger.error(f"❌ Search failed: {e}")
-        raise HTTPException(status_code=500, detail="Search failed")
+        logger.error(f"❌ Search failed for query '{q}': {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Search failed"
+        )
+
+@router.get("/recommendations")
+async def get_user_recommendations(
+    limit: int = 20,
+    min_common_interests: int = 1,
+    current_user: User = Depends(get_current_user),
+    user_repo = Depends(get_user_repository),
+    friend_repo = Depends(get_friend_repository)
+):
+    """Get user recommendations based on similar interests/topics"""
+    try:
+        logger.info(f"🎯 Getting recommendations for user {current_user.display_name} ({current_user.id})")
+        
+        # Get current user's interests
+        user_interests = current_user.topic_preferences or []
+        
+        if not user_interests:
+            logger.info(f"ℹ️ User {current_user.display_name} has no topic preferences")
+            return {
+                "users": [],
+                "total": 0,
+                "message": "No topic preferences set. Join some voice chats to build your interest profile!"
+            }
+        
+        logger.info(f"🔍 Finding users with similar interests to: {user_interests[:5]}..." if len(user_interests) > 5 else f"🔍 Finding users with similar interests to: {user_interests}")
+        
+        # Find users with similar interests
+        similar_users_data = user_repo.find_users_by_interests(
+            interests=user_interests,
+            limit=limit + 10,  # Get extra to account for filtering
+            exclude_user_id=current_user.id,
+            min_common_interests=min_common_interests
+        )
+        
+        # Filter out users who are already friends or blocked
+        user_responses = []
+        existing_friendships = friend_repo.find_friendships_by_user_id(current_user.id)
+        
+        # Create set of user IDs to exclude (already friends/blocked)
+        excluded_user_ids = set()
+        for friendship in existing_friendships:
+            if friendship.status.name.lower() in ["accepted", "blocked"]:
+                other_user_id = friendship.friend_id if friendship.user_id == current_user.id else friendship.user_id
+                excluded_user_ids.add(other_user_id)
+        
+        for user_data in similar_users_data:
+            user = user_data["user"]
+            
+            # Skip if already friends or blocked
+            if user.id in excluded_user_ids:
+                continue
+            
+            # Check for pending requests
+            friendship_status = "none"
+            for friendship in existing_friendships:
+                if (friendship.friend_id == user.id or friendship.user_id == user.id) and friendship.status.name.lower() == "pending":
+                    if friendship.user_id == current_user.id:
+                        friendship_status = "pending_sent"
+                    else:
+                        friendship_status = "pending_received"
+                    break
+            
+            # Build user response
+            profile_image_url = user.profile_image_url
+            if profile_image_url and profile_image_url.startswith("/"):
+                from infrastructure.config import settings
+                profile_image_url = f"{settings.BASE_URL}{profile_image_url}"
+            
+            user_responses.append({
+                "user_id": str(user.id),
+                "display_name": user.display_name,
+                "profile_image_url": profile_image_url,
+                "bio": user.bio,
+                "status": "online" if user.status.name.lower() == "online" else "offline",
+                "friendship_status": friendship_status,
+                "topic_preferences": user.topic_preferences[:5] if user.topic_preferences else [],
+                "common_interests": user_data["common_interests"],
+                "similarity_score": round(user_data["similarity_score"], 2),
+                "total_common_interests": user_data["total_common"]
+            })
+            
+            # Stop when we have enough results
+            if len(user_responses) >= limit:
+                break
+        
+        logger.info(f"✅ Found {len(user_responses)} user recommendations")
+        
+        return {
+            "users": user_responses,
+            "total": len(user_responses),
+            "user_interests": user_interests[:10],  # Show user's interests for context
+            "min_common_interests": min_common_interests
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get user recommendations: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get recommendations"
+        )
 
 @router.delete("/{user_id}/block")
 async def unblock_user(

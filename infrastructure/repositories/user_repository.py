@@ -189,6 +189,126 @@ class UserRepository:
             logger.error(f"❌ Failed to find user by display name {display_name}: {e}")
             return None
     
+    def search_by_display_name(self, query: str, limit: int = 20, exclude_user_id: UUID = None) -> List[User]:
+        """
+        Search users by display name (partial match)
+        
+        Args:
+            query: Search query string
+            limit: Maximum number of results to return
+            exclude_user_id: User ID to exclude from results (usually current user)
+            
+        Returns:
+            List of matching User entities
+        """
+        try:
+            logger.info(f"🔍 Searching users by display name: '{query}' (limit: {limit})")
+            
+            # Firebase doesn't support LIKE queries directly, so we use range queries
+            # This will match names that start with the query string
+            query_lower = query.lower()
+            
+            # Use range query to find names that start with the query
+            users = self.firebase.query_documents(
+                self.collection_name,
+                filters=[
+                    {"field": "display_name_lower", "operator": ">=", "value": query_lower},
+                    {"field": "display_name_lower", "operator": "<", "value": query_lower + "\uf8ff"}
+                ],
+                limit=limit + 1 if exclude_user_id else limit  # Get one extra in case we need to exclude current user
+            )
+            
+            results = []
+            for user_data in users:
+                user = self._dict_to_entity(user_data)
+                
+                # Exclude current user if specified
+                if exclude_user_id and user.id == exclude_user_id:
+                    continue
+                    
+                # Additional filtering for partial matches (since Firebase range query is limited)
+                if query_lower in user.display_name.lower():
+                    results.append(user)
+                    
+                # Stop if we have enough results
+                if len(results) >= limit:
+                    break
+            
+            logger.info(f"✅ Found {len(results)} users matching '{query}'")
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to search users by display name '{query}': {e}")
+            return []
+    
+    def find_users_by_interests(self, interests: List[str], limit: int = 20, exclude_user_id: UUID = None, min_common_interests: int = 1) -> List[dict]:
+        """
+        Find users with similar interests/topics
+        
+        Args:
+            interests: List of interest/topic strings to match
+            limit: Maximum number of results to return
+            exclude_user_id: User ID to exclude from results
+            min_common_interests: Minimum number of common interests required
+            
+        Returns:
+            List of user data with similarity scores
+        """
+        try:
+            logger.info(f"🎯 Finding users with similar interests: {interests[:3]}..." if len(interests) > 3 else f"🎯 Finding users with similar interests: {interests}")
+            
+            # Get all users (we'll filter by interests in memory since Firebase doesn't support complex array queries)
+            all_users = self.firebase.query_documents(
+                self.collection_name,
+                limit=200  # Reasonable limit to avoid performance issues
+            )
+            
+            matching_users = []
+            interests_set = set(interest.lower() for interest in interests)
+            
+            for user_data in all_users:
+                user = self._dict_to_entity(user_data)
+                
+                # Exclude current user
+                if exclude_user_id and user.id == exclude_user_id:
+                    continue
+                
+                # Get user's interests (from topic_preferences field)
+                user_interests = user.topic_preferences or []
+                user_interests_set = set(interest.lower() for interest in user_interests)
+                
+                # Calculate similarity
+                common_interests = interests_set.intersection(user_interests_set)
+                
+                if len(common_interests) >= min_common_interests:
+                    # Calculate similarity score (Jaccard similarity)
+                    union_interests = interests_set.union(user_interests_set)
+                    similarity_score = len(common_interests) / len(union_interests) if union_interests else 0
+                    
+                    matching_users.append({
+                        "user": user,
+                        "common_interests": list(common_interests),
+                        "similarity_score": similarity_score,
+                        "total_common": len(common_interests)
+                    })
+            
+            # Sort by similarity score (descending) and then by number of common interests
+            matching_users.sort(key=lambda x: (x["similarity_score"], x["total_common"]), reverse=True)
+            
+            # Limit results
+            results = matching_users[:limit]
+            
+            logger.info(f"✅ Found {len(results)} users with similar interests")
+            for result in results[:3]:  # Log first 3 for debugging
+                user = result["user"]
+                logger.info(f"   👤 {user.display_name}: {result['similarity_score']:.2f} similarity, {result['total_common']} common interests")
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to find users by interests: {e}")
+            return []
+    
     def update(self, user: User) -> User:
         """
         Update user in Firebase Firestore
@@ -305,6 +425,7 @@ class UserRepository:
         return {
             "id": str(user.id),
             "display_name": user.display_name,
+            "display_name_lower": user.display_name.lower(),  # For efficient searching
             "email": user.email.lower() if user.email else None,  # Store email in lowercase
             "phone_number": user.phone_number,
             "firebase_uid": user.firebase_uid,  # Firebase Auth UID
