@@ -10,33 +10,8 @@ import AVFoundation
 import FirebaseAuth
 import WebKit
 
-// Data model for live match information
-struct LiveMatchData {
-    let matchId: String
-    let sessionId: String
-    let roomId: String
-    let livekitToken: String
-    let livekitName: String  // LiveKit room name for WebSocket connection
-    let userId: String       // Current user ID for WebSocket authentication
-    let participants: [MatchParticipant]
-    let topics: [String]
-    let hashtags: [String]
-}
-
-struct MatchParticipant {
-    let userId: String
-    let displayName: String
-    let isCurrentUser: Bool
-    let isAIHost: Bool
-    
-    // Convenience initializer for backward compatibility
-    init(userId: String, displayName: String, isCurrentUser: Bool, isAIHost: Bool = false) {
-        self.userId = userId
-        self.displayName = displayName
-        self.isCurrentUser = isCurrentUser
-        self.isAIHost = isAIHost
-    }
-}
+// Import shared models
+import Foundation
 
 // YouTube Video Ad Component
 struct YouTubeVideoAd: UIViewRepresentable {
@@ -1503,13 +1478,13 @@ Start the conversation now with your greeting and a question about their interes
         
         // Parse participants
         let participantsData = message["participants"] as? [[String: Any]] ?? []
-        let participants = participantsData.compactMap { data -> MatchParticipant? in
+        let participants = participantsData.compactMap { data -> ChatParticipant? in
             guard let userId = data["user_id"] as? String,
                   let displayName = data["display_name"] as? String,
                   let isCurrentUser = data["is_current_user"] as? Bool else {
                 return nil
             }
-            return MatchParticipant(userId: userId, displayName: displayName, isCurrentUser: isCurrentUser)
+            return ChatParticipant(userId: userId, displayName: displayName, isCurrentUser: isCurrentUser)
         }
         
         let topics = message["topics"] as? [String] ?? []

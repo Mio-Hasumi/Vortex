@@ -78,17 +78,46 @@ struct FriendsListView: View {
 }
 
 struct FriendRequestsView: View {
-    let requests = [
-        FriendRequest(name: "David Brown", mutualFriends: 3),
-        FriendRequest(name: "Emma Davis", mutualFriends: 1)
-    ]
+    @StateObject private var friendService = FriendRequestService.shared
     
     var body: some View {
-        List(requests) { request in
-            FriendRequestRow(request: request)
+        VStack {
+            if friendService.isLoading {
+                ProgressView("Loading requests...")
+                    .foregroundColor(.white)
+                    .padding()
+            } else if friendService.incomingRequests.isEmpty {
+                VStack(spacing: 20) {
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 60))
+                        .foregroundColor(.gray)
+                    
+                    Text("No Friend Requests")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                    
+                    Text("When someone sends you a friend request, it will appear here.")
+                        .font(.body)
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
+                .padding(.top, 60)
+            } else {
+                List(friendService.incomingRequests) { request in
+                    FriendRequestRow(request: request)
+                }
+                .listStyle(PlainListStyle())
+                .background(Color.black)
+            }
         }
-        .listStyle(PlainListStyle())
         .background(Color.black)
+        .onAppear {
+            Task {
+                await friendService.fetchFriendRequests()
+            }
+        }
     }
 }
 
@@ -164,7 +193,9 @@ struct FriendRow: View {
 }
 
 struct FriendRequestRow: View {
-    let request: FriendRequest
+    let request: FriendRequestData
+    @StateObject private var friendService = FriendRequestService.shared
+    @State private var isProcessing = false
     
     var body: some View {
         VStack(spacing: 12) {
@@ -173,19 +204,19 @@ struct FriendRequestRow: View {
                     .fill(Color.purple.opacity(0.8))
                     .frame(width: 50, height: 50)
                     .overlay(
-                        Text(String(request.name.prefix(1)))
+                        Text(String(request.from_display_name.prefix(1)))
                             .font(.title3)
                             .fontWeight(.bold)
                             .foregroundColor(.white)
                     )
                 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(request.name)
+                    Text(request.from_display_name)
                         .font(.body)
                         .fontWeight(.medium)
                         .foregroundColor(.white)
                     
-                    Text("\(request.mutualFriends) mutual friends")
+                    Text("Sent you a friend request")
                         .font(.caption)
                         .foregroundColor(.gray)
                 }
@@ -195,28 +226,58 @@ struct FriendRequestRow: View {
             
             HStack(spacing: 12) {
                 Button("Accept") {
-                    // TODO: Accept friend request
+                    Task {
+                        await acceptRequest()
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
                 .background(Color.blue)
                 .foregroundColor(.white)
                 .cornerRadius(8)
+                .disabled(isProcessing)
                 
                 Button("Decline") {
-                    // TODO: Reject friend request
+                    Task {
+                        await rejectRequest()
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
                 .background(Color.gray.opacity(0.3))
                 .foregroundColor(.white)
                 .cornerRadius(8)
+                .disabled(isProcessing)
                 
                 Spacer()
             }
         }
         .padding(.vertical, 8)
         .background(Color.black)
+    }
+    
+    private func acceptRequest() async {
+        isProcessing = true
+        do {
+            _ = try await friendService.acceptFriendRequest(requestId: request.id)
+            // Refresh the list after accepting
+            await friendService.fetchFriendRequests()
+        } catch {
+            print("❌ Failed to accept friend request: \(error)")
+        }
+        isProcessing = false
+    }
+    
+    private func rejectRequest() async {
+        isProcessing = true
+        do {
+            _ = try await friendService.rejectFriendRequest(requestId: request.id)
+            // Refresh the list after rejecting
+            await friendService.fetchFriendRequests()
+        } catch {
+            print("❌ Failed to reject friend request: \(error)")
+        }
+        isProcessing = false
     }
 }
 
@@ -236,11 +297,7 @@ struct Friend: Identifiable {
     }
 }
 
-struct FriendRequest: Identifiable {
-    let id = UUID()
-    let name: String
-    let mutualFriends: Int
-}
+
 
 #Preview {
     FriendsView()

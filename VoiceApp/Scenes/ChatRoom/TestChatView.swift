@@ -262,7 +262,7 @@ struct TestChatView: View {
             print("✅ [TestChatView] Joined room: \(updatedRoom.name)")
             
             // Step 3: Create participant and connect to LiveKit
-            let testParticipant = MatchParticipant(
+            let testParticipant = ChatParticipant(
                 userId: UUID().uuidString,
                 displayName: "Test User",
                 isCurrentUser: true,

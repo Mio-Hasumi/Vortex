@@ -22,6 +22,7 @@ struct HashtagScreen: View {
     @State private var isIntentionallyLeaving = false
     @State private var participantLeftMessage: String? = nil
     @State private var aiHostWelcomeMessage: String? = nil
+    @State private var showPostChatScreen = false
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -59,7 +60,7 @@ struct HashtagScreen: View {
                 .padding(.trailing, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
 
-            
+            Text("Voice Chat")
                 .font(.custom("Rajdhani", size: 40))
                 .foregroundColor(.white)
                 .padding(.bottom, 150)
@@ -323,11 +324,14 @@ struct HashtagScreen: View {
                     print("🔄 [CHAT] Resetting navigation state to return home")
                     VoiceMatchingService.shared.resetNavigation()
                     
-                    // Navigate back to home screen
-                    dismiss()
+                    // Show post-chat screen instead of going directly to home
+                    showPostChatScreen = true
                 }
         } message: {
             Text("Are you sure you want to end this call? You'll be returned to the home screen.")
+        }
+        .sheet(isPresented: $showPostChatScreen) {
+            PostChatView(participants: liveKitService.participants)
         }
     }
 }
@@ -354,8 +358,8 @@ struct HashtagScreen: View {
 
 
 // Participant view component
-private struct ParticipantView: View {
-    let participant: MatchParticipant
+    private struct ParticipantView: View {
+        let participant: ChatParticipant
     let isConnected: Bool
     
     // Computed property for profile image
@@ -456,7 +460,7 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable, WebSocketDelega
     @Published var isConnected = false
     @Published var isMuted = false
     @Published var isAIListening = false  // AI starts disabled by default
-    @Published var participants: [MatchParticipant] = []
+    @Published var participants: [ChatParticipant] = []
     @Published var connectionState: String = "Disconnected"
     
     // MARK: - LiveKit Integration
@@ -598,7 +602,7 @@ class LiveKitCallService: ObservableObject, @unchecked Sendable, WebSocketDelega
         print("📡 [WebSocket] Disconnected from room WebSocket")
     }
     
-    func connect(roomId: String, token: String, participants: [MatchParticipant], livekitName: String, userId: String) async {
+    func connect(roomId: String, token: String, participants: [ChatParticipant], livekitName: String, userId: String) async {
         print("🔗 [LiveKit] Connecting to room: \(roomId)")
         
         // Store room information for WebSocket
@@ -816,7 +820,7 @@ extension LiveKitCallService: RoomDelegate {
                     print("👤 [PARTICIPANT DEBUG] Regular user detected: \(displayName)")
                 }
                 
-                let newParticipant = MatchParticipant(
+                let newParticipant = ChatParticipant(
                     userId: cleanParticipantId,
                     displayName: displayName,
                     isCurrentUser: false,
@@ -864,7 +868,7 @@ extension LiveKitCallService: RoomDelegate {
             // Find and remove the participant from our list
             // Try both with and without "user_" prefix to handle LiveKit format differences
             let possibleIds = [participantId, participantId.replacingOccurrences(of: "user_", with: "")]
-            var removedParticipant: MatchParticipant?
+            var removedParticipant: ChatParticipant?
             
             for possibleId in possibleIds {
                 if let index = self.participants.firstIndex(where: { $0.userId == possibleId }) {
@@ -939,9 +943,9 @@ extension LiveKitCallService: RoomDelegate {
         livekitName: "preview_room",  // Add missing parameter
         userId: "user1",              // Add missing parameter
         participants: [
-            MatchParticipant(userId: "user1", displayName: "You", isCurrentUser: true),
-            MatchParticipant(userId: "user2", displayName: "Alex", isCurrentUser: false),
-            MatchParticipant(userId: "host_vortex", displayName: "Vortex", isCurrentUser: false, isAIHost: true)
+            ChatParticipant(userId: "user1", displayName: "You", isCurrentUser: true),
+            ChatParticipant(userId: "user2", displayName: "Alex", isCurrentUser: false),
+            ChatParticipant(userId: "host_vortex", displayName: "Vortex", isCurrentUser: false, isAIHost: true)
         ],
         topics: ["Artificial Intelligence", "Technology"],
         hashtags: ["#AI", "#Tech"]
