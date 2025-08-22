@@ -131,13 +131,57 @@ struct SidebarContent: View {
                 VStack(spacing: 16) {
                     // Profile image
                     Button(action: { showProfile = true }) {
-                        CachedAsyncImage(url: authService.profileImageUrl) { image in
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 80, height: 80)
-                                .clipShape(Circle())
-                        } placeholder: {
+                        if let profileImageUrl = authService.profileImageUrl, !profileImageUrl.isEmpty {
+                            // Handle base64 images
+                            if profileImageUrl.hasPrefix("data:image/") {
+                                // Check if image is already cached
+                                if let cachedImage = ImageCacheService.shared.cache.object(forKey: profileImageUrl as NSString) {
+                                    Image(uiImage: cachedImage)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 80, height: 80)
+                                        .clipShape(Circle())
+                                } else {
+                                    // Show loading state while processing base64
+                                    ShimmerPlaceholder(
+                                        size: CGSize(width: 80, height: 80),
+                                        cornerRadius: 40
+                                    )
+                                    .overlay(
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    )
+                                    .onAppear {
+                                        Task {
+                                            if let image = await ImageCacheService.shared.loadImage(from: profileImageUrl) {
+                                                // Cache the image for future use
+                                                ImageCacheService.shared.cache.setObject(image, forKey: profileImageUrl as NSString)
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Handle regular URLs
+                                CachedAsyncImage(url: profileImageUrl) { image in
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 80, height: 80)
+                                        .clipShape(Circle())
+                                } placeholder: {
+                                    ShimmerPlaceholder(
+                                        size: CGSize(width: 80, height: 80),
+                                        cornerRadius: 40
+                                    )
+                                    .overlay(
+                                        Image(systemName: "person.fill")
+                                            .font(.system(size: 35))
+                                            .foregroundColor(.white)
+                                    )
+                                }
+                            }
+                        } else {
+                            // No profile image, show placeholder
                             ShimmerPlaceholder(
                                 size: CGSize(width: 80, height: 80),
                                 cornerRadius: 40

@@ -322,7 +322,7 @@ async def upload_profile_picture(
     user_repo = Depends(get_user_repository)
 ):
     """
-    Upload profile picture (requires Firebase ID Token)
+    Upload profile picture and store in Firebase user document (requires Firebase ID Token)
     """
     try:
         # Validate file type
@@ -333,35 +333,29 @@ async def upload_profile_picture(
                 detail=f"Unsupported image format. Allowed: {', '.join(allowed_types)}"
             )
         
-        # Check file size (max 5MB)
-        max_size = 5 * 1024 * 1024  # 5MB
+        # Check file size (max 2MB for base64 storage)
+        max_size = 2 * 1024 * 1024  # 2MB
         file_content = await profile_picture.read()
         if len(file_content) > max_size:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Image file too large. Maximum size is 5MB."
+                detail="Image file too large. Maximum size is 2MB for profile pictures."
             )
         
-        # Create uploads directory if it doesn't exist
-        uploads_dir = "uploads/profile_pictures"
-        os.makedirs(uploads_dir, exist_ok=True)
+        # Convert to base64
+        import base64
+        image_base64 = base64.b64encode(file_content).decode('utf-8')
         
-        # Generate unique filename
+        # Create data URL for easy display
         file_extension = profile_picture.filename.split(".")[-1] if "." in profile_picture.filename else "jpg"
-        filename = f"{current_user.id}_{uuid.uuid4()}.{file_extension}"
-        file_path = os.path.join(uploads_dir, filename)
+        mime_type = profile_picture.content_type
+        profile_image_url = f"data:{mime_type};base64,{image_base64}"
         
-        # Save file
-        with open(file_path, "wb") as f:
-            f.write(file_content)
-        
-        # Update user profile with image URL
-        # Get the base URL from settings
-        profile_image_url = f"{settings.BASE_URL}/static/profile_pictures/{filename}"
+        # Update user profile with base64 image data
         current_user.profile_image_url = profile_image_url
         current_user.update_profile()
         
-        # Save updated user
+        # Save updated user to Firebase
         updated_user = user_repo.update(current_user)
         
         return ProfilePictureResponse(
@@ -372,7 +366,7 @@ async def upload_profile_picture(
                 display_name=updated_user.display_name,
                 email=updated_user.email,
                 phone_number=updated_user.phone_number,
-                profile_image_url=profile_image_url  # Use the full URL we just created
+                profile_image_url=profile_image_url
             )
         )
         

@@ -36,22 +36,54 @@ struct ProfileView: View {
                                 .frame(width: 120, height: 120)
                                 .clipShape(Circle())
                         } else if let profileImageUrl = authService.profileImageUrl, !profileImageUrl.isEmpty {
-                            CachedAsyncImage(url: profileImageUrl) { image in
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: 120, height: 120)
-                                    .clipShape(Circle())
-                            } placeholder: {
-                                ShimmerPlaceholder(
-                                    size: CGSize(width: 120, height: 120),
-                                    cornerRadius: 60
-                                )
-                                .overlay(
-                                    Image(systemName: "person.fill")
-                                        .font(.system(size: 50))
-                                        .foregroundColor(.white)
-                                )
+                            // Handle base64 images
+                            if profileImageUrl.hasPrefix("data:image/") {
+                                // Check if image is already cached
+                                if let cachedImage = ImageCacheService.shared.cache.object(forKey: profileImageUrl as NSString) {
+                                    Image(uiImage: cachedImage)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 120, height: 120)
+                                        .clipShape(Circle())
+                                } else {
+                                    // Show loading state while processing base64
+                                    ShimmerPlaceholder(
+                                        size: CGSize(width: 120, height: 120),
+                                        cornerRadius: 60
+                                    )
+                                    .overlay(
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    )
+                                    .onAppear {
+                                        Task {
+                                            if let image = await ImageCacheService.shared.loadImage(from: profileImageUrl) {
+                                                await MainActor.run {
+                                                    currentProfileImage = image
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Handle regular URLs
+                                CachedAsyncImage(url: profileImageUrl) { image in
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 120, height: 120)
+                                        .clipShape(Circle())
+                                } placeholder: {
+                                    ShimmerPlaceholder(
+                                        size: CGSize(width: 120, height: 120),
+                                        cornerRadius: 60
+                                    )
+                                    .overlay(
+                                        Image(systemName: "person.fill")
+                                            .font(.system(size: 50))
+                                            .foregroundColor(.white)
+                                    )
+                                }
                             }
                         } else {
                             ShimmerPlaceholder(
@@ -260,8 +292,17 @@ struct ProfileView: View {
     private func refreshProfileImage() {
         // If we have a profile image URL, try to load it
         if let profileImageUrl = authService.profileImageUrl, !profileImageUrl.isEmpty {
-            // The AsyncImage will handle loading the image
-            // We just need to ensure the URL is set
+            // Check if it's a base64 data URL
+            if profileImageUrl.hasPrefix("data:image/") {
+                // Load from base64
+                Task {
+                    if let image = await ImageCacheService.shared.loadImage(from: profileImageUrl) {
+                        await MainActor.run {
+                            currentProfileImage = image
+                        }
+                    }
+                }
+            }
         }
     }
     
