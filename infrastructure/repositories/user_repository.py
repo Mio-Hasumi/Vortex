@@ -203,6 +203,15 @@ class UserRepository:
         """
         try:
             logger.info(f"🔍 Searching users by display name: '{query}' (limit: {limit})")
+            logger.info(f"🔍 Repository: Using collection: '{self.collection_name}'")
+            
+            # Check if collection exists and has documents
+            collection_size = self.firebase.get_collection_size(self.collection_name)
+            logger.info(f"🔍 Repository: Collection '{self.collection_name}' has {collection_size} total documents")
+            
+            if collection_size == 0:
+                logger.warning(f"⚠️ Collection '{self.collection_name}' is empty!")
+                return []
             
             # Since Firebase doesn't support LIKE queries, we'll get all users and filter in memory
             # This is simpler and more reliable for small to medium user bases
@@ -463,22 +472,38 @@ class UserRepository:
         """
         from datetime import datetime
         
-        return User(
-            id=UUID(data["id"]),
-            display_name=data["display_name"],
-            email=data.get("email"),
-            phone_number=data.get("phone_number"),
-            firebase_uid=data["firebase_uid"],  # Firebase Auth UID
-            password_hash=data["password_hash"],
-            push_token=data.get("push_token"),
-            status=UserStatus(data.get("status", UserStatus.OFFLINE.value)),
-            last_seen=datetime.fromisoformat(data["last_seen"]),
-            created_at=datetime.fromisoformat(data["created_at"]),
-            is_active=data.get("is_active", True),
-            profile_image_url=data.get("profile_image_url"),
-            bio=data.get("bio"),
-            preferred_language=data.get("preferred_language", "en"),
-            topic_preferences=data.get("topic_preferences", []),
-            interest_levels=data.get("interest_levels", {}),
-            ai_enabled=data.get("ai_enabled", False),
-        ) 
+        try:
+            # Handle required fields with defaults if missing
+            firebase_uid = data.get("firebase_uid")
+            if not firebase_uid:
+                firebase_uid = f"legacy_user_{data['id']}"  # Generate a default UID
+                logger.warning(f"⚠️ User {data.get('display_name', 'Unknown')} missing firebase_uid, using default")
+            
+            password_hash = data.get("password_hash")
+            if not password_hash:
+                password_hash = "legacy_password_hash"  # Default password hash
+                logger.warning(f"⚠️ User {data.get('display_name', 'Unknown')} missing password_hash, using default")
+            
+            return User(
+                id=UUID(data["id"]),
+                display_name=data["display_name"],
+                email=data.get("email"),
+                phone_number=data.get("phone_number"),
+                firebase_uid=firebase_uid,
+                password_hash=password_hash,
+                push_token=data.get("push_token"),
+                status=UserStatus(data.get("status", UserStatus.OFFLINE.value)),
+                last_seen=datetime.fromisoformat(data.get("last_seen", datetime.now().isoformat())),
+                created_at=datetime.fromisoformat(data.get("created_at", datetime.now().isoformat())),
+                is_active=data.get("is_active", True),
+                profile_image_url=data.get("profile_image_url"),
+                bio=data.get("bio"),
+                preferred_language=data.get("preferred_language", "en"),
+                topic_preferences=data.get("topic_preferences", []),
+                interest_levels=data.get("interest_levels", {}),
+                ai_enabled=data.get("ai_enabled", False),
+            )
+        except Exception as e:
+            logger.error(f"❌ Failed to convert user data to entity: {e}")
+            logger.error(f"   Raw data: {data}")
+            raise 

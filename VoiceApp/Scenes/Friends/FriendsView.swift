@@ -241,12 +241,16 @@ struct FindPeopleView: View {
     
     private func searchUsers(query: String) {
         isSearching = true
+        print("🔍 iOS: Starting search for query: '\(query)'")
         
         Task {
             do {
+                print("🔍 iOS: Making API request to search endpoint...")
                 let response: UserSearchResponse = try await APIService.shared.request(
                     endpoint: APIConfig.Endpoints.searchUsers + "?q=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query)&limit=20"
                 )
+                
+                print("🔍 iOS: Search successful! Found \(response.users.count) users")
                 
                 await MainActor.run {
                     self.searchResults = response.users.map { user in
@@ -260,8 +264,11 @@ struct FindPeopleView: View {
                     self.isSearching = false
                 }
             } catch {
-                print("❌ Failed to search users: \(error)")
+                print("❌ iOS: Failed to search users: \(error)")
+                print("❌ iOS: Error details: \(error.localizedDescription)")
+                
                 await MainActor.run {
+                    print("🔍 iOS: Falling back to mock data...")
                     // Fallback to mock data if API fails
                     self.searchResults = [
                         UserProfile(id: "1", displayName: "Alex Johnson", profilePicture: nil, topics: ["AI", "Technology"]),
