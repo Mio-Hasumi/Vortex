@@ -63,23 +63,37 @@ class FirebaseAuthMiddleware:
         try:
             # Get Firebase ID Token
             token = credentials.credentials
+            logger.info(f"🔑 [Auth] Received token: {token[:20]}...")
             
             # Test mode: Extract test user ID from token
             if test_mode and token.startswith("test_token_"):
                 firebase_uid = token.replace("test_token_", "")
+                logger.info(f"🔑 [Auth] Test mode - Firebase UID: {firebase_uid}")
             else:
                 # Normal mode: Verify Firebase ID Token
-                decoded_token = auth.verify_id_token(token)
-                firebase_uid = decoded_token['uid']
+                logger.info("🔑 [Auth] Verifying Firebase ID Token...")
+                try:
+                    decoded_token = auth.verify_id_token(token)
+                    firebase_uid = decoded_token['uid']
+                    logger.info(f"🔑 [Auth] Token verified successfully - Firebase UID: {firebase_uid}")
+                except Exception as verify_error:
+                    logger.error(f"❌ [Auth] Token verification failed: {verify_error}")
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail=f"Invalid token: {str(verify_error)}",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
             
             # Find user by Firebase UID
+            logger.info(f"🔍 [Auth] Looking up user with Firebase UID: {firebase_uid}")
             user = self.user_repository.find_by_firebase_uid(firebase_uid)
             
             if not user:
-                logger.warning(f"User not found for Firebase UID: {firebase_uid}")
+                logger.warning(f"❌ [Auth] User not found for Firebase UID: {firebase_uid}")
+                logger.warning(f"❌ [Auth] This usually means the user exists in Firebase Auth but not in our database")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="User not found",
+                    detail="User not found in database",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
             
@@ -91,7 +105,7 @@ class FirebaseAuthMiddleware:
                     headers={"WWW-Authenticate": "Bearer"},
                 )
             
-            logger.info(f"User authenticated successfully: {user.id}")
+            logger.info(f"✅ [Auth] User authenticated successfully: {user.id} ({user.display_name})")
             return user
             
         except auth.InvalidIdTokenError:

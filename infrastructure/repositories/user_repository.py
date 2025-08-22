@@ -144,20 +144,27 @@ class UserRepository:
             
             # If the user does not exist, create a new user record for the real Firebase user
             # This applies to users logging in for the first time
-            logger.info(f"Creating new user for Firebase UID: {firebase_uid}")
+            logger.info(f"🆕 [UserRepo] Creating new user for Firebase UID: {firebase_uid}")
             from uuid import uuid4
+            from datetime import datetime, timezone
+            
             new_user = User(
                 id=uuid4(),  # Generate a new UUID
                 firebase_uid=firebase_uid,
+                password_hash="firebase_user_no_password",  # Default password hash for Firebase users
                 email=f"user_{firebase_uid}@firebase.com",  # Temporary email, can be updated later
                 display_name=f"User {firebase_uid[:8]}",
                 is_active=True,
                 status=UserStatus.ONLINE,
-                password_hash=""  # Default empty password hash
+                last_seen=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc)
             )
             
             # Save to database
+            logger.info(f"💾 [UserRepo] Saving new user to database...")
             saved_user = self.save(new_user)
+            logger.info(f"✅ [UserRepo] New user created and saved: {saved_user.id}")
             return saved_user
             
         except Exception as e:

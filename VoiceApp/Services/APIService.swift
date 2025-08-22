@@ -61,6 +61,9 @@ class APIService {
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token = authToken {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            print("🔑 [APIService] Authorization header added for endpoint: \(endpoint)")
+        } else {
+            print("⚠️ [APIService] No auth token available for endpoint: \(endpoint)")
         }
         
         // Add custom headers

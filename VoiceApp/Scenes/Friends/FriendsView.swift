@@ -9,7 +9,7 @@ struct FriendsView: View {
             VStack {
                 // Tab Selector
                 Picker("", selection: $selectedTab) {
-                    Text("Friends").tag(0)
+                    Text("Friends (\(FriendsService.shared.sortedFriends.count))").tag(0)
                     Text("Requests").tag(1)
                     Text("Find People").tag(2)
                 }
@@ -34,6 +34,19 @@ struct FriendsView: View {
             .navigationTitle("Friends")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if selectedTab == 0 { // Only show refresh button on Friends tab
+                        Button(action: {
+                            Task {
+                                await FriendsService.shared.fetchFriends()
+                            }
+                        }) {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .foregroundColor(.blue)
+                    }
+                }
+                
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
                         dismiss()
@@ -46,18 +59,78 @@ struct FriendsView: View {
 }
 
 struct FriendsListView: View {
-    let friends = [
-        Friend(name: "Alice Johnson", status: "Online", lastSeen: "Active now"),
-        Friend(name: "Bob Smith", status: "Away", lastSeen: "2 hours ago"),
-        Friend(name: "Carol Williams", status: "Offline", lastSeen: "Yesterday")
-    ]
+    @StateObject private var friendsService = FriendsService.shared
     
     var body: some View {
-        List(friends) { friend in
-            FriendRow(friend: friend)
+        VStack {
+            if friendsService.isLoading {
+                ProgressView("Loading friends...")
+                    .foregroundColor(.white)
+                    .padding()
+            } else if let error = friendsService.error {
+                VStack(spacing: 20) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 60))
+                        .foregroundColor(.red)
+                    
+                    Text("Error Loading Friends")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                    
+                    Text(error)
+                        .font(.body)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                    
+                    Button("Retry") {
+                        Task {
+                            await friendsService.fetchFriends()
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                }
+                .padding(.top, 60)
+            } else if friendsService.friends.isEmpty {
+                VStack(spacing: 20) {
+                    Image(systemName: "person.2")
+                        .font(.system(size: 60))
+                        .foregroundColor(.gray)
+                    
+                    Text("No Friends Yet")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                    
+                    Text("Start adding friends to see them here!")
+                        .font(.body)
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
+                .padding(.top, 60)
+            } else {
+                List(friendsService.sortedFriends) { friend in
+                    FriendRow(friend: friend)
+                }
+                .listStyle(PlainListStyle())
+                .background(Color.black)
+                .refreshable {
+                    await friendsService.fetchFriends()
+                }
+            }
         }
-        .listStyle(PlainListStyle())
         .background(Color.black)
+        .onAppear {
+            Task {
+                await friendsService.fetchFriends()
+            }
+        }
     }
 }
 
@@ -428,7 +501,7 @@ struct UserSearchRow: View {
 }
 
 struct FriendRow: View {
-    let friend: Friend
+    let friend: FriendData
     
     var body: some View {
         HStack(spacing: 12) {
@@ -436,31 +509,54 @@ struct FriendRow: View {
                 .fill(Color.blue.opacity(0.8))
                 .frame(width: 50, height: 50)
                 .overlay(
-                    Text(String(friend.name.prefix(1)))
+                    Text(String(friend.display_name.prefix(1)))
                         .font(.title3)
                         .fontWeight(.bold)
                         .foregroundColor(.white)
                 )
             
             VStack(alignment: .leading, spacing: 4) {
-                Text(friend.name)
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .foregroundColor(.white)
+                HStack(spacing: 8) {
+                    Text(friend.display_name)
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white)
+                    
+                    if friend.isRecentlyActive {
+                        Text("🟢")
+                            .font(.caption)
+                    }
+                }
                 
-                Text(friend.lastSeen)
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                HStack(spacing: 8) {
+                    Text(friend.lastSeenText)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    
+                    if friend.friendship_status == "accepted" {
+                        Text("• Friend")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                }
             }
             
             Spacer()
             
             Circle()
-                .fill(friend.statusColor)
+                .fill(statusColor)
                 .frame(width: 12, height: 12)
         }
         .padding(.vertical, 8)
         .background(Color.black)
+    }
+    
+    private var statusColor: Color {
+        switch friend.status.lowercased() {
+        case "online": return .green
+        case "away": return .yellow
+        default: return .gray
+        }
     }
 }
 
@@ -554,20 +650,7 @@ struct FriendRequestRow: View {
 }
 
 // MARK: - Models
-struct Friend: Identifiable {
-    let id = UUID()
-    let name: String
-    let status: String
-    let lastSeen: String
-    
-    var statusColor: Color {
-        switch status {
-        case "Online": return .green
-        case "Away": return .yellow
-        default: return .gray
-        }
-    }
-}
+// Friend model moved to FriendsService.swift
 
 
 
