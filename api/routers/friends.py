@@ -367,11 +367,14 @@ async def search_users(
             }
         
         # Search users by display name
+        logger.info(f"🔍 Backend: Searching for users with query: '{q.strip()}'")
         search_results = user_repo.search_by_display_name(
             query=q.strip(),
             limit=limit,
             exclude_user_id=current_user.id
         )
+        
+        logger.info(f"🔍 Backend: Found {len(search_results)} users from repository")
         
         # Get friendship status for each user
         user_responses = []

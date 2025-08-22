@@ -204,35 +204,44 @@ class UserRepository:
         try:
             logger.info(f"🔍 Searching users by display name: '{query}' (limit: {limit})")
             
-            # Firebase doesn't support LIKE queries directly, so we use range queries
-            # This will match names that start with the query string
-            query_lower = query.lower()
-            
-            # Use range query to find names that start with the query
-            users = self.firebase.query_documents(
+            # Since Firebase doesn't support LIKE queries, we'll get all users and filter in memory
+            # This is simpler and more reliable for small to medium user bases
+            all_users = self.firebase.query_documents(
                 self.collection_name,
-                filters=[
-                    {"field": "display_name_lower", "operator": ">=", "value": query_lower},
-                    {"field": "display_name_lower", "operator": "<", "value": query_lower + "\uf8ff"}
-                ],
-                limit=limit + 1 if exclude_user_id else limit  # Get one extra in case we need to exclude current user
+                limit=200  # Reasonable limit to avoid performance issues
             )
             
+            logger.info(f"🔍 Repository: Retrieved {len(all_users)} total users from database")
+            
+            query_lower = query.lower().strip()
+            if len(query_lower) < 2:
+                logger.warning(f"⚠️ Search query too short: '{query}' (minimum 2 characters)")
+                return []
+            
             results = []
-            for user_data in users:
-                user = self._dict_to_entity(user_data)
-                
-                # Exclude current user if specified
-                if exclude_user_id and user.id == exclude_user_id:
+            for user_data in all_users:
+                try:
+                    user = self._dict_to_entity(user_data)
+                    logger.info(f"🔍 Repository: Processing user: {user.display_name} (ID: {user.id})")
+                    
+                    # Exclude current user if specified
+                    if exclude_user_id and user.id == exclude_user_id:
+                        logger.info(f"🔍 Repository: Excluding current user: {user.display_name}")
+                        continue
+                    
+                    # Check if display name contains the search query (case-insensitive)
+                    if query_lower in user.display_name.lower():
+                        logger.info(f"🔍 Repository: ✅ User matches query: {user.display_name}")
+                        results.append(user)
+                        
+                        # Stop if we have enough results
+                        if len(results) >= limit:
+                            break
+                    else:
+                        logger.info(f"🔍 Repository: ❌ User doesn't match query: {user.display_name} (query: '{query_lower}')")
+                except Exception as user_error:
+                    logger.error(f"🔍 Repository: Error processing user data: {user_error}")
                     continue
-                    
-                # Additional filtering for partial matches (since Firebase range query is limited)
-                if query_lower in user.display_name.lower():
-                    results.append(user)
-                    
-                # Stop if we have enough results
-                if len(results) >= limit:
-                    break
             
             logger.info(f"✅ Found {len(results)} users matching '{query}'")
             return results
@@ -425,7 +434,6 @@ class UserRepository:
         return {
             "id": str(user.id),
             "display_name": user.display_name,
-            "display_name_lower": user.display_name.lower(),  # For efficient searching
             "email": user.email.lower() if user.email else None,  # Store email in lowercase
             "phone_number": user.phone_number,
             "firebase_uid": user.firebase_uid,  # Firebase Auth UID
