@@ -49,6 +49,16 @@ class ImageCacheService: ObservableObject {
     func clearCache() {
         cache.removeAllObjects()
     }
+    
+    private func loadBase64Image(from dataURL: String) -> UIImage? {
+        // Extract base64 data from data URL
+        // Format: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQ...
+        guard let base64Start = dataURL.range(of: ";base64,") else { return nil }
+        let base64Data = String(dataURL[base64Start.upperBound...])
+        
+        guard let imageData = Data(base64Encoded: base64Data) else { return nil }
+        return UIImage(data: imageData)
+    }
 }
 
 class ImageLoader {
@@ -62,16 +72,6 @@ class ImageLoader {
             print("Failed to load image from \(urlString): \(error)")
             return nil
         }
-    }
-    
-    private func loadBase64Image(from dataURL: String) -> UIImage? {
-        // Extract base64 data from data URL
-        // Format: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQ...
-        guard let base64Start = dataURL.range(of: ";base64,") else { return nil }
-        let base64Data = String(dataURL[base64Start.upperBound...])
-        
-        guard let imageData = Data(base64Encoded: base64Data) else { return nil }
-        return UIImage(data: imageData)
     }
 }
 
