@@ -60,8 +60,16 @@ def get_redis_service():
 
 
 
+# Test endpoint to verify authentication
+@router.get("/test-auth")
+async def test_auth(current_user: User = Depends(get_current_user)):
+    """Test endpoint to verify authentication is working"""
+    logger.info(f"🔍 [Friends] Test auth endpoint called by user: {current_user.display_name}")
+    return {"message": "Authentication working", "user": current_user.display_name}
+
 # Friends endpoints
-@router.get("/", response_model=FriendListResponse)
+@router.get("", response_model=FriendListResponse)  # No trailing slash
+@router.get("/", response_model=FriendListResponse)  # With trailing slash
 async def get_friends(
     status: Optional[str] = None,
     limit: int = 50,
@@ -74,6 +82,8 @@ async def get_friends(
     """
     Get user's friends list with real-time online status
     """
+    logger.info(f"🔍 [Friends] GET /friends called by user: {current_user.display_name} (ID: {current_user.id})")
+    
     try:
         current_user_id = current_user.id
         
@@ -97,11 +107,14 @@ async def get_friends(
                     friendship_status=friendship.status.name.lower()
                 ))
         
+        logger.info(f"✅ [Friends] Successfully returned {len(friend_responses)} friends for user {current_user.display_name}")
+        
         return FriendListResponse(
             friends=friend_responses,
             total=len(friend_responses)
         )
     except Exception as e:
+        logger.error(f"❌ [Friends] Error getting friends for user {current_user.display_name}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
