@@ -6,11 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import List, Optional
 from uuid import UUID
+import logging
 
 from infrastructure.container import container
 from infrastructure.middleware.firebase_auth_middleware import get_current_user
 from domain.entities import FriendshipStatus, User
 from infrastructure.repositories.friend_repository import new_friendship
+
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
