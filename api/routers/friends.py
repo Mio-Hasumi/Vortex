@@ -58,6 +58,8 @@ def get_user_repository():
 def get_redis_service():
     return container.get_redis_service()
 
+
+
 # Friends endpoints
 @router.get("/", response_model=FriendListResponse)
 async def get_friends(
