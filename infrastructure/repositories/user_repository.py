@@ -206,21 +206,30 @@ class UserRepository:
             logger.info(f"🔍 Repository: Using collection: '{self.collection_name}'")
             
             # Check if collection exists and has documents
-            collection_size = self.firebase.get_collection_size(self.collection_name)
-            logger.info(f"🔍 Repository: Collection '{self.collection_name}' has {collection_size} total documents")
-            
-            if collection_size == 0:
-                logger.warning(f"⚠️ Collection '{self.collection_name}' is empty!")
-                return []
+            try:
+                collection_size = self.firebase.get_collection_size(self.collection_name)
+                logger.info(f"🔍 Repository: Collection '{self.collection_name}' has {collection_size} total documents")
+                
+                if collection_size == 0:
+                    logger.warning(f"⚠️ Collection '{self.collection_name}' is empty!")
+                    return []
+            except Exception as collection_error:
+                logger.error(f"❌ Failed to check collection size: {collection_error}")
+                logger.warning(f"⚠️ Proceeding with search anyway...")
             
             # Since Firebase doesn't support LIKE queries, we'll get all users and filter in memory
             # This is simpler and more reliable for small to medium user bases
-            all_users = self.firebase.query_documents(
-                self.collection_name,
-                limit=200  # Reasonable limit to avoid performance issues
-            )
-            
-            logger.info(f"🔍 Repository: Retrieved {len(all_users)} total users from database")
+            try:
+                all_users = self.firebase.query_documents(
+                    self.collection_name,
+                    limit=200  # Reasonable limit to avoid performance issues
+                )
+                logger.info(f"🔍 Repository: Retrieved {len(all_users)} total users from database")
+            except Exception as firebase_error:
+                logger.error(f"❌ Firebase query failed: {firebase_error}")
+                import traceback
+                logger.error(f"❌ Firebase error traceback: {traceback.format_exc()}")
+                return []
             
             query_lower = query.lower().strip()
             if len(query_lower) < 2:
@@ -257,6 +266,8 @@ class UserRepository:
             
         except Exception as e:
             logger.error(f"❌ Failed to search users by display name '{query}': {e}")
+            import traceback
+            logger.error(f"❌ Full traceback: {traceback.format_exc()}")
             return []
     
     def find_users_by_interests(self, interests: List[str], limit: int = 20, exclude_user_id: UUID = None, min_common_interests: int = 1) -> List[dict]:
