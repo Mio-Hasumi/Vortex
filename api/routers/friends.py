@@ -22,6 +22,7 @@ router = APIRouter()
 class FriendResponse(BaseModel):
     user_id: str
     display_name: str
+    profile_image_url: Optional[str] = None
     status: str  # online, offline, in_call
     last_seen: Optional[str]
     friendship_status: str  # pending, accepted, blocked
@@ -30,8 +31,10 @@ class FriendRequestResponse(BaseModel):
     id: str
     from_user_id: str
     from_display_name: str
+    from_profile_image_url: Optional[str] = None
     to_user_id: str
     to_display_name: str
+    to_profile_image_url: Optional[str] = None
     status: str  # pending, accepted, rejected
     created_at: str
     message: Optional[str] = None
@@ -102,6 +105,7 @@ async def get_friends(
                 friend_responses.append(FriendResponse(
                     user_id=str(friendship.friend_id),
                     display_name=friend_user.display_name,
+                    profile_image_url=friend_user.profile_image_url,
                     status=status,
                     last_seen=friendship.created_at.isoformat(),
                     friendship_status=friendship.status.name.lower()
@@ -155,6 +159,7 @@ async def get_friend_requests(
     limit: int = 20,
     offset: int = 0,
     friend_repo = Depends(get_friend_repository),
+    user_repo = Depends(get_user_repository),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -170,14 +175,19 @@ async def get_friend_requests(
         for friendship in pending_requests:
             # Determine if this is a received or sent request
             is_received = (friendship.friend_id == current_user_id)
-            
+
             if (type == "received" and is_received) or (type == "sent" and not is_received):
+                from_user = user_repo.find_by_id(friendship.user_id)
+                to_user = user_repo.find_by_id(friendship.friend_id)
+
                 request_responses.append(FriendRequestResponse(
                     id=str(friendship.id),
                     from_user_id=str(friendship.user_id),
-                    from_display_name="User",  # Could be enhanced with user lookup
-                    to_user_id=str(friendship.friend_id), 
-                    to_display_name="Friend",  # Could be enhanced with user lookup
+                    from_display_name=from_user.display_name if from_user else "Unknown",
+                    from_profile_image_url=from_user.profile_image_url if from_user else None,
+                    to_user_id=str(friendship.friend_id),
+                    to_display_name=to_user.display_name if to_user else "Unknown",
+                    to_profile_image_url=to_user.profile_image_url if to_user else None,
                     status=friendship.status.name.lower(),
                     created_at=friendship.created_at.isoformat(),
                     message=friendship.message
