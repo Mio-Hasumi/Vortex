@@ -116,6 +116,7 @@ struct FriendsListResponse: Codable {
 struct FriendData: Codable, Identifiable {
     let user_id: String
     let display_name: String
+    let profile_image_url: String?
     let status: String
     let last_seen: String
     let friendship_status: String
