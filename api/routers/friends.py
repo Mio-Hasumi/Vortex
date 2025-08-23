@@ -95,15 +95,20 @@ async def get_friends(
         
         friend_responses = []
         for friendship in friendships:
+            # Determine who the friend is (could be user_id or friend_id)
+            friend_user_id = friendship.friend_id if friendship.user_id == current_user_id else friendship.user_id
+            
             # Get friend's user info
-            friend_user = user_repo.find_by_id(friendship.friend_id)
+            friend_user = user_repo.find_by_id(friend_user_id)
             if friend_user:
                 # Get real online status from Redis
-                is_online = redis_service.is_user_online(friendship.friend_id)
+                is_online = redis_service.is_user_online(friend_user_id)
                 status = "online" if is_online else "offline"
                 
+                logger.info(f"🔍 [Friends] Processing friend: {friend_user.display_name} (ID: {friend_user_id})")
+                
                 friend_responses.append(FriendResponse(
-                    user_id=str(friendship.friend_id),
+                    user_id=str(friend_user_id),
                     display_name=friend_user.display_name,
                     profile_image_url=friend_user.profile_image_url,
                     status=status,
@@ -206,37 +211,40 @@ async def get_friend_requests(
 @router.post("/requests/{request_id}/accept")
 async def accept_friend_request(
     request_id: str,
-    friend_repo = Depends(get_friend_repository)
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Accept a friend request
     """
     try:
+        logger.info(f"🔍 [Friends] User {current_user.display_name} accepting friend request: {request_id}")
+        
         request_uuid = UUID(request_id)
         
         # Get the friendship request
         friendship_request = friend_repo.find_friendship_by_id(request_uuid)
         if not friendship_request:
+            logger.error(f"❌ [Friends] Friend request not found: {request_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Friend request not found"
             )
         
+        logger.info(f"🔍 [Friends] Found friendship request from user {friendship_request.user_id} to {friendship_request.friend_id}")
+        
         # Update request status to accepted
-        friend_repo.update_friendship_status(request_uuid, FriendshipStatus.ACCEPTED)
+        success = friend_repo.update_friendship_status(request_uuid, FriendshipStatus.ACCEPTED)
         
-        # Create reverse friendship relationship
-        reverse_friendship = new_friendship(
-            user_id=friendship_request.friend_id,
-            friend_id=friendship_request.user_id
-        )
-        reverse_friendship.status = FriendshipStatus.ACCEPTED
-        
-        # Save reverse friendship
-        friend_repo.save_friendship(reverse_friendship)
+        if success:
+            logger.info(f"✅ [Friends] Successfully accepted friend request: {request_id}")
+            logger.info(f"✅ [Friends] Friendship created between {friendship_request.user_id} and {friendship_request.friend_id}")
+        else:
+            logger.error(f"❌ [Friends] Failed to update friendship status: {request_id}")
         
         return {"message": "Friend request accepted"}
     except Exception as e:
+        logger.error(f"❌ [Friends] Error accepting friend request {request_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)

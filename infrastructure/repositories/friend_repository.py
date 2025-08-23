@@ -51,7 +51,7 @@ class FriendRepository:
     
     def find_friendships_by_user_id(self, user_id: UUID) -> List[Friendship]:
         """
-        Find all friendships for a user
+        Find all friendships for a user (both directions)
         
         Args:
             user_id: User's UUID
@@ -60,7 +60,10 @@ class FriendRepository:
             List of friendship entities
         """
         try:
-            friendships_data = self.firebase.query_documents(
+            logger.info(f"🔍 [FriendRepo] Finding friendships for user: {user_id}")
+            
+            # Find friendships where user is the initiator
+            friendships_as_user = self.firebase.query_documents(
                 self.friends_collection,
                 filters=[
                     {"field": "user_id", "operator": "==", "value": str(user_id)},
@@ -69,7 +72,25 @@ class FriendRepository:
                 order_by="created_at"
             )
             
-            return [self._dict_to_friendship(data) for data in friendships_data]
+            # Find friendships where user is the recipient
+            friendships_as_friend = self.firebase.query_documents(
+                self.friends_collection,
+                filters=[
+                    {"field": "friend_id", "operator": "==", "value": str(user_id)},
+                    {"field": "status", "operator": "==", "value": "accepted"}
+                ],
+                order_by="created_at"
+            )
+            
+            logger.info(f"🔍 [FriendRepo] Found {len(friendships_as_user)} friendships as user, {len(friendships_as_friend)} as friend")
+            
+            # Combine both lists
+            all_friendships_data = friendships_as_user + friendships_as_friend
+            friendships = [self._dict_to_friendship(data) for data in all_friendships_data]
+            
+            logger.info(f"✅ [FriendRepo] Total friendships found: {len(friendships)}")
+            
+            return friendships
             
         except Exception as e:
             logger.error(f"❌ Failed to find friendships for user {user_id}: {e}")
