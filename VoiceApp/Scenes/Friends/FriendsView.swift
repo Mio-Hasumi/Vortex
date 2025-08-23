@@ -505,15 +505,34 @@ struct FriendRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            Circle()
-                .fill(Color.blue.opacity(0.8))
+            if let url = friend.profile_image_url, !url.isEmpty {
+                CachedAsyncImage(url: url) { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } placeholder: {
+                    Circle()
+                        .fill(Color.blue.opacity(0.8))
+                        .overlay(
+                            Text(String(friend.display_name.prefix(1)))
+                                .font(.title3)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                        )
+                }
                 .frame(width: 50, height: 50)
-                .overlay(
-                    Text(String(friend.display_name.prefix(1)))
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                )
+                .clipShape(Circle())
+            } else {
+                Circle()
+                    .fill(Color.blue.opacity(0.8))
+                    .frame(width: 50, height: 50)
+                    .overlay(
+                        Text(String(friend.display_name.prefix(1)))
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                    )
+            }
             
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
@@ -568,15 +587,34 @@ struct FriendRequestRow: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                Circle()
-                    .fill(Color.purple.opacity(0.8))
+                if let url = request.from_profile_image_url, !url.isEmpty {
+                    CachedAsyncImage(url: url) { image in
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } placeholder: {
+                        Circle()
+                            .fill(Color.purple.opacity(0.8))
+                            .overlay(
+                                Text(String(request.from_display_name.prefix(1)))
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+                            )
+                    }
                     .frame(width: 50, height: 50)
-                    .overlay(
-                        Text(String(request.from_display_name.prefix(1)))
-                            .font(.title3)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                    )
+                    .clipShape(Circle())
+                } else {
+                    Circle()
+                        .fill(Color.purple.opacity(0.8))
+                        .frame(width: 50, height: 50)
+                        .overlay(
+                            Text(String(request.from_display_name.prefix(1)))
+                                .font(.title3)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                        )
+                }
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(request.from_display_name)
@@ -625,19 +663,20 @@ struct FriendRequestRow: View {
     }
     
     private func acceptRequest() async {
-        isProcessing = true
+        await MainActor.run { isProcessing = true }
         do {
             _ = try await friendService.acceptFriendRequest(requestId: request.id)
-            // Refresh the list after accepting
+            // Refresh friend requests and friends list
             await friendService.fetchFriendRequests()
+            await FriendsService.shared.fetchFriends()
         } catch {
             print("❌ Failed to accept friend request: \(error)")
         }
-        isProcessing = false
+        await MainActor.run { isProcessing = false }
     }
-    
+
     private func rejectRequest() async {
-        isProcessing = true
+        await MainActor.run { isProcessing = true }
         do {
             _ = try await friendService.rejectFriendRequest(requestId: request.id)
             // Refresh the list after rejecting
@@ -645,7 +684,7 @@ struct FriendRequestRow: View {
         } catch {
             print("❌ Failed to reject friend request: \(error)")
         }
-        isProcessing = false
+        await MainActor.run { isProcessing = false }
     }
 }
 

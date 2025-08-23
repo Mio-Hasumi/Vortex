@@ -76,8 +76,10 @@ struct FriendRequestData: Codable, Identifiable {
     let id: String
     let from_user_id: String
     let from_display_name: String
+    let from_profile_image_url: String?
     let to_user_id: String
     let to_display_name: String
+    let to_profile_image_url: String?
     let status: String
     let created_at: String
     let message: String?
