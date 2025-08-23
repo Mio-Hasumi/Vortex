@@ -91,30 +91,46 @@ async def get_friends(
         current_user_id = current_user.id
         
         # Get friendships from repository
+        logger.info(f"🔍 [Friends] Getting friendships from repository for user: {current_user_id}")
         friendships = friend_repo.find_friendships_by_user_id(current_user_id)
+        logger.info(f"🔍 [Friends] Repository returned {len(friendships)} friendships")
         
         friend_responses = []
-        for friendship in friendships:
+        for i, friendship in enumerate(friendships, 1):
+            logger.info(f"🔍 [Friends] Processing friendship {i}/{len(friendships)}")
+            logger.info(f"🔍 [Friends] Friendship details: user_id={friendship.user_id}, friend_id={friendship.friend_id}, status={friendship.status}")
+            
             # Determine who the friend is (could be user_id or friend_id)
             friend_user_id = friendship.friend_id if friendship.user_id == current_user_id else friendship.user_id
+            logger.info(f"🔍 [Friends] Determined friend_user_id: {friend_user_id}")
             
             # Get friend's user info
+            logger.info(f"🔍 [Friends] Looking up user info for friend: {friend_user_id}")
             friend_user = user_repo.find_by_id(friend_user_id)
+            
             if friend_user:
+                logger.info(f"🔍 [Friends] Found friend user: {friend_user.display_name} (ID: {friend_user_id})")
+                
                 # Get real online status from Redis
                 is_online = redis_service.is_user_online(friend_user_id)
                 status = "online" if is_online else "offline"
+                logger.info(f"🔍 [Friends] Friend online status: {status}")
                 
-                logger.info(f"🔍 [Friends] Processing friend: {friend_user.display_name} (ID: {friend_user_id})")
-                
-                friend_responses.append(FriendResponse(
+                friend_response = FriendResponse(
                     user_id=str(friend_user_id),
                     display_name=friend_user.display_name,
                     profile_image_url=friend_user.profile_image_url,
                     status=status,
                     last_seen=friendship.created_at.isoformat(),
                     friendship_status=friendship.status.name.lower()
-                ))
+                )
+                friend_responses.append(friend_response)
+                logger.info(f"✅ [Friends] Added friend to response: {friend_user.display_name}")
+            else:
+                logger.error(f"❌ [Friends] Could not find user info for friend_user_id: {friend_user_id}")
+                logger.error(f"❌ [Friends] This friendship will be skipped: {friendship.id}")
+        
+        logger.info(f"🔍 [Friends] Final friend_responses count: {len(friend_responses)}")
         
         logger.info(f"✅ [Friends] Successfully returned {len(friend_responses)} friends for user {current_user.display_name}")
         

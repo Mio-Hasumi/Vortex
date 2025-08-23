@@ -5,7 +5,7 @@ Friend Repository implementation using Firebase
 import logging
 from typing import Optional, List
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 
 from domain.entities import Friendship, FriendshipStatus
 from infrastructure.db.firebase import FirebaseAdminService
@@ -61,8 +61,10 @@ class FriendRepository:
         """
         try:
             logger.info(f"🔍 [FriendRepo] Finding friendships for user: {user_id}")
+            logger.info(f"🔍 [FriendRepo] Using collection: '{self.friends_collection}'")
             
             # Find friendships where user is the initiator
+            logger.info(f"🔍 [FriendRepo] Query 1: user_id == {user_id} AND status == 'accepted'")
             friendships_as_user = self.firebase.query_documents(
                 self.friends_collection,
                 filters=[
@@ -71,8 +73,10 @@ class FriendRepository:
                 ],
                 order_by="created_at"
             )
+            logger.info(f"🔍 [FriendRepo] Query 1 returned {len(friendships_as_user)} documents")
             
             # Find friendships where user is the recipient
+            logger.info(f"🔍 [FriendRepo] Query 2: friend_id == {user_id} AND status == 'accepted'")
             friendships_as_friend = self.firebase.query_documents(
                 self.friends_collection,
                 filters=[
@@ -81,19 +85,40 @@ class FriendRepository:
                 ],
                 order_by="created_at"
             )
+            logger.info(f"🔍 [FriendRepo] Query 2 returned {len(friendships_as_friend)} documents")
             
             logger.info(f"🔍 [FriendRepo] Found {len(friendships_as_user)} friendships as user, {len(friendships_as_friend)} as friend")
             
+            # Log raw data for debugging
+            if friendships_as_user:
+                logger.info(f"🔍 [FriendRepo] Sample friendship as user: {friendships_as_user[0]}")
+            if friendships_as_friend:
+                logger.info(f"🔍 [FriendRepo] Sample friendship as friend: {friendships_as_friend[0]}")
+            
             # Combine both lists
             all_friendships_data = friendships_as_user + friendships_as_friend
-            friendships = [self._dict_to_friendship(data) for data in all_friendships_data]
+            logger.info(f"🔍 [FriendRepo] Combined {len(all_friendships_data)} total friendship documents")
             
-            logger.info(f"✅ [FriendRepo] Total friendships found: {len(friendships)}")
+            # Convert to entities
+            friendships = []
+            for i, data in enumerate(all_friendships_data):
+                try:
+                    logger.info(f"🔍 [FriendRepo] Converting document {i+1}: {data.get('id', 'N/A')}")
+                    friendship = self._dict_to_friendship(data)
+                    friendships.append(friendship)
+                    logger.info(f"🔍 [FriendRepo] ✅ Converted friendship: {friendship.user_id} <-> {friendship.friend_id} ({friendship.status})")
+                except Exception as conv_error:
+                    logger.error(f"❌ [FriendRepo] Failed to convert document {i+1}: {conv_error}")
+                    logger.error(f"❌ [FriendRepo] Raw document: {data}")
+            
+            logger.info(f"✅ [FriendRepo] Total friendships converted: {len(friendships)}")
             
             return friendships
             
         except Exception as e:
             logger.error(f"❌ Failed to find friendships for user {user_id}: {e}")
+            import traceback
+            logger.error(f"❌ Full traceback: {traceback.format_exc()}")
             return []
     
     def find_pending_requests_by_user_id(self, user_id: UUID) -> List[Friendship]:
@@ -227,15 +252,81 @@ class FriendRepository:
     
     def _dict_to_friendship(self, data: dict) -> Friendship:
         """Convert dictionary to Friendship entity"""
-        return Friendship(
-            id=UUID(data["id"]),
-            user_id=UUID(data["user_id"]),
-            friend_id=UUID(data["friend_id"]),
-            status=FriendshipStatus[data["status"].upper()],
-            created_at=datetime.fromisoformat(data["created_at"]),
-            accepted_at=datetime.fromisoformat(data["accepted_at"]) if data.get("accepted_at") else None,
-            message=data.get("message")
-        )
+        try:
+            logger.info(f"🔍 [FriendRepo] Converting dict to friendship: {data}")
+            
+            # Check required fields
+            required_fields = ["id", "user_id", "friend_id", "status", "created_at"]
+            for field in required_fields:
+                if field not in data:
+                    raise ValueError(f"Missing required field: {field}")
+            
+            # Convert status
+            status_str = data["status"].upper()
+            logger.info(f"🔍 [FriendRepo] Converting status: '{data['status']}' -> '{status_str}'")
+            
+            # Handle created_at (string)
+            created_at = self._parse_datetime(data["created_at"], "created_at")
+            logger.info(f"🔍 [FriendRepo] Parsed created_at: {created_at}")
+            
+            # Handle accepted_at (could be Firebase timestamp or string)
+            accepted_at = None
+            if data.get("accepted_at"):
+                accepted_at = self._parse_datetime(data["accepted_at"], "accepted_at")
+                logger.info(f"🔍 [FriendRepo] Parsed accepted_at: {accepted_at}")
+            
+            friendship = Friendship(
+                id=UUID(data["id"]),
+                user_id=UUID(data["user_id"]),
+                friend_id=UUID(data["friend_id"]),
+                status=FriendshipStatus[status_str],
+                created_at=created_at,
+                accepted_at=accepted_at,
+                message=data.get("message")
+            )
+            
+            logger.info(f"✅ [FriendRepo] Successfully converted friendship: {friendship.id}")
+            return friendship
+            
+        except Exception as e:
+            logger.error(f"❌ [FriendRepo] Failed to convert dict to friendship: {e}")
+            logger.error(f"❌ [FriendRepo] Raw data: {data}")
+            raise
+    
+    def _parse_datetime(self, value, field_name: str) -> datetime:
+        """Parse datetime from various formats (string, Firebase timestamp)"""
+        try:
+            # If it's already a datetime object, return it
+            if isinstance(value, datetime):
+                return value
+            
+            # If it's a string, parse as ISO format
+            if isinstance(value, str):
+                return datetime.fromisoformat(value)
+            
+            # If it's a Firebase timestamp object
+            if hasattr(value, 'seconds') and hasattr(value, 'nanoseconds'):
+                # Firebase timestamp - convert to datetime
+                timestamp_seconds = value.seconds + (value.nanoseconds / 1e9)
+                return datetime.fromtimestamp(timestamp_seconds, tz=timezone.utc)
+            
+            # If it's a dictionary with _seconds (Firestore timestamp format)
+            if isinstance(value, dict) and '_seconds' in value:
+                timestamp_seconds = value['_seconds']
+                nanoseconds = value.get('_nanoseconds', 0)
+                total_seconds = timestamp_seconds + (nanoseconds / 1e9)
+                return datetime.fromtimestamp(total_seconds, tz=timezone.utc)
+            
+            # Try to parse as timestamp (seconds since epoch)
+            if isinstance(value, (int, float)):
+                return datetime.fromtimestamp(value, tz=timezone.utc)
+                
+            raise ValueError(f"Unknown datetime format for {field_name}: {type(value)} - {value}")
+            
+        except Exception as e:
+            logger.error(f"❌ [FriendRepo] Failed to parse {field_name}: {e}")
+            logger.error(f"❌ [FriendRepo] Value type: {type(value)}, Value: {value}")
+            raise
 
 # Helper function to create a new friendship
 def new_friendship(user_id: UUID, friend_id: UUID, message: str = None) -> Friendship:

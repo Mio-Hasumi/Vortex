@@ -767,7 +767,10 @@ class AuthService: ObservableObject {
         
         let token = try await currentUser.getIDToken(forcingRefresh: true)
         APIService.shared.setAuthToken(token)
-        firebaseToken = token
+        
+        await MainActor.run {
+            firebaseToken = token
+        }
     }
 }
 
