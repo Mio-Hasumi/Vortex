@@ -331,7 +331,8 @@ struct FindPeopleView: View {
                             id: user.user_id,
                             displayName: user.display_name,
                             profilePicture: user.profile_image_url,
-                            topics: user.topic_preferences
+                            topics: user.topic_preferences,
+                            friendshipStatus: user.friendship_status
                         )
                     }
                     self.isSearching = false
@@ -367,7 +368,8 @@ struct FindPeopleView: View {
                             id: user.user_id,
                             displayName: user.display_name,
                             profilePicture: user.profile_image_url,
-                            topics: user.topic_preferences
+                            topics: user.topic_preferences,
+                            friendshipStatus: user.friendship_status
                         )
                     }
                 }
@@ -407,6 +409,15 @@ struct UserProfile: Identifiable {
     let displayName: String
     let profilePicture: String?
     let topics: [String]
+    let friendshipStatus: String
+    
+    init(id: String, displayName: String, profilePicture: String?, topics: [String], friendshipStatus: String = "none") {
+        self.id = id
+        self.displayName = displayName
+        self.profilePicture = profilePicture
+        self.topics = topics
+        self.friendshipStatus = friendshipStatus
+    }
 }
 
 // MARK: - API Response Models
@@ -483,7 +494,85 @@ struct UserSearchRow: View {
             
             Spacer()
             
-            // Plus Icon Button
+            // Action Button based on friendship status
+            actionButton
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(12)
+    }
+    
+    @ViewBuilder
+    private var actionButton: some View {
+        switch user.friendshipStatus {
+        case "friends":
+            // Already friends - show friends indicator
+            HStack(spacing: 4) {
+                Image(systemName: "person.2.fill")
+                    .font(.caption)
+                Text("Friends")
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            .foregroundColor(.green)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.green.opacity(0.2))
+            .cornerRadius(8)
+            
+        case "pending_sent":
+            // Friend request sent - show pending indicator
+            HStack(spacing: 4) {
+                Image(systemName: "clock.fill")
+                    .font(.caption)
+                Text("Pending")
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            .foregroundColor(.orange)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.orange.opacity(0.2))
+            .cornerRadius(8)
+            
+        case "pending_received":
+            // Received friend request - show accept/decline
+            HStack(spacing: 8) {
+                Button("Accept") {
+                    // Handle accept - could navigate to friend requests
+                }
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(6)
+                
+                Button("Decline") {
+                    // Handle decline
+                }
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.gray.opacity(0.3))
+                .foregroundColor(.white)
+                .cornerRadius(6)
+            }
+            
+        case "blocked":
+            // User is blocked
+            Text("Blocked")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.red)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.red.opacity(0.2))
+                .cornerRadius(8)
+            
+        default:
+            // No relationship - show add friend button
             Button(action: {
                 onSendRequest(user.id)
                 isRequestSent = true
@@ -493,10 +582,6 @@ struct UserSearchRow: View {
                     .foregroundColor(isRequestSent ? .green : .blue)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color.gray.opacity(0.1))
-        .cornerRadius(12)
     }
 }
 

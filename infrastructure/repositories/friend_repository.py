@@ -60,11 +60,7 @@ class FriendRepository:
             List of friendship entities
         """
         try:
-            logger.info(f"🔍 [FriendRepo] Finding friendships for user: {user_id}")
-            logger.info(f"🔍 [FriendRepo] Using collection: '{self.friends_collection}'")
-            
             # Find friendships where user is the initiator
-            logger.info(f"🔍 [FriendRepo] Query 1: user_id == {user_id} AND status == 'accepted'")
             friendships_as_user = self.firebase.query_documents(
                 self.friends_collection,
                 filters=[
@@ -73,10 +69,8 @@ class FriendRepository:
                 ],
                 order_by="created_at"
             )
-            logger.info(f"🔍 [FriendRepo] Query 1 returned {len(friendships_as_user)} documents")
             
             # Find friendships where user is the recipient
-            logger.info(f"🔍 [FriendRepo] Query 2: friend_id == {user_id} AND status == 'accepted'")
             friendships_as_friend = self.firebase.query_documents(
                 self.friends_collection,
                 filters=[
@@ -85,33 +79,10 @@ class FriendRepository:
                 ],
                 order_by="created_at"
             )
-            logger.info(f"🔍 [FriendRepo] Query 2 returned {len(friendships_as_friend)} documents")
             
-            logger.info(f"🔍 [FriendRepo] Found {len(friendships_as_user)} friendships as user, {len(friendships_as_friend)} as friend")
-            
-            # Log raw data for debugging
-            if friendships_as_user:
-                logger.info(f"🔍 [FriendRepo] Sample friendship as user: {friendships_as_user[0]}")
-            if friendships_as_friend:
-                logger.info(f"🔍 [FriendRepo] Sample friendship as friend: {friendships_as_friend[0]}")
-            
-            # Combine both lists
+            # Combine both lists and convert to entities
             all_friendships_data = friendships_as_user + friendships_as_friend
-            logger.info(f"🔍 [FriendRepo] Combined {len(all_friendships_data)} total friendship documents")
-            
-            # Convert to entities
-            friendships = []
-            for i, data in enumerate(all_friendships_data):
-                try:
-                    logger.info(f"🔍 [FriendRepo] Converting document {i+1}: {data.get('id', 'N/A')}")
-                    friendship = self._dict_to_friendship(data)
-                    friendships.append(friendship)
-                    logger.info(f"🔍 [FriendRepo] ✅ Converted friendship: {friendship.user_id} <-> {friendship.friend_id} ({friendship.status})")
-                except Exception as conv_error:
-                    logger.error(f"❌ [FriendRepo] Failed to convert document {i+1}: {conv_error}")
-                    logger.error(f"❌ [FriendRepo] Raw document: {data}")
-            
-            logger.info(f"✅ [FriendRepo] Total friendships converted: {len(friendships)}")
+            friendships = [self._dict_to_friendship(data) for data in all_friendships_data]
             
             return friendships
             
@@ -253,8 +224,6 @@ class FriendRepository:
     def _dict_to_friendship(self, data: dict) -> Friendship:
         """Convert dictionary to Friendship entity"""
         try:
-            logger.info(f"🔍 [FriendRepo] Converting dict to friendship: {data}")
-            
             # Check required fields
             required_fields = ["id", "user_id", "friend_id", "status", "created_at"]
             for field in required_fields:
@@ -263,17 +232,14 @@ class FriendRepository:
             
             # Convert status
             status_str = data["status"].upper()
-            logger.info(f"🔍 [FriendRepo] Converting status: '{data['status']}' -> '{status_str}'")
             
             # Handle created_at (string)
             created_at = self._parse_datetime(data["created_at"], "created_at")
-            logger.info(f"🔍 [FriendRepo] Parsed created_at: {created_at}")
             
             # Handle accepted_at (could be Firebase timestamp or string)
             accepted_at = None
             if data.get("accepted_at"):
                 accepted_at = self._parse_datetime(data["accepted_at"], "accepted_at")
-                logger.info(f"🔍 [FriendRepo] Parsed accepted_at: {accepted_at}")
             
             friendship = Friendship(
                 id=UUID(data["id"]),
@@ -285,7 +251,6 @@ class FriendRepository:
                 message=data.get("message")
             )
             
-            logger.info(f"✅ [FriendRepo] Successfully converted friendship: {friendship.id}")
             return friendship
             
         except Exception as e:
