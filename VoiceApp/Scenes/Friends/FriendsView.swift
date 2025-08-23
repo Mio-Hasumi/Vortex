@@ -663,7 +663,7 @@ struct FriendRequestRow: View {
     }
     
     private func acceptRequest() async {
-        isProcessing = true
+        await MainActor.run { isProcessing = true }
         do {
             _ = try await friendService.acceptFriendRequest(requestId: request.id)
             // Refresh friend requests and friends list
@@ -672,11 +672,11 @@ struct FriendRequestRow: View {
         } catch {
             print("❌ Failed to accept friend request: \(error)")
         }
-        isProcessing = false
+        await MainActor.run { isProcessing = false }
     }
-    
+
     private func rejectRequest() async {
-        isProcessing = true
+        await MainActor.run { isProcessing = true }
         do {
             _ = try await friendService.rejectFriendRequest(requestId: request.id)
             // Refresh the list after rejecting
@@ -684,7 +684,7 @@ struct FriendRequestRow: View {
         } catch {
             print("❌ Failed to reject friend request: \(error)")
         }
-        isProcessing = false
+        await MainActor.run { isProcessing = false }
     }
 }
 
