@@ -515,8 +515,6 @@ struct PhoneRegistrationView: View {
     @State private var isLoading = false
     @State private var errorMessage = ""
     @State private var showError = false
-    @State private var showSuccessMessage = false
-    @State private var successMessage = ""
     @State private var currentStep: PhoneRegistrationStep = .phoneInput
     
     enum PhoneRegistrationStep {
@@ -635,13 +633,6 @@ struct PhoneRegistrationView: View {
                     .padding(.horizontal, 40)
             }
             
-            if showSuccessMessage {
-                Text(successMessage)
-                    .foregroundColor(.green)
-                    .font(.caption)
-                    .padding(.horizontal, 40)
-            }
-            
             Button(action: verifyCode) {
                 HStack {
                     if isLoading {
@@ -697,6 +688,11 @@ struct PhoneRegistrationView: View {
     
     // Convert phone number to E.164 format for Firebase
     private func formatPhoneNumberForFirebase(_ phone: String) -> String {
+        // If it already has a + prefix, return as is
+        if phone.hasPrefix("+") {
+            return phone
+        }
+        
         let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
         
         // If it's a US number (10 digits), add +1
@@ -705,6 +701,10 @@ struct PhoneRegistrationView: View {
         }
         // If it already has country code (11+ digits starting with 1), add +
         else if cleaned.count >= 11 && cleaned.hasPrefix("1") {
+            return "+\(cleaned)"
+        }
+        // If it has other country code, add +
+        else if cleaned.count >= 10 {
             return "+\(cleaned)"
         }
         
@@ -1295,6 +1295,11 @@ private func formatPhoneNumber(_ phone: String) -> String {
 
 // Convert phone number to E.164 format for Firebase
 private func formatPhoneNumberForFirebase(_ phone: String) -> String {
+    // If it already has a + prefix, return as is
+    if phone.hasPrefix("+") {
+        return phone
+    }
+    
     let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
     
     // If it's a US number (10 digits), add +1
@@ -1721,6 +1726,11 @@ struct CreateAccountFromPhoneSignInView: View {
     
     // Convert phone number to E.164 format for Firebase
     private func formatPhoneNumberForFirebase(_ phone: String) -> String {
+        // If it already has a + prefix, return as is
+        if phone.hasPrefix("+") {
+            return phone
+        }
+        
         let cleaned = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
         
         // If it's a US number (10 digits), add +1
@@ -1729,6 +1739,10 @@ struct CreateAccountFromPhoneSignInView: View {
         }
         // If it already has country code (11+ digits starting with 1), add +
         else if cleaned.count >= 11 && cleaned.hasPrefix("1") {
+            return "+\(cleaned)"
+        }
+        // If it has other country code, add +
+        else if cleaned.count >= 10 {
             return "+\(cleaned)"
         }
         

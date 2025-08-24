@@ -105,7 +105,9 @@ class FirebaseAuthMiddleware:
                     headers={"WWW-Authenticate": "Bearer"},
                 )
             
+            # Log user details for debugging
             logger.info(f"✅ [Auth] User authenticated successfully: {user.id} ({user.display_name})")
+            logger.info(f"✅ [Auth] User email: {user.email}, phone: {user.phone_number}")
             return user
             
         except auth.InvalidIdTokenError:

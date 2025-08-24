@@ -5,6 +5,7 @@ User Repository implementation using Firebase
 import logging
 from typing import Optional, List
 from uuid import UUID
+from datetime import datetime, timezone
 
 from domain.entities import User, UserStatus
 from infrastructure.db.firebase import FirebaseAdminService
@@ -83,6 +84,11 @@ class UserRepository:
             User entity or None if not found
         """
         try:
+            # Validate email parameter
+            if not email or not isinstance(email, str):
+                logger.warning(f"⚠️ Invalid email parameter: {email}")
+                return None
+                
             users = self.firebase.query_documents(
                 self.collection_name,
                 filters=[{"field": "email", "operator": "==", "value": email.lower()}],
@@ -108,6 +114,11 @@ class UserRepository:
             User entity or None if not found
         """
         try:
+            # Validate phone_number parameter
+            if not phone_number or not isinstance(phone_number, str):
+                logger.warning(f"⚠️ Invalid phone_number parameter: {phone_number}")
+                return None
+                
             users = self.firebase.query_documents(
                 self.collection_name,
                 filters=[{"field": "phone_number", "operator": "==", "value": phone_number}],
@@ -140,32 +151,40 @@ class UserRepository:
             )
             
             if users:
+                logger.info(f"✅ [UserRepo] Found existing user for Firebase UID: {firebase_uid}")
                 return self._dict_to_entity(users[0])
             
             # If the user does not exist, create a new user record for the real Firebase user
             # This applies to users logging in for the first time
             logger.info(f"🆕 [UserRepo] Creating new user for Firebase UID: {firebase_uid}")
             from uuid import uuid4
-            from datetime import datetime, timezone
             
-            new_user = User(
-                id=uuid4(),  # Generate a new UUID
-                firebase_uid=firebase_uid,
-                password_hash="firebase_user_no_password",  # Default password hash for Firebase users
-                email=f"user_{firebase_uid}@firebase.com",  # Temporary email, can be updated later
-                display_name=f"User {firebase_uid[:8]}",
-                is_active=True,
-                status=UserStatus.ONLINE,
-                last_seen=datetime.now(timezone.utc),
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
-            )
-            
-            # Save to database
-            logger.info(f"💾 [UserRepo] Saving new user to database...")
-            saved_user = self.save(new_user)
-            logger.info(f"✅ [UserRepo] New user created and saved: {saved_user.id}")
-            return saved_user
+            try:
+                new_user = User(
+                    id=uuid4(),  # Generate a new UUID
+                    firebase_uid=firebase_uid,
+                    password_hash="firebase_user_no_password",  # Default password hash for Firebase users
+                    email=None,  # Don't create hardcoded email - let it be set by registration
+                    phone_number=None,  # Don't create hardcoded phone - let it be set by registration
+                    display_name=f"User {firebase_uid[:8]}",
+                    is_active=True,
+                    status=UserStatus.ONLINE,
+                    last_seen=datetime.now(timezone.utc),
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc)
+                )
+                
+                logger.info(f"✅ [UserRepo] New user entity created successfully: {new_user.id}")
+                
+                # Save to database
+                logger.info(f"💾 [UserRepo] Saving new user to database...")
+                saved_user = self.save(new_user)
+                logger.info(f"✅ [UserRepo] New user created and saved: {saved_user.id}")
+                return saved_user
+                
+            except Exception as create_error:
+                logger.error(f"❌ [UserRepo] Failed to create new user entity: {create_error}")
+                raise
             
         except Exception as e:
             logger.error(f"❌ Failed to find user by Firebase UID {firebase_uid}: {e}")
@@ -458,25 +477,31 @@ class UserRepository:
         Returns:
             Dictionary representation
         """
-        return {
-            "id": str(user.id),
-            "display_name": user.display_name,
-            "email": user.email.lower() if user.email else None,  # Store email in lowercase
-            "phone_number": user.phone_number,
-            "firebase_uid": user.firebase_uid,  # Firebase Auth UID
-            "password_hash": user.password_hash,
-            "push_token": user.push_token,
-            "status": user.status.value,
-            "last_seen": user.last_seen.isoformat(),
-            "created_at": user.created_at.isoformat(),
-            "is_active": user.is_active,
-            "profile_image_url": user.profile_image_url,
-            "bio": user.bio,
-            "preferred_language": user.preferred_language,
-            "topic_preferences": user.topic_preferences,
-            "interest_levels": user.interest_levels,
-            "ai_enabled": user.ai_enabled,
-        }
+        try:
+            return {
+                "id": str(user.id),
+                "display_name": user.display_name,
+                "email": user.email.lower() if user.email else None,  # Store email in lowercase
+                "phone_number": user.phone_number,
+                "firebase_uid": user.firebase_uid,  # Firebase Auth UID
+                "password_hash": user.password_hash,
+                "push_token": user.push_token,
+                "status": user.status.value if user.status else UserStatus.OFFLINE.value,
+                "last_seen": user.last_seen.isoformat() if user.last_seen else datetime.now(timezone.utc).isoformat(),
+                "created_at": user.created_at.isoformat() if user.created_at else datetime.now(timezone.utc).isoformat(),
+                "updated_at": user.updated_at.isoformat() if user.updated_at else datetime.now(timezone.utc).isoformat(),
+                "is_active": user.is_active if user.is_active is not None else True,
+                "profile_image_url": user.profile_image_url,
+                "bio": user.bio,
+                "preferred_language": user.preferred_language if user.preferred_language else "en",
+                "topic_preferences": user.topic_preferences if user.topic_preferences else [],
+                "interest_levels": user.interest_levels if user.interest_levels else {},
+                "ai_enabled": user.ai_enabled if user.ai_enabled is not None else False,
+            }
+        except Exception as e:
+            logger.error(f"❌ Failed to convert user entity to dict: {e}")
+            logger.error(f"   User data: id={user.id}, display_name={user.display_name}")
+            raise
     
     def _dict_to_entity(self, data: dict) -> User:
         """
@@ -488,9 +513,13 @@ class UserRepository:
         Returns:
             User entity
         """
-        from datetime import datetime
-        
         try:
+            # Validate required fields
+            if not data.get("id"):
+                raise ValueError("User data missing required 'id' field")
+            if not data.get("display_name"):
+                raise ValueError("User data missing required 'display_name' field")
+            
             # Handle required fields with defaults if missing
             firebase_uid = data.get("firebase_uid")
             if not firebase_uid:
@@ -513,6 +542,7 @@ class UserRepository:
                 status=UserStatus(data.get("status", UserStatus.OFFLINE.value)),
                 last_seen=datetime.fromisoformat(data.get("last_seen", datetime.now().isoformat())),
                 created_at=datetime.fromisoformat(data.get("created_at", datetime.now().isoformat())),
+                updated_at=datetime.fromisoformat(data.get("updated_at", datetime.now().isoformat())),
                 is_active=data.get("is_active", True),
                 profile_image_url=data.get("profile_image_url"),
                 bio=data.get("bio"),

@@ -60,6 +60,19 @@ class AuthService: ObservableObject {
             FirebaseApp.configure()
         }
         
+        // Add TestFlight debugging
+        #if DEBUG
+        print("🔧 [AuthService] Running in DEBUG mode")
+        #else
+        print("🚀 [AuthService] Running in RELEASE mode")
+        #endif
+        
+        // Print Firebase configuration info
+        if let app = FirebaseApp.app() {
+            print("🔥 [AuthService] Firebase configured with project: \(app.options.projectID)")
+            print("🔥 [AuthService] Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
+        }
+        
         // Listen for auth state changes
         Auth.auth().addStateDidChangeListener { [weak self] _, firebaseUser in
             DispatchQueue.main.async {
@@ -123,6 +136,12 @@ class AuthService: ObservableObject {
             if let realEmail = realEmail {
                 self.realEmail = realEmail
                 print("🔐 Auth state updated - realEmail: \(realEmail)")
+            }
+            
+            // Handle phone-only users
+            if let phoneNumber = userResponse.phone_number {
+                self.phoneAuthNumber = phoneNumber
+                print("🔐 Auth state updated - phoneNumber: \(phoneNumber)")
             }
             
             print("🔐 Auth state updated - isAuthenticated: \(self.isAuthenticated)")
@@ -221,7 +240,7 @@ class AuthService: ObservableObject {
         // Try to login first
         let signInRequest = SignInRequest(
             firebase_uid: authResult.user.uid,
-            email: authResult.user.email ?? ""
+            email: authResult.user.email  // This might be nil for some users
         )
         
         do {
@@ -247,7 +266,7 @@ class AuthService: ObservableObject {
                 let signUpRequest = SignUpRequest(
                     firebase_uid: authResult.user.uid,
                     display_name: displayName,
-                    email: userEmail
+                    email: userEmail  // This might be nil for some users
                 )
                 
                 let registerData = try JSONEncoder().encode(signUpRequest)
@@ -278,25 +297,30 @@ class AuthService: ObservableObject {
         phoneVerificationID = nil
         isPhoneVerificationSent = false
         
+        print("📱 [AuthService] Attempting to send verification to: \(phoneNumber)")
+        
         do {
             // Send verification code via Firebase
             try await PhoneAuthProvider.provider().verifyPhoneNumber(phoneNumber, uiDelegate: nil) { verificationID, error in
                 DispatchQueue.main.async {
                     if let error = error {
-                        print("❌ Phone verification error: \(error)")
+                        print("❌ [AuthService] Phone verification error: \(error)")
                         
-                        // Check if it's a notification error
+                        // Enhanced error handling for TestFlight debugging
                         if let authError = error as? AuthErrorCode {
                             switch authError.code {
                             case .notificationNotForwarded:
-                                print("📱 Notification not forwarded - user needs to enable notifications")
-                                // You could show a user-friendly message here
+                                print("📱 [AuthService] NOTIFICATION_NOT_FORWARDED - Check Firebase Console settings")
                             case .quotaExceeded:
-                                print("📱 SMS quota exceeded")
+                                print("📱 [AuthService] SMS quota exceeded - Contact Firebase support")
                             case .invalidPhoneNumber:
-                                print("📱 Invalid phone number")
+                                print("📱 [AuthService] Invalid phone number format: \(phoneNumber)")
+                            case .captchaCheckFailed:
+                                print("📱 [AuthService] CAPTCHA check failed - May need reCAPTCHA setup")
+                            case .appNotVerified:
+                                print("📱 [AuthService] App not verified - Check Firebase Console app verification")
                             default:
-                                print("📱 Other phone auth error: \(authError.code)")
+                                print("📱 [AuthService] Other phone auth error: \(authError.code)")
                             }
                         }
                         return
@@ -305,12 +329,12 @@ class AuthService: ObservableObject {
                     if let verificationID = verificationID {
                         self.phoneVerificationID = verificationID
                         self.isPhoneVerificationSent = true
-                        print("✅ Phone verification code sent to \(phoneNumber)")
+                        print("✅ [AuthService] Phone verification code sent successfully to \(phoneNumber)")
                     }
                 }
             }
         } catch {
-            print("❌ Phone verification failed: \(error)")
+            print("❌ [AuthService] Phone verification failed: \(error)")
             throw error
         }
     }
@@ -338,11 +362,11 @@ class AuthService: ObservableObject {
         // Get Firebase ID token
         let token = try await authResult.user.getIDToken()
         
-        // Register with backend
+        // Register with backend - now with phone_number instead of email
         let signUpRequest = SignUpRequest(
             firebase_uid: authResult.user.uid,
             display_name: displayName,
-            phone_number: phoneNumber
+            phone_number: phoneNumber  // Use phone_number instead of email
         )
         
         APIService.shared.setAuthToken(token)
@@ -385,10 +409,10 @@ class AuthService: ObservableObject {
         // Get Firebase ID token
         let token = try await authResult.user.getIDToken()
         
-        // Sign in with backend
+        // Sign in with backend - now with phone_number instead of email
         let signInRequest = SignInRequest(
             firebase_uid: authResult.user.uid,
-            phone_number: phoneNumber
+            phone_number: phoneNumber  // Use phone_number instead of email
         )
         
         APIService.shared.setAuthToken(token)
@@ -589,6 +613,7 @@ class AuthService: ObservableObject {
                 user_id: userResponse.id,
                 display_name: userResponse.display_name,
                 email: userResponse.email,
+                phone_number: userResponse.phone_number,
                 message: "Authenticated successfully"
             )
             
@@ -656,6 +681,7 @@ class AuthService: ObservableObject {
             user_id: response.user.id,
             display_name: response.user.display_name,
             email: response.user.email,
+            phone_number: response.user.phone_number,
             message: response.message
         )
     }
@@ -741,11 +767,15 @@ class AuthService: ObservableObject {
         if let email = email {
             self.email = email
         }
+        if let phoneNumber = phoneNumber {
+            self.phoneAuthNumber = phoneNumber
+        }
         
         return AuthResponse(
             user_id: response.user.id,
             display_name: response.user.display_name,
             email: response.user.email,
+            phone_number: response.user.phone_number,
             message: response.message
         )
     }

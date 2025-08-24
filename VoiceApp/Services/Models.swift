@@ -30,14 +30,15 @@ struct SignInRequest: Codable {
 struct AuthResponse: Codable {
     let user_id: String
     let display_name: String
-    let email: String
+    let email: String?
+    let phone_number: String?
     let message: String
 }
 
 struct UserResponse: Codable {
     let id: String
     let display_name: String
-    let email: String
+    let email: String?  // Make optional
     let phone_number: String?
     let profile_image_url: String?
 }

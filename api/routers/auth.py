@@ -36,13 +36,13 @@ class SignInRequest(BaseModel):
 class AuthResponse(BaseModel):
     user_id: str
     display_name: str
-    email: str
+    email: Optional[str] = None
     message: str
 
 class UserResponse(BaseModel):
     id: str
     display_name: str
-    email: str
+    email: Optional[str] = None
     phone_number: Optional[str] = None
     profile_image_url: Optional[str] = None
 
@@ -186,18 +186,30 @@ async def get_profile(current_user: User = Depends(get_current_user)):
     """
     Get current user profile (requires Firebase ID Token)
     """
-    # Ensure profile_image_url is a full URL
-    profile_image_url = current_user.profile_image_url
-    if profile_image_url and profile_image_url.startswith("/"):
-        profile_image_url = f"{settings.BASE_URL}{profile_image_url}"
-    
-    return UserResponse(
-        id=str(current_user.id),
-        display_name=current_user.display_name,
-        email=current_user.email,
-        phone_number=current_user.phone_number,
-        profile_image_url=profile_image_url
-        ) 
+    try:
+        # Ensure profile_image_url is a full URL
+        profile_image_url = current_user.profile_image_url
+        if profile_image_url and profile_image_url.startswith("/"):
+            profile_image_url = f"{settings.BASE_URL}{profile_image_url}"
+        
+        # Log the user data being returned for debugging
+        logger.info(f"🔍 [Profile] Returning profile for user: {current_user.id} ({current_user.display_name})")
+        logger.info(f"🔍 [Profile] Email: {current_user.email}, Phone: {current_user.phone_number}")
+        
+        return UserResponse(
+            id=str(current_user.id),
+            display_name=current_user.display_name,
+            email=current_user.email,
+            phone_number=current_user.phone_number,
+            profile_image_url=profile_image_url
+        )
+    except Exception as e:
+        logger.error(f"❌ [Profile] Error getting profile for user {current_user.id}: {e}")
+        logger.error(f"❌ [Profile] User data: {current_user}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get user profile: {str(e)}"
+        )
 
 @router.put("/profile/display-name", response_model=UpdateProfileResponse)
 async def update_display_name(
