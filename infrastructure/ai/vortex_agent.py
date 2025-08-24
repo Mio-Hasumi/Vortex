@@ -15,7 +15,6 @@ Features:
 
 import asyncio
 import logging
-import re
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -257,7 +256,7 @@ Your role is to facilitate, not lead conversations. Stay quiet and let people co
             else:
                 logger.warning("[AGENT] ⚠️ Could not access room participants - will rely on join events")
             
-            logger.info("[AGENT] ✅ Agent ready - will only respond when directly addressed")
+            logger.info("[AGENT] ✅ Agent ready")
             
         except Exception as e:
             logger.error(f"[AGENT] ❌ ERROR in on_enter: {e}")
@@ -279,13 +278,8 @@ Your role is to facilitate, not lead conversations. Stay quiet and let people co
     
 
 
-    def _addressed_to_me(self, txt: str) -> bool:
-        """Check if the message is addressed to Vortex"""
-        import re
-        return re.search(r'\b(hey|hi|hello)?\s*@?\s*vortex\b', txt, re.I) is not None
-
     async def on_user_turn_completed(self, turn_ctx: ChatContext, new_message: ChatMessage) -> None:
-        """Process user input - only respond when explicitly addressed"""
+        """Process user input - delegate speaking behavior to Realtime (controlled by toggle)."""
         try:
             user_input = new_message.text_content()
             participant_info = self._get_participant_info(new_message)
@@ -307,34 +301,10 @@ Your role is to facilitate, not lead conversations. Stay quiet and let people co
                 logger.debug("[AGENT] 🤖 Skipping AI host message")
                 return
             
-            logger.info(f"[AGENT] 💬 User message: '{user_input[:50]}...'")
-            
-            # Check if message is addressed to Vortex
-            if not self._addressed_to_me(user_input):
-                logger.info("[AGENT] 🤫 Message not addressed to me - staying silent")
-                logger.debug(f"[INSTRUCTIONS] 📋 Following instructions to stay silent unless addressed")
-                # 阻止默认回复（不同版本写法不同）
-                try:
-                    turn_ctx.prevent_default()
-                except AttributeError:
-                    try:
-                        turn_ctx.should_respond = False
-                    except AttributeError:
-                        logger.debug("[AGENT] Could not prevent default response - relying on prompt control")
-                return
-            
-            logger.info("[AGENT] 🗣️ Message addressed to me - responding")
-            logger.debug(f"[INSTRUCTIONS] 📋 Following instructions to respond when addressed directly")
-            
-            # Provide a helpful response (always in English first)
-            participant_names = [info["name"] for info in self.participant_map.values() if not info.get("is_ai_host", False)]
-            if len(participant_names) >= 2:
-                response = f"Hi! I see {', '.join(participant_names)} here. What can I help you discuss?"
-            else:
-                response = "Hi there! What can I help you with?"
-            
-            logger.info(f"[INSTRUCTIONS] 🌍 Responding in English first as instructed: '{response[:50]}...'")
-            await self.session.say(response)
+            logger.info(f"[AGENT] 💬 User message observed: '{user_input[:50]}...'")
+            # Do not intercept or force replies here. Let Realtime's create_response
+            # (controlled by room toggle) decide if the agent speaks.
+            # Intentionally no turn_ctx.prevent_default() and no session.say().
             
         except Exception as e:
             logger.error(f"[AGENT ERROR] ❌ Error in on_user_turn_completed: {e}")

@@ -571,15 +571,9 @@ class EventBroadcaster:
                     processed_users.add(user1.get('user_id'))
                     processed_users.add(best_match.get('user_id'))
                 else:
-                    # FALLBACK: If only 2 users and they've been waiting, match them anyway
-                    if len(connected_users) == 2 and not processed_users:
-                        other_user = connected_users[1] if connected_users[0] == user1 else connected_users[0]
-                        logger.info(f"🔄 [MATCHING] FALLBACK MATCH: Only 2 users waiting, matching regardless of similarity")
-                        logger.info(f"   Matching: {user1['user_id'][:8]}... + {other_user['user_id'][:8]}...")
-                        await self._create_ai_match_with_room(user1, other_user, 0.01)  # Minimum similarity for timeout match
-                        processed_users.add(user1.get('user_id'))
-                        processed_users.add(other_user.get('user_id'))
-                        break  # Exit the loop since we matched the only 2 users
+                    # No suitable match found - user will continue waiting
+                    logger.info(f"🔍 [MATCHING] No suitable match found for {user1['user_id'][:8]}... (best similarity: {best_similarity:.2f})")
+                    logger.info(f"   User will continue waiting for better match or timeout matching")
                         
         except Exception as e:
             logger.error(f"❌ Error in AI hashtag matching: {e}")
