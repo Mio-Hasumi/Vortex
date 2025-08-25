@@ -2,6 +2,7 @@
 Authentication API routes - Pure Firebase Authentication
 """
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -17,6 +18,9 @@ from infrastructure.config import Settings
 
 # Get settings instance
 settings = Settings()
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 security = HTTPBearer()
@@ -37,6 +41,7 @@ class AuthResponse(BaseModel):
     user_id: str
     display_name: str
     email: Optional[str] = None
+    phone_number: Optional[str] = None
     message: str
 
 class UserResponse(BaseModel):
@@ -125,6 +130,7 @@ async def sign_up(
             user_id=str(saved_user.id),
             display_name=saved_user.display_name,
             email=saved_user.email or "",
+            phone_number=saved_user.phone_number or "",
             message="User registered successfully. Use Firebase ID Token for authentication."
         )
     except HTTPException:
@@ -164,6 +170,7 @@ async def sign_in(
             user_id=str(user.id),
             display_name=user.display_name,
             email=user.email or "",
+            phone_number=user.phone_number or "",
             message="User authenticated successfully. Use Firebase ID Token for API calls."
         )
     except HTTPException:
