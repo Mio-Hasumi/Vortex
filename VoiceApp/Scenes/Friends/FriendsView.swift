@@ -284,26 +284,57 @@ struct FindPeopleView: View {
                 .padding(.top, 20)
             }
             
-            if showTopicRecommendations && !topicRecommendations.isEmpty {
-                // Topic-based recommendations
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("People with Similar Interests")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 20)
-                    
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(topicRecommendations, id: \.id) { user in
-                                UserSearchRow(user: user) { userId in
-                                    Task {
-                                        await sendFriendRequest(to: userId)
+            if showTopicRecommendations {
+                if !topicRecommendations.isEmpty {
+                    // Topic-based recommendations
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("People with Similar Interests")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                        
+                        ScrollView {
+                            LazyVStack(spacing: 12) {
+                                ForEach(topicRecommendations, id: \.id) { user in
+                                    UserSearchRow(user: user) { userId in
+                                        Task {
+                                            await sendFriendRequest(to: userId)
+                                        }
                                     }
                                 }
                             }
+                            .padding(.horizontal, 20)
                         }
-                        .padding(.horizontal, 20)
                     }
+                } else {
+                    // No similar matches found
+                    VStack(spacing: 20) {
+                        Image(systemName: "person.2.slash")
+                            .font(.system(size: 60))
+                            .foregroundColor(.gray)
+                        
+                        Text("No Similar Matches Found")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                        
+                        Text("We couldn't find people with similar interests right now. Try joining some voice chats to build your interest profile, or search for users by name instead.")
+                            .font(.body)
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                        
+                        Button("Search by Name") {
+                            showTopicRecommendations = false
+                            searchText = ""
+                        }
+                        .padding(.horizontal, 30)
+                        .padding(.vertical, 12)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                    }
+                    .padding(.top, 20)
                 }
             }
             
@@ -342,13 +373,8 @@ struct FindPeopleView: View {
                 print("❌ iOS: Error details: \(error.localizedDescription)")
                 
                 await MainActor.run {
-                    print("🔍 iOS: Falling back to mock data...")
-                    // Fallback to mock data if API fails
-                    self.searchResults = [
-                        UserProfile(id: "1", displayName: "Alex Johnson", profilePicture: nil, topics: ["AI", "Technology"]),
-                        UserProfile(id: "2", displayName: "Sarah Chen", profilePicture: nil, topics: ["Science", "Innovation"]),
-                        UserProfile(id: "3", displayName: "Mike Davis", profilePicture: nil, topics: ["Technology", "Business"])
-                    ].filter { $0.displayName.lowercased().contains(query.lowercased()) }
+                    print("🔍 iOS: Search failed, showing no results")
+                    self.searchResults = []
                     self.isSearching = false
                 }
             }
@@ -376,13 +402,8 @@ struct FindPeopleView: View {
             } catch {
                 print("❌ Failed to load topic recommendations: \(error)")
                 await MainActor.run {
-                    // Fallback to mock data if API fails
-                    self.topicRecommendations = [
-                        UserProfile(id: "4", displayName: "Emma Wilson", profilePicture: nil, topics: ["AI", "Machine Learning"]),
-                        UserProfile(id: "5", displayName: "David Brown", profilePicture: nil, topics: ["Technology", "Innovation"]),
-                        UserProfile(id: "6", displayName: "Lisa Garcia", profilePicture: nil, topics: ["Science", "Research"]),
-                        UserProfile(id: "7", displayName: "Tom Anderson", profilePicture: nil, topics: ["AI", "Technology"])
-                    ]
+                    // Show no recommendations if API fails
+                    self.topicRecommendations = []
                 }
             }
         }
