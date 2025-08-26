@@ -530,48 +530,57 @@ struct UserSearchRow: View {
     let user: UserProfile
     let onSendRequest: (String) -> Void
     @State private var isRequestSent = false
+    @State private var showProfile = false
     
     var body: some View {
-        HStack(spacing: 16) {
-            // Profile Picture
-            Circle()
-                .fill(Color.purple.opacity(0.8))
-                .frame(width: 50, height: 50)
-                .overlay(
-                    Text(String(user.displayName.prefix(1)))
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                )
-            
-            // User Info
-            VStack(alignment: .leading, spacing: 4) {
-                Text(user.displayName)
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .foregroundColor(.white)
+        Button(action: {
+            showProfile = true
+        }) {
+            HStack(spacing: 16) {
+                // Profile Picture
+                Circle()
+                    .fill(Color.purple.opacity(0.8))
+                    .frame(width: 50, height: 50)
+                    .overlay(
+                        Text(String(user.displayName.prefix(1)))
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                    )
                 
-                if !user.topics.isEmpty {
-                    Text(user.topics.joined(separator: ", "))
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                // User Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(user.displayName)
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white)
+                    
+                    if !user.topics.isEmpty {
+                        Text(user.topics.joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
                 }
+                
+                Spacer()
+                
+                // Action Button based on friendship status
+                actionButton
             }
-            
-            Spacer()
-            
-            // Action Button based on friendship status
-            actionButton
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(12)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color.gray.opacity(0.1))
-        .cornerRadius(12)
+        .buttonStyle(PlainButtonStyle())
         .onChange(of: user.friendshipStatus) { newStatus in
             // Reset local state when server status changes
             if newStatus != "none" {
                 isRequestSent = false
             }
+        }
+        .sheet(isPresented: $showProfile) {
+            UserProfilePopupView(user: user)
         }
     }
     
@@ -677,17 +686,34 @@ struct UserSearchRow: View {
 
 struct FriendRow: View {
     let friend: FriendData
+    @State private var showProfile = false
     
     var body: some View {
-        HStack(spacing: 12) {
-            if let url = friend.profile_image_url, !url.isEmpty {
-                CachedAsyncImage(url: url) { image in
-                    image
-                        .resizable()
-                        .scaledToFill()
-                } placeholder: {
+        Button(action: {
+            showProfile = true
+        }) {
+            HStack(spacing: 12) {
+                if let url = friend.profile_image_url, !url.isEmpty {
+                    CachedAsyncImage(url: url) { image in
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } placeholder: {
+                        Circle()
+                            .fill(Color.blue.opacity(0.8))
+                            .overlay(
+                                Text(String(friend.display_name.prefix(1)))
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+                            )
+                    }
+                    .frame(width: 50, height: 50)
+                    .clipShape(Circle())
+                } else {
                     Circle()
                         .fill(Color.blue.opacity(0.8))
+                        .frame(width: 50, height: 50)
                         .overlay(
                             Text(String(friend.display_name.prefix(1)))
                                 .font(.title3)
@@ -695,54 +721,46 @@ struct FriendRow: View {
                                 .foregroundColor(.white)
                         )
                 }
-                .frame(width: 50, height: 50)
-                .clipShape(Circle())
-            } else {
-                Circle()
-                    .fill(Color.blue.opacity(0.8))
-                    .frame(width: 50, height: 50)
-                    .overlay(
-                        Text(String(friend.display_name.prefix(1)))
-                            .font(.title3)
-                            .fontWeight(.bold)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(friend.display_name)
+                            .font(.body)
+                            .fontWeight(.medium)
                             .foregroundColor(.white)
-                    )
-            }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(friend.display_name)
-                        .font(.body)
-                        .fontWeight(.medium)
-                        .foregroundColor(.white)
+                        
+                        if friend.isRecentlyActive {
+                            Text("🟢")
+                                .font(.caption)
+                        }
+                    }
                     
-                    if friend.isRecentlyActive {
-                        Text("🟢")
+                    HStack(spacing: 8) {
+                        Text(friend.lastSeenText)
                             .font(.caption)
+                            .foregroundColor(.gray)
+                        
+                        if friend.friendship_status == "accepted" {
+                            Text("• Friend")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        }
                     }
                 }
                 
-                HStack(spacing: 8) {
-                    Text(friend.lastSeenText)
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                    
-                    if friend.friendship_status == "accepted" {
-                        Text("• Friend")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    }
-                }
+                Spacer()
+                
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 12, height: 12)
             }
-            
-            Spacer()
-            
-            Circle()
-                .fill(statusColor)
-                .frame(width: 12, height: 12)
+            .padding(.vertical, 8)
+            .background(Color.black)
         }
-        .padding(.vertical, 8)
-        .background(Color.black)
+        .buttonStyle(PlainButtonStyle())
+        .sheet(isPresented: $showProfile) {
+            FriendProfileView(friend: friend)
+        }
     }
     
     private var statusColor: Color {
@@ -1060,6 +1078,358 @@ struct TopicMatchUserRow: View {
                         .font(.title2)
                         .foregroundColor(.blue)
                 }
+            }
+        }
+    }
+}
+
+struct FriendProfileView: View {
+    let friend: FriendData
+    @StateObject private var friendsService = FriendsService.shared
+    @State private var showUnfriendAlert = false
+    @State private var showBlockAlert = false
+    @State private var isProcessing = false
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Profile Picture
+            if let url = friend.profile_image_url, !url.isEmpty {
+                CachedAsyncImage(url: url) { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } placeholder: {
+                    Circle()
+                        .fill(Color.blue.opacity(0.8))
+                        .overlay(
+                            Text(String(friend.display_name.prefix(1)))
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                        )
+                }
+                .frame(width: 100, height: 100)
+                .clipShape(Circle())
+            } else {
+                Circle()
+                    .fill(Color.blue.opacity(0.8))
+                    .frame(width: 100, height: 100)
+                    .overlay(
+                        Text(String(friend.display_name.prefix(1)))
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                    )
+            }
+            
+            // Display Name
+            Text(friend.display_name)
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+            
+            // Status
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 12, height: 12)
+                Text(friend.status.capitalized)
+                    .font(.body)
+                    .foregroundColor(.gray)
+            }
+            
+            // Last Seen
+            Text("Last seen: \(friend.lastSeenText)")
+                .font(.caption)
+                .foregroundColor(.gray)
+            
+            Spacer()
+            
+            // Action Buttons
+            VStack(spacing: 16) {
+                // Unfriend Button
+                Button(action: {
+                    showUnfriendAlert = true
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.badge.minus")
+                        Text("Unfriend")
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(Color.orange)
+                    .cornerRadius(8)
+                }
+                .disabled(isProcessing)
+                
+                // Block Button
+                Button(action: {
+                    showBlockAlert = true
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "slash.circle")
+                        Text("Block")
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(Color.red)
+                    .cornerRadius(8)
+                }
+                .disabled(isProcessing)
+            }
+        }
+        .padding()
+        .background(Color.black)
+        .alert("Unfriend \(friend.display_name)?", isPresented: $showUnfriendAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Unfriend", role: .destructive) {
+                Task {
+                    await unfriendUser()
+                }
+            }
+        } message: {
+            Text("Are you sure you want to unfriend \(friend.display_name)? This action cannot be undone.")
+        }
+        .alert("Block \(friend.display_name)?", isPresented: $showBlockAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Block", role: .destructive) {
+                Task {
+                    await blockUser()
+                }
+            }
+        } message: {
+            Text("Are you sure you want to block \(friend.display_name)? They won't be able to see your profile or send you messages.")
+        }
+    }
+    
+    private var statusColor: Color {
+        switch friend.status.lowercased() {
+        case "online": return .green
+        case "away": return .yellow
+        default: return .gray
+        }
+    }
+    
+    private func unfriendUser() async {
+        isProcessing = true
+        
+        let success = await friendsService.unfriendUser(friend.user_id)
+        
+        await MainActor.run {
+            isProcessing = false
+            if success {
+                dismiss()
+            }
+        }
+    }
+    
+    private func blockUser() async {
+        isProcessing = true
+        
+        let success = await friendsService.blockUser(friend.user_id)
+        
+        await MainActor.run {
+            isProcessing = false
+            if success {
+                dismiss()
+            }
+        }
+    }
+}
+
+struct UserProfilePopupView: View {
+    let user: UserProfile
+    @StateObject private var friendService = FriendRequestService.shared
+    @StateObject private var friendsService = FriendsService.shared
+    @State private var showBlockAlert = false
+    @State private var isProcessing = false
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Profile Picture
+            if let url = user.profilePicture, !url.isEmpty {
+                CachedAsyncImage(url: url) { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } placeholder: {
+                    Circle()
+                        .fill(Color.purple.opacity(0.8))
+                        .overlay(
+                            Text(String(user.displayName.prefix(1)))
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                        )
+                }
+                .frame(width: 100, height: 100)
+                .clipShape(Circle())
+            } else {
+                Circle()
+                    .fill(Color.purple.opacity(0.8))
+                    .frame(width: 100, height: 100)
+                    .overlay(
+                        Text(String(user.displayName.prefix(1)))
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                    )
+            }
+            
+            // Display Name
+            Text(user.displayName)
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+            
+            // Topics
+            if !user.topics.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Interests:")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 6) {
+                        ForEach(user.topics, id: \.self) { topic in
+                            Text(topic)
+                                .font(.caption2)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.blue.opacity(0.2))
+                                .foregroundColor(.blue)
+                                .cornerRadius(8)
+                        }
+                    }
+                }
+            }
+            
+            Spacer()
+            
+            // Action Buttons
+            VStack(spacing: 16) {
+                // Follow/Unfollow Button
+                Button(action: {
+                    Task {
+                        await handleFollowAction()
+                    }
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: followButtonIcon)
+                        Text(followButtonText)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(followButtonColor)
+                    .cornerRadius(8)
+                }
+                .disabled(isProcessing)
+                
+                // Block Button
+                Button(action: {
+                    showBlockAlert = true
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "slash.circle")
+                        Text("Block")
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(Color.red)
+                    .cornerRadius(8)
+                }
+                .disabled(isProcessing)
+            }
+        }
+        .padding()
+        .background(Color.black)
+        .alert("Block \(user.displayName)?", isPresented: $showBlockAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Block", role: .destructive) {
+                Task {
+                    await blockUser()
+                }
+            }
+        } message: {
+            Text("Are you sure you want to block \(user.displayName)? They won't be able to see your profile or send you messages.")
+        }
+    }
+    
+    private var followButtonIcon: String {
+        switch user.friendshipStatus {
+        case "friends": return "person.badge.minus"
+        case "pending_sent": return "clock"
+        case "pending_received": return "person.badge.plus"
+        default: return "person.badge.plus"
+        }
+    }
+    
+    private var followButtonText: String {
+        switch user.friendshipStatus {
+        case "friends": return "Unfollow"
+        case "pending_sent": return "Request Sent"
+        case "pending_received": return "Accept Request"
+        default: return "Follow"
+        }
+    }
+    
+    private var followButtonColor: Color {
+        switch user.friendshipStatus {
+        case "friends": return .orange
+        case "pending_sent": return .gray
+        case "pending_received": return .green
+        default: return .blue
+        }
+    }
+    
+    private func handleFollowAction() async {
+        isProcessing = true
+        
+        switch user.friendshipStatus {
+        case "friends":
+            // Unfollow
+            let success = await friendsService.unfriendUser(user.id)
+            if success {
+                dismiss()
+            }
+        case "pending_sent":
+            // Request already sent, do nothing
+            break
+        case "pending_received":
+            // Accept request - we need the request ID, but we don't have it here
+            // For now, we'll just dismiss and let user handle it in friend requests
+            print("⚠️ Cannot accept friend request without request ID")
+            dismiss()
+        default:
+            // Send friend request
+            do {
+                let response = try await friendService.sendFriendRequest(to: user.id)
+                print("✅ Friend request sent: \(response.message)")
+                dismiss()
+            } catch {
+                print("❌ Failed to send friend request: \(error)")
+            }
+        }
+        
+        await MainActor.run {
+            isProcessing = false
+        }
+    }
+    
+    private func blockUser() async {
+        isProcessing = true
+        
+        let success = await friendsService.blockUser(user.id)
+        
+        await MainActor.run {
+            isProcessing = false
+            if success {
+                dismiss()
             }
         }
     }

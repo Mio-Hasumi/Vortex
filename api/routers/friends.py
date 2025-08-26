@@ -345,44 +345,142 @@ async def block_user(
     friend_repo = Depends(get_friend_repository),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Block a user
-    """
+    """Block a user"""
     try:
-        user_uuid = UUID(user_id)
-        current_user_id = current_user.id
+        logger.info(f"🚫 User {current_user.display_name} ({current_user.id}) blocking user: {user_id}")
         
-        # For now, we'll implement blocking by creating a BLOCKED friendship entry
-        # In a more sophisticated system, you'd have a separate blocking system
+        # Convert string ID to UUID
+        try:
+            target_user_uuid = UUID(user_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid user ID format"
+            )
         
-        from domain.entities import new_friendship, FriendshipStatus
+        # Check if trying to block self
+        if target_user_uuid == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot block yourself"
+            )
         
-        # Create a blocked friendship entry
-        blocked_friendship = new_friendship(
-            user_id=current_user_id,
-            friend_id=user_uuid,
-            message="User blocked"
-        )
-        blocked_friendship.status = FriendshipStatus.BLOCKED
+        # Block the user
+        success = friend_repo.block_user(current_user.id, target_user_uuid)
         
-        # Save the blocked relationship
-        friend_repo.save_friendship(blocked_friendship)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to block user"
+            )
         
-        # Also remove any existing friendship
-        friend_repo.delete_friendship(current_user_id, user_uuid)
+        logger.info(f"✅ User {current_user.id} successfully blocked user {user_id}")
         
         return {"message": "User blocked successfully"}
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid user ID format"
-        )
+        
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"❌ Failed to block user {user_id}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to block user: {str(e)}"
+        )
+
+@router.delete("/{user_id}/unfriend")
+async def unfriend_user(
+    user_id: str,
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
+):
+    """Unfriend a user"""
+    try:
+        logger.info(f"👋 User {current_user.display_name} ({current_user.id}) unfriending user: {user_id}")
+        
+        # Convert string ID to UUID
+        try:
+            target_user_uuid = UUID(user_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid user ID format"
+            )
+        
+        # Check if trying to unfriend self
+        if target_user_uuid == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot unfriend yourself"
+            )
+        
+        # Unfriend the user
+        success = friend_repo.unfriend_user(current_user.id, target_user_uuid)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to unfriend user"
+            )
+        
+        logger.info(f"✅ User {current_user.id} successfully unfriended user {user_id}")
+        
+        return {"message": "User unfriended successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to unfriend user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to unfriend user: {str(e)}"
+        )
+
+@router.delete("/{user_id}/unblock")
+async def unblock_user(
+    user_id: str,
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
+):
+    """Unblock a user"""
+    try:
+        logger.info(f"🔓 User {current_user.display_name} ({current_user.id}) unblocking user: {user_id}")
+        
+        # Convert string ID to UUID
+        try:
+            target_user_uuid = UUID(user_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid user ID format"
+            )
+        
+        # Check if trying to unblock self
+        if target_user_uuid == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot unblock yourself"
+            )
+        
+        # Unblock the user
+        success = friend_repo.unblock_user(current_user.id, target_user_uuid)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to unblock user"
+            )
+        
+        logger.info(f"✅ User {current_user.id} successfully unblocked user {user_id}")
+        
+        return {"message": "User unblocked successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to unblock user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to unblock user: {str(e)}"
         )
 
 @router.get("/search")
