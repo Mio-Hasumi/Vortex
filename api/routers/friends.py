@@ -672,11 +672,11 @@ async def find_people_by_topics(
         logger.info(f"🔍 Finding people with common topics: {user_topics[:5]}..." if len(user_topics) > 5 else f"🔍 Finding people with common topics: {user_topics}")
         
         # Find users with similar topic preferences
-        similar_users_data = user_repo.find_users_by_interests(
-            interests=user_topics,
-            limit=limit + 10,  # Get extra to account for filtering
+        similar_users_data = user_repo.find_users_by_topic_preferences(
+            user_topics=user_topics,
             exclude_user_id=current_user.id,
-            min_common_interests=min_common_topics
+            limit=limit + 10,  # Get extra to account for filtering
+            min_common_topics=min_common_topics
         )
         
         logger.info(f"🔍 Found {len(similar_users_data)} users with similar topic preferences")
