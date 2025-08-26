@@ -40,6 +40,7 @@ enum APIConfig {
         static let friendRequests = "/api/friends/requests"
         static let searchUsers = "/api/friends/search"
         static let userRecommendations = "/api/friends/recommendations"
+        static let findPeopleByTopics = "/api/friends/find-people-by-topics"
         
         // Recordings
         static let recordings = "/api/recordings"
