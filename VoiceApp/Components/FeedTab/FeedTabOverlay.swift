@@ -142,29 +142,21 @@ struct FeedTabOverlay: View {
                 .frame(height: isPresented ? currentTotalHeight : idleHeight)
                 .padding(.bottom, isPresented ? 0 : 10)
                 .background(
-                    // Animated glass background
-                    Color.clear
-                        .background(
-                            .thickMaterial, 
-                            in: isPresented ? 
-                                UnevenRoundedRectangle(topLeadingRadius: 35, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 35) :
-                                UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
+                    // Fixed transparent grey background for consistent appearance in light/dark mode
+                    (isPresented ? 
+                        UnevenRoundedRectangle(topLeadingRadius: 35, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 35) :
+                        UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
+                    )
+                    .fill(Color.black.opacity(0.2))
+                    .background(
+                        (isPresented ? 
+                            UnevenRoundedRectangle(topLeadingRadius: 35, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 35) :
+                            UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
                         )
-                        .background(
-                            (isPresented ? 
-                                UnevenRoundedRectangle(topLeadingRadius: 35, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 35) :
-                                UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
-                            ).fill(.regularMaterial).opacity(0.3)
-                        )
-                        .background(
-                            (isPresented ? 
-                                UnevenRoundedRectangle(topLeadingRadius: 35, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 35) :
-                                UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
-                            ).fill(.bar).opacity(0.2)
-                        )
-                        .compositingGroup()
-                        .opacity(0.85)
-                        .ignoresSafeArea(edges: .bottom)
+                        .fill(Color.white.opacity(0.1))
+                    )
+                    .compositingGroup()
+                    .ignoresSafeArea(edges: .bottom)
                 )
                 .ignoresSafeArea(edges: .bottom)
                 .animation(.easeInOut(duration: 0.3), value: isPresented)
