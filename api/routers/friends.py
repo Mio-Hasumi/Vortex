@@ -463,7 +463,7 @@ async def search_users(
             friendship_status = "none"  # Default: no relationship
             
             # Check for existing friendship in both directions
-            friendships = friend_repo.find_friendships_by_user_id(current_user.id)
+            friendships = friend_repo.find_all_friendships_by_user_id(current_user.id)
             for friendship in friendships:
                 if friendship.friend_id == user.id or friendship.user_id == user.id:
                     if friendship.status.name.lower() == "accepted":

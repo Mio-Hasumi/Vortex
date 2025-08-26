@@ -92,6 +92,47 @@ class FriendRepository:
             logger.error(f"❌ Full traceback: {traceback.format_exc()}")
             return []
     
+    def find_all_friendships_by_user_id(self, user_id: UUID) -> List[Friendship]:
+        """
+        Find ALL friendships for a user regardless of status (used for search)
+        
+        Args:
+            user_id: User's UUID
+            
+        Returns:
+            List of all friendship entities (accepted, pending, blocked, etc.)
+        """
+        try:
+            # Find friendships where user is the initiator
+            friendships_as_user = self.firebase.query_documents(
+                self.friends_collection,
+                filters=[
+                    {"field": "user_id", "operator": "==", "value": str(user_id)}
+                ],
+                order_by="created_at"
+            )
+            
+            # Find friendships where user is the recipient
+            friendships_as_friend = self.firebase.query_documents(
+                self.friends_collection,
+                filters=[
+                    {"field": "friend_id", "operator": "==", "value": str(user_id)}
+                ],
+                order_by="created_at"
+            )
+            
+            # Combine both lists and convert to entities
+            all_friendships_data = friendships_as_user + friendships_as_friend
+            friendships = [self._dict_to_friendship(data) for data in all_friendships_data]
+            
+            return friendships
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to find all friendships for user {user_id}: {e}")
+            import traceback
+            logger.error(f"❌ Full traceback: {traceback.format_exc()}")
+            return []
+    
     def find_pending_requests_by_user_id(self, user_id: UUID) -> List[Friendship]:
         """
         Find pending friend requests for a user
