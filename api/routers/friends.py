@@ -456,26 +456,31 @@ async def search_users(
             ]
             logger.info(f"🔍 Backend: Fallback search returned {len(search_results)} users")
         
-        # Get friendship status for each user
+        # Get different friendship relationships
+        accepted_friendships = friend_repo.find_friendships_by_user_id(current_user.id)
+        pending_received = friend_repo.find_pending_requests_by_user_id(current_user.id)
+        pending_sent = friend_repo.find_pending_sent_requests_by_user_id(current_user.id)
+
+        # Build lookup map for quick status checks
+        friendship_map = {}
+        for friendship in accepted_friendships:
+            other_user_id = friendship.friend_id if friendship.user_id == current_user.id else friendship.user_id
+            friendship_map[other_user_id] = ("friends", friendship)
+
+        for friendship in pending_sent:
+            friendship_map[friendship.friend_id] = ("pending_sent", friendship)
+
+        for friendship in pending_received:
+            friendship_map[friendship.user_id] = ("pending_received", friendship)
+
+        # Determine friendship status for each search result
         user_responses = []
         for user in search_results:
-            # Check if there's an existing friendship
             friendship_status = "none"  # Default: no relationship
-            
-            # Check for existing friendship in both directions
-            friendships = friend_repo.find_all_friendships_by_user_id(current_user.id)
-            for friendship in friendships:
-                if friendship.friend_id == user.id or friendship.user_id == user.id:
-                    if friendship.status.name.lower() == "accepted":
-                        friendship_status = "friends"
-                    elif friendship.status.name.lower() == "pending":
-                        if friendship.user_id == current_user.id:
-                            friendship_status = "pending_sent"  # Current user sent request
-                        else:
-                            friendship_status = "pending_received"  # Current user received request
-                    elif friendship.status.name.lower() == "blocked":
-                        friendship_status = "blocked"
-                    break
+
+            friendship_info = friendship_map.get(user.id)
+            if friendship_info:
+                friendship_status, _ = friendship_info
             
             # Build user response
             profile_image_url = user.profile_image_url

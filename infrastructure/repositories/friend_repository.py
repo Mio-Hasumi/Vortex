@@ -158,6 +158,24 @@ class FriendRepository:
         except Exception as e:
             logger.error(f"❌ Failed to find pending requests for user {user_id}: {e}")
             return []
+
+    def find_pending_sent_requests_by_user_id(self, user_id: UUID) -> List[Friendship]:
+        """Find pending friend requests sent by the user"""
+        try:
+            requests_data = self.firebase.query_documents(
+                self.friends_collection,
+                filters=[
+                    {"field": "user_id", "operator": "==", "value": str(user_id)},
+                    {"field": "status", "operator": "==", "value": "pending"}
+                ],
+                order_by="created_at",
+            )
+
+            return [self._dict_to_friendship(data) for data in requests_data]
+
+        except Exception as e:
+            logger.error(f"❌ Failed to find pending sent requests for user {user_id}: {e}")
+            return []
     
     def find_friendship_by_id(self, friendship_id: UUID) -> Optional[Friendship]:
         """
