@@ -177,6 +177,50 @@ class FriendRepository:
             logger.error(f"❌ Failed to find pending sent requests for user {user_id}: {e}")
             return []
     
+    def find_pending_request_between_users(self, user_id: UUID, other_user_id: UUID) -> Optional[Friendship]:
+        """
+        Find pending friend request between two specific users
+        
+        Args:
+            user_id: Current user's UUID
+            other_user_id: Other user's UUID
+            
+        Returns:
+            Friendship entity if found, None otherwise
+        """
+        try:
+            # Check if other_user_id sent a request to user_id (pending_received)
+            received_request_data = self.firebase.query_documents(
+                self.friends_collection,
+                filters=[
+                    {"field": "user_id", "operator": "==", "value": str(other_user_id)},
+                    {"field": "friend_id", "operator": "==", "value": str(user_id)},
+                    {"field": "status", "operator": "==", "value": "pending"}
+                ]
+            )
+            
+            if received_request_data:
+                return self._dict_to_friendship(received_request_data[0])
+            
+            # Check if user_id sent a request to other_user_id (pending_sent)
+            sent_request_data = self.firebase.query_documents(
+                self.friends_collection,
+                filters=[
+                    {"field": "user_id", "operator": "==", "value": str(user_id)},
+                    {"field": "friend_id", "operator": "==", "value": str(other_user_id)},
+                    {"field": "status", "operator": "==", "value": "pending"}
+                ]
+            )
+            
+            if sent_request_data:
+                return self._dict_to_friendship(sent_request_data[0])
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to find pending request between users {user_id} and {other_user_id}: {e}")
+            return None
+    
     def find_friendship_by_id(self, friendship_id: UUID) -> Optional[Friendship]:
         """
         Find friendship by ID

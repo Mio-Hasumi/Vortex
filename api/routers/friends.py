@@ -855,4 +855,54 @@ async def find_people_by_topics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to find people by topics: {str(e)}"
+        )
+
+@router.get("/request-id/{other_user_id}")
+async def get_friendship_request_id(
+    other_user_id: str,
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get the friendship request ID between current user and another user
+    This is used to accept/decline friend requests from search results
+    """
+    try:
+        logger.info(f"🔍 User {current_user.display_name} getting friendship request ID for user {other_user_id}")
+        
+        other_user_uuid = UUID(other_user_id)
+        
+        # Find pending request between these users
+        friendship = friend_repo.find_pending_request_between_users(
+            user_id=current_user.id,
+            other_user_id=other_user_uuid
+        )
+        
+        if not friendship:
+            logger.info(f"ℹ️ No pending friendship request found between users")
+            return {
+                "friendship_id": None,
+                "status": "none",
+                "message": "No pending friendship request found"
+            }
+        
+        # Determine the relationship direction
+        if friendship.user_id == current_user.id:
+            status = "pending_sent"
+        else:
+            status = "pending_received"
+        
+        logger.info(f"✅ Found friendship request {friendship.id} with status {status}")
+        
+        return {
+            "friendship_id": str(friendship.id),
+            "status": status,
+            "message": "Friendship request found"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting friendship request ID: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get friendship request ID: {str(e)}"
         ) 

@@ -55,6 +55,12 @@ class FriendRequestService: ObservableObject {
             method: "POST"
         )
     }
+    
+    func getFriendshipRequestId(for userId: String) async throws -> GetFriendshipRequestIdResponse {
+        return try await APIService.shared.request(
+            endpoint: APIConfig.Endpoints.getFriendshipRequestId + "/\(userId)"
+        )
+    }
 }
 
 // MARK: - Request/Response Models
@@ -90,5 +96,11 @@ struct AcceptFriendRequestResponse: Codable {
 }
 
 struct RejectFriendRequestResponse: Codable {
+    let message: String
+}
+
+struct GetFriendshipRequestIdResponse: Codable {
+    let friendship_id: String?
+    let status: String
     let message: String
 }

@@ -225,11 +225,22 @@ struct FindPeopleView: View {
                     ScrollView {
                         LazyVStack(spacing: 12) {
                             ForEach(searchResults, id: \.id) { user in
-                                UserSearchRow(user: user) { userId in
-                                    Task {
-                                        await sendFriendRequest(to: userId)
+                                UserSearchRow(
+                                    user: user,
+                                    onSendRequest: { userId in
+                                        Task {
+                                            await sendFriendRequest(to: userId)
+                                        }
+                                    },
+                                    onRefresh: {
+                                        // Refresh search results to update UI
+                                        if !searchText.isEmpty {
+                                            Task {
+                                                await searchUsers(query: searchText)
+                                            }
+                                        }
                                     }
-                                }
+                                )
                             }
                         }
                         .padding(.horizontal, 20)
@@ -529,8 +540,11 @@ struct TopicMatchUserData: Codable {
 struct UserSearchRow: View {
     let user: UserProfile
     let onSendRequest: (String) -> Void
+    let onRefresh: () -> Void  // Callback to refresh search results
+    @StateObject private var friendService = FriendRequestService.shared
     @State private var isRequestSent = false
     @State private var showProfile = false
+    @State private var isProcessing = false
     
     var body: some View {
         Button(action: {
@@ -638,7 +652,9 @@ struct UserSearchRow: View {
                 // Received friend request - show accept/decline
                 HStack(spacing: 8) {
                     Button("Accept") {
-                        // Handle accept - could navigate to friend requests
+                        Task {
+                            await acceptRequest()
+                        }
                     }
                     .font(.caption)
                     .padding(.horizontal, 8)
@@ -646,9 +662,12 @@ struct UserSearchRow: View {
                     .background(Color.blue)
                     .foregroundColor(.white)
                     .cornerRadius(6)
+                    .disabled(isProcessing)
                     
                     Button("Decline") {
-                        // Handle decline
+                        Task {
+                            await rejectRequest()
+                        }
                     }
                     .font(.caption)
                     .padding(.horizontal, 8)
@@ -656,6 +675,7 @@ struct UserSearchRow: View {
                     .background(Color.gray.opacity(0.3))
                     .foregroundColor(.white)
                     .cornerRadius(6)
+                    .disabled(isProcessing)
                 }
                 
             case "blocked":
@@ -681,6 +701,63 @@ struct UserSearchRow: View {
                 }
             }
         }
+    }
+    
+    private func acceptRequest() async {
+        await MainActor.run { isProcessing = true }
+        do {
+            // Get the friendship request ID for this user
+            let response = try await friendService.getFriendshipRequestId(for: user.id)
+            
+            if let requestId = response.friendship_id {
+                // Accept the friend request
+                _ = try await friendService.acceptFriendRequest(requestId: requestId)
+                
+                // Refresh friend requests and friends list
+                await friendService.fetchFriendRequests()
+                await FriendsService.shared.fetchFriends()
+                
+                // Refresh search results to update UI
+                await MainActor.run {
+                    onRefresh()
+                }
+                
+                print("✅ Successfully accepted friend request from \(user.displayName)")
+            } else {
+                print("⚠️ No friendship request found for user \(user.displayName)")
+            }
+        } catch {
+            print("❌ Failed to accept friend request: \(error)")
+        }
+        await MainActor.run { isProcessing = false }
+    }
+
+    private func rejectRequest() async {
+        await MainActor.run { isProcessing = true }
+        do {
+            // Get the friendship request ID for this user
+            let response = try await friendService.getFriendshipRequestId(for: user.id)
+            
+            if let requestId = response.friendship_id {
+                // Reject the friend request
+                _ = try await friendService.rejectFriendRequest(requestId: requestId)
+                
+                // Refresh friend requests
+                await friendService.fetchFriendRequests()
+                
+                // Refresh search results to update UI
+                await MainActor.run {
+                    onRefresh()
+                }
+                
+                print("✅ Successfully rejected friend request from \(user.displayName)")
+            } else {
+                print("⚠️ No friendship request found for user \(user.displayName)")
+            }
+        } catch {
+                print("❌ Failed to reject friend request: \(error)")
+        }
+        await MainActor.run { isProcessing = false }
     }
 }
 
