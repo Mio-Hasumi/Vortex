@@ -61,6 +61,24 @@ class FriendRequestService: ObservableObject {
             endpoint: APIConfig.Endpoints.getFriendshipRequestId + "/\(userId)"
         )
     }
+    
+    // Get friendship status for a specific user using search API
+    func getFriendshipStatus(for userId: String) async throws -> String {
+        do {
+            let response: UserSearchResponse = try await APIService.shared.request(
+                endpoint: APIConfig.Endpoints.searchUsers + "?q=\(userId)&limit=1"
+            )
+            
+            if let user = response.users.first {
+                return user.friendship_status
+            } else {
+                return "none"
+            }
+        } catch {
+            print("❌ Failed to get friendship status for user \(userId): \(error)")
+            return "none"
+        }
+    }
 }
 
 // MARK: - Request/Response Models
