@@ -431,7 +431,7 @@ struct TabWithBumpShape: Shape {
 // PREVIEW
 // ─────────────────────────────────────────────────────────────
 #Preview("Feed Tab - Idle State") {
-    @State var isPresented = false
+    @Previewable @State var isPresented = false
     @State var searchQuery = ""
     
     return ZStack {

@@ -848,7 +848,7 @@ extension LiveKitCallService: RoomDelegate {
     
     // Handle participants leaving
     nonisolated func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
-        print("👋 [LiveKit] Participant left: \(participant.identity)")
+        print("👋 [LiveKit] Participant left: \(String(describing: participant.identity))")
         
         Task { @MainActor in
             // Remove the participant from our local participant list

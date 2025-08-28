@@ -60,6 +60,9 @@ class AuthService: ObservableObject {
             FirebaseApp.configure()
         }
         
+        // Localize FirebaseAuth to app language for system emails like password reset
+        Auth.auth().useAppLanguage()
+        
         // Add TestFlight debugging
         #if DEBUG
         print("🔧 [AuthService] Running in DEBUG mode")
@@ -69,7 +72,7 @@ class AuthService: ObservableObject {
         
         // Print Firebase configuration info
         if let app = FirebaseApp.app() {
-            print("🔥 [AuthService] Firebase configured with project: \(app.options.projectID)")
+            print("🔥 [AuthService] Firebase configured with project: \(String(describing: app.options.projectID))")
             print("🔥 [AuthService] Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
         }
         

@@ -1359,6 +1359,13 @@ struct ForgotPasswordView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
                 
+                // Guidance for users who signed up via phone or Google
+                Text("If you signed up with phone or Google, you may not have a password. Add an email in Profile > Settings first.")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                
                 TextField("Email", text: $email)
                     .textFieldStyle(CustomTextFieldStyle())
                     .keyboardType(.emailAddress)
@@ -1385,10 +1392,10 @@ struct ForgotPasswordView: View {
                             .foregroundColor(.white)
                     }
                     .frame(width: 280, height: 44)
-                    .background(email.isEmpty ? Color.gray : Color.blue)
+                    .background(isValidEmail ? Color.blue : Color.gray)
                     .cornerRadius(8)
                 }
-                .disabled(isLoading || email.isEmpty)
+                .disabled(isLoading || !isValidEmail)
                 .padding(.top, 20)
                 
                 Spacer()
@@ -1406,15 +1413,25 @@ struct ForgotPasswordView: View {
         }
     }
     
+    private var normalizedEmail: String {
+        return email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+    
+    private var isValidEmail: Bool {
+        let test = normalizedEmail
+        let pattern = "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$"
+        return test.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+    
     private func sendResetEmail() {
         isLoading = true
         showMessage = false
         
         Task {
             do {
-                try await authService.sendPasswordResetEmail(email: email)
+                try await authService.sendPasswordResetEmail(email: normalizedEmail)
                 await MainActor.run {
-                    message = "✅ Password reset email sent! Please check your inbox and follow the instructions."
+                    message = "Password reset email sent! Please check your inbox, if it's not in your inbox, check your spam folder."
                     isSuccess = true
                     showMessage = true
                     isLoading = false

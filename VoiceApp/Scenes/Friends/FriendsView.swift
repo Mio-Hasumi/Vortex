@@ -1,8 +1,18 @@
 import SwiftUI
+import UIKit
 
 struct FriendsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab = 0
+    
+    init() {
+        // Customize segmented control appearance for dark background
+        let appearance = UISegmentedControl.appearance()
+        appearance.selectedSegmentTintColor = UIColor.systemBlue
+        appearance.backgroundColor = UIColor(white: 1.0, alpha: 0.12)
+        appearance.setTitleTextAttributes([.foregroundColor: UIColor.lightGray], for: .normal)
+        appearance.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
+    }
     
     var body: some View {
         NavigationView {
@@ -67,35 +77,6 @@ struct FriendsListView: View {
                 ProgressView("Loading friends...")
                     .foregroundColor(.white)
                     .padding()
-            } else if let error = friendsService.error {
-                VStack(spacing: 20) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 60))
-                        .foregroundColor(.red)
-                    
-                    Text("Error Loading Friends")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                    
-                    Text(error)
-                        .font(.body)
-                        .foregroundColor(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 40)
-                    
-                    Button("Retry") {
-                        Task {
-                            await friendsService.fetchFriends()
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
-                }
-                .padding(.top, 60)
             } else if friendsService.friends.isEmpty {
                 VStack(spacing: 20) {
                     Image(systemName: "person.2")
@@ -184,6 +165,7 @@ struct FindPeopleView: View {
     @State private var topicRecommendations: [UserProfile] = []
     @State private var isSearching = false
     @State private var showTopicRecommendations = false
+    @State private var isLoadingRecommendations = false
     @StateObject private var friendService = FriendRequestService.shared
     
     var body: some View {
@@ -254,37 +236,10 @@ struct FindPeopleView: View {
                 }
                 .padding()
             } else {
-                // Default view with topic recommendations
-                VStack(spacing: 20) {
-                    Image(systemName: "person.2.badge.plus")
-                        .font(.system(size: 60))
-                        .foregroundColor(.gray)
-                    
-                    Text("Find People")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                    
-                    Text("Discover new friends based on your interests and voice matching preferences.")
-                        .font(.body)
-                        .foregroundColor(.gray)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 40)
-                    
-                    Button("Start Finding People") {
-                        showTopicRecommendations = true
-                        loadTopicRecommendations()
-                    }
-                    .padding(.horizontal, 30)
-                    .padding(.vertical, 12)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
-                }
-                .padding(.top, 20)
+                EmptyView()
             }
             
-            if showTopicRecommendations && !topicRecommendations.isEmpty {
+            if showTopicRecommendations {
                 // Topic-based recommendations
                 VStack(alignment: .leading, spacing: 12) {
                     Text("People with Similar Interests")
@@ -292,17 +247,28 @@ struct FindPeopleView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 20)
                     
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(topicRecommendations, id: \.id) { user in
-                                UserSearchRow(user: user) { userId in
-                                    Task {
-                                        await sendFriendRequest(to: userId)
+                    if isLoadingRecommendations {
+                        ProgressView("Loading recommendations...")
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                    } else if topicRecommendations.isEmpty {
+                        Text("No recommendations yet. Try updating your interests in Profile.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .padding(.horizontal, 20)
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 12) {
+                                ForEach(topicRecommendations, id: \.id) { user in
+                                    UserSearchRow(user: user) { userId in
+                                        Task {
+                                            await sendFriendRequest(to: userId)
+                                        }
                                     }
                                 }
                             }
+                            .padding(.horizontal, 20)
                         }
-                        .padding(.horizontal, 20)
                     }
                 }
             }
@@ -310,6 +276,15 @@ struct FindPeopleView: View {
             Spacer()
         }
         .background(Color.black)
+        .onAppear {
+            // Auto-load recommendations on first appear
+            if !showTopicRecommendations {
+                showTopicRecommendations = true
+                if topicRecommendations.isEmpty {
+                    loadTopicRecommendations()
+                }
+            }
+        }
     }
     
     private func searchUsers(query: String) {
@@ -342,13 +317,7 @@ struct FindPeopleView: View {
                 print("❌ iOS: Error details: \(error.localizedDescription)")
                 
                 await MainActor.run {
-                    print("🔍 iOS: Falling back to mock data...")
-                    // Fallback to mock data if API fails
-                    self.searchResults = [
-                        UserProfile(id: "1", displayName: "Alex Johnson", profilePicture: nil, topics: ["AI", "Technology"]),
-                        UserProfile(id: "2", displayName: "Sarah Chen", profilePicture: nil, topics: ["Science", "Innovation"]),
-                        UserProfile(id: "3", displayName: "Mike Davis", profilePicture: nil, topics: ["Technology", "Business"])
-                    ].filter { $0.displayName.lowercased().contains(query.lowercased()) }
+                    self.searchResults = []
                     self.isSearching = false
                 }
             }
@@ -357,6 +326,7 @@ struct FindPeopleView: View {
     
     private func loadTopicRecommendations() {
         Task {
+            await MainActor.run { isLoadingRecommendations = true }
             do {
                 let response: UserRecommendationsResponse = try await APIService.shared.request(
                     endpoint: APIConfig.Endpoints.userRecommendations + "?limit=20&min_common_interests=1"
@@ -372,17 +342,13 @@ struct FindPeopleView: View {
                             friendshipStatus: user.friendship_status
                         )
                     }
+                    self.isLoadingRecommendations = false
                 }
             } catch {
                 print("❌ Failed to load topic recommendations: \(error)")
                 await MainActor.run {
-                    // Fallback to mock data if API fails
-                    self.topicRecommendations = [
-                        UserProfile(id: "4", displayName: "Emma Wilson", profilePicture: nil, topics: ["AI", "Machine Learning"]),
-                        UserProfile(id: "5", displayName: "David Brown", profilePicture: nil, topics: ["Technology", "Innovation"]),
-                        UserProfile(id: "6", displayName: "Lisa Garcia", profilePicture: nil, topics: ["Science", "Research"]),
-                        UserProfile(id: "7", displayName: "Tom Anderson", profilePicture: nil, topics: ["AI", "Technology"])
-                    ]
+                    self.topicRecommendations = []
+                    self.isLoadingRecommendations = false
                 }
             }
         }
@@ -410,7 +376,7 @@ struct UserProfile: Identifiable {
     let profilePicture: String?
     let topics: [String]
     let friendshipStatus: String
-    
+
     init(id: String, displayName: String, profilePicture: String?, topics: [String], friendshipStatus: String = "none") {
         self.id = id
         self.displayName = displayName
