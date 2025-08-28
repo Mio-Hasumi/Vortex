@@ -320,16 +320,17 @@ struct HashtagScreen: View {
                     print("🧹 [CHAT] Cleaning up AI service on intentional exit")
                     NotificationCenter.default.post(name: NSNotification.Name("CleanupAIServices"), object: nil)
                     
+                    // Reset navigation state to return to home
+                    print("🔄 [CHAT] Resetting navigation state to return home")
+                    VoiceMatchingService.shared.resetNavigation()
+                    
                     // Show post-chat screen instead of going directly to home
                     showPostChatScreen = true
-                    
-                    // Note: Navigation state will be reset when user manually navigates back
-                    // This prevents conflicts with the PostChatView presentation
                 }
         } message: {
             Text("Are you sure you want to end this call? You'll be returned to the home screen.")
         }
-        .navigationDestination(isPresented: $showPostChatScreen) {
+        .sheet(isPresented: $showPostChatScreen) {
             PostChatView(participants: liveKitService.participants)
         }
     }
@@ -847,7 +848,7 @@ extension LiveKitCallService: RoomDelegate {
     
     // Handle participants leaving
     nonisolated func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
-        print("👋 [LiveKit] Participant left: \(String(describing: participant.identity))")
+        print("👋 [LiveKit] Participant left: \(participant.identity)")
         
         Task { @MainActor in
             // Remove the participant from our local participant list

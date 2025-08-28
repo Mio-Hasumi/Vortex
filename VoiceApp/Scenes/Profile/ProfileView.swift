@@ -371,6 +371,11 @@ struct EditProfileView: View {
     @State private var showError = false
     @State private var showSuccess = false
     @State private var successMessage = ""
+    @State private var email: String = ""
+    @State private var currentPassword: String = ""
+    @State private var newPhoneNumber: String = ""
+    @State private var verificationCode: String = ""
+    @State private var isSendingCode: Bool = false
     
     var body: some View {
         NavigationView {
@@ -385,6 +390,83 @@ struct EditProfileView: View {
                             
                             TextField("Display Name", text: $displayName)
                                 .textFieldStyle(CustomTextFieldStyle())
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        // Email Section
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Email")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                            TextField("Email", text: $email)
+                                .keyboardType(.emailAddress)
+                                .textContentType(.emailAddress)
+                                .autocapitalization(.none)
+                                .disableAutocorrection(true)
+                                .textFieldStyle(CustomTextFieldStyle())
+                            if authService.email != nil || authService.realEmail != nil {
+                                SecureField("Current Password (needed for email change)", text: $currentPassword)
+                                    .textFieldStyle(CustomTextFieldStyle())
+                            }
+                            Button(action: updateEmailTapped) {
+                                HStack {
+                                    if isLoading {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(0.8)
+                                    }
+                                    Text("Update Email")
+                                        .foregroundColor(.white)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 44)
+                                .background(Color.blue)
+                                .cornerRadius(10)
+                            }
+                            .disabled(email.isEmpty || isLoading)
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        // Phone Section
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Phone")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                            TextField("+1 555 123 4567", text: $newPhoneNumber)
+                                .keyboardType(.phonePad)
+                                .textFieldStyle(CustomTextFieldStyle())
+                            HStack {
+                                Button(action: sendCodeTapped) {
+                                    HStack {
+                                        if isSendingCode {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                                .scaleEffect(0.8)
+                                        }
+                                        Text("Send Code")
+                                            .foregroundColor(.white)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 44)
+                                    .background(Color.green)
+                                    .cornerRadius(10)
+                                }
+                                .disabled(newPhoneNumber.isEmpty || isSendingCode)
+                            }
+                            if authService.isPhoneVerificationSent {
+                                TextField("Verification Code", text: $verificationCode)
+                                    .keyboardType(.numberPad)
+                                    .textFieldStyle(CustomTextFieldStyle())
+                                Button(action: verifyCodeTapped) {
+                                    Text("Verify & Link Phone")
+                                        .foregroundColor(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 44)
+                                        .background(Color.blue)
+                                        .cornerRadius(10)
+                                }
+                                .disabled(verificationCode.isEmpty)
+                            }
                         }
                         .padding(.horizontal, 20)
                         
@@ -431,6 +513,7 @@ struct EditProfileView: View {
         }
         .onAppear {
             displayName = authService.displayName ?? ""
+            email = authService.realEmail ?? authService.email ?? ""
         }
     }
     
@@ -458,6 +541,75 @@ struct EditProfileView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         dismiss()
                     }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func updateEmailTapped() {
+        guard !email.isEmpty else { return }
+        isLoading = true
+        showError = false
+        showSuccess = false
+        Task {
+            do {
+                _ = try await authService.updateEmailAddress(to: email, currentPassword: currentPassword)
+                await MainActor.run {
+                    successMessage = "Email updated successfully!"
+                    showSuccess = true
+                    isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func sendCodeTapped() {
+        guard !newPhoneNumber.isEmpty else { return }
+        isSendingCode = true
+        showError = false
+        showSuccess = false
+        Task {
+            do {
+                try await authService.sendPhoneVerificationCode(phoneNumber: newPhoneNumber)
+                await MainActor.run {
+                    isSendingCode = false
+                    successMessage = "Verification code sent!"
+                    showSuccess = true
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                    isSendingCode = false
+                }
+            }
+        }
+    }
+    
+    private func verifyCodeTapped() {
+        guard !verificationCode.isEmpty else { return }
+        isLoading = true
+        showError = false
+        showSuccess = false
+        Task {
+            do {
+                _ = try await authService.linkPhoneNumberWithCode(phoneNumber: newPhoneNumber, verificationCode: verificationCode)
+                await MainActor.run {
+                    successMessage = "Phone linked successfully!"
+                    showSuccess = true
+                    isLoading = false
                 }
             } catch {
                 await MainActor.run {

@@ -657,6 +657,117 @@ class AuthService: ObservableObject {
         try await Auth.auth().sendPasswordReset(withEmail: email)
     }
     
+    // MARK: - Account Linking & Email Update
+    
+    @MainActor
+    private func reauthenticateForSensitiveAction(currentPassword: String?) async throws {
+        guard let currentUser = Auth.auth().currentUser else {
+            throw AuthError.notAuthenticated
+        }
+        let providerIDs = currentUser.providerData.map { $0.providerID }
+        if providerIDs.contains("password") {
+            guard let email = currentUser.email, let password = currentPassword, !password.isEmpty else {
+                throw AuthError.unknown("Please enter your current password to continue.")
+            }
+            let credential = EmailAuthProvider.credential(withEmail: email, password: password)
+            _ = try await currentUser.reauthenticate(with: credential)
+            return
+        }
+        if providerIDs.contains("google.com") {
+            guard let clientID = FirebaseApp.app()?.options.clientID else {
+                throw AuthError.configError
+            }
+            let config = GIDConfiguration(clientID: clientID)
+            GIDSignIn.sharedInstance.configuration = config
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let rootViewController = windowScene.windows.first?.rootViewController else {
+                throw AuthError.presentationError
+            }
+            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController)
+            guard let idToken = result.user.idToken?.tokenString else {
+                throw AuthError.invalidCredentials
+            }
+            let credential = GoogleAuthProvider.credential(
+                withIDToken: idToken,
+                accessToken: result.user.accessToken.tokenString
+            )
+            _ = try await currentUser.reauthenticate(with: credential)
+            return
+        }
+        if providerIDs.contains("phone") {
+            throw AuthError.unknown("Recent login required. Please sign in again.")
+        }
+        throw AuthError.unknown("Recent login required. Please sign in again.")
+    }
+    
+    @MainActor
+    func updateEmailAddress(to newEmail: String, currentPassword: String?) async throws -> AuthResponse {
+        guard let currentUser = Auth.auth().currentUser else {
+            throw AuthError.notAuthenticated
+        }
+        do {
+            try await currentUser.updateEmail(to: newEmail)
+        } catch let error as NSError {
+            if AuthErrorCode(rawValue: error.code) == .requiresRecentLogin {
+                try await reauthenticateForSensitiveAction(currentPassword: currentPassword)
+                try await currentUser.updateEmail(to: newEmail)
+            } else {
+                throw error
+            }
+        }
+        let token = try await currentUser.getIDToken(forcingRefresh: true)
+        APIService.shared.setAuthToken(token)
+        await MainActor.run { self.firebaseToken = token }
+        let response = try await addAuthMethod(email: newEmail)
+        await MainActor.run {
+            self.email = newEmail
+            // If user is not phone-auth, update realEmail as well
+            if currentUser.providerData.contains(where: { $0.providerID != "phone" }) {
+                self.realEmail = newEmail
+            }
+        }
+        return response
+    }
+    
+    @MainActor
+    func linkPhoneNumberWithCode(phoneNumber: String, verificationCode: String) async throws -> AuthResponse {
+        guard let verificationID = phoneVerificationID else {
+            throw AuthError.unknown("No verification ID found. Please request a new code.")
+        }
+        guard let currentUser = Auth.auth().currentUser else {
+            throw AuthError.notAuthenticated
+        }
+        let credential = PhoneAuthProvider.provider().credential(
+            withVerificationID: verificationID,
+            verificationCode: verificationCode
+        )
+        do {
+            _ = try await currentUser.link(with: credential)
+        } catch let error as NSError {
+            let code = AuthErrorCode(rawValue: error.code)
+            if code == .requiresRecentLogin {
+                try await reauthenticateForSensitiveAction(currentPassword: nil)
+                _ = try await currentUser.link(with: credential)
+            } else if code == .credentialAlreadyInUse {
+                throw AuthError.unknown("This phone number is already linked to another account.")
+            } else if code == .providerAlreadyLinked {
+                // Already linked, proceed
+            } else {
+                throw error
+            }
+        }
+        let token = try await currentUser.getIDToken(forcingRefresh: true)
+        APIService.shared.setAuthToken(token)
+        await MainActor.run { self.firebaseToken = token }
+        let response = try await addAuthMethod(phoneNumber: phoneNumber)
+        await MainActor.run {
+            self.phoneAuthNumber = phoneNumber
+            self.phoneVerificationID = nil
+            self.isPhoneVerificationSent = false
+        }
+        return response
+    }
+    
     // MARK: - Profile Management
     
     @MainActor

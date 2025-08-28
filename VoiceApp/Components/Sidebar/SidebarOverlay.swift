@@ -218,15 +218,6 @@ struct SidebarContent: View {
             
             // Menu items
             VStack(spacing: 8) {
-                SidebarMenuItem(
-                    icon: "house.fill",
-                    title: "Home",
-                    isSelected: true,
-                    action: {
-                        // Already on Home page, no additional action needed
-                        print("Home selected")
-                    }
-                )
                 
                 SidebarMenuItem(
                     icon: "person.2.fill",
