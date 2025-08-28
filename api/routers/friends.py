@@ -345,44 +345,142 @@ async def block_user(
     friend_repo = Depends(get_friend_repository),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Block a user
-    """
+    """Block a user"""
     try:
-        user_uuid = UUID(user_id)
-        current_user_id = current_user.id
+        logger.info(f"🚫 User {current_user.display_name} ({current_user.id}) blocking user: {user_id}")
         
-        # For now, we'll implement blocking by creating a BLOCKED friendship entry
-        # In a more sophisticated system, you'd have a separate blocking system
+        # Convert string ID to UUID
+        try:
+            target_user_uuid = UUID(user_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid user ID format"
+            )
         
-        from domain.entities import new_friendship, FriendshipStatus
+        # Check if trying to block self
+        if target_user_uuid == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot block yourself"
+            )
         
-        # Create a blocked friendship entry
-        blocked_friendship = new_friendship(
-            user_id=current_user_id,
-            friend_id=user_uuid,
-            message="User blocked"
-        )
-        blocked_friendship.status = FriendshipStatus.BLOCKED
+        # Block the user
+        success = friend_repo.block_user(current_user.id, target_user_uuid)
         
-        # Save the blocked relationship
-        friend_repo.save_friendship(blocked_friendship)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to block user"
+            )
         
-        # Also remove any existing friendship
-        friend_repo.delete_friendship(current_user_id, user_uuid)
+        logger.info(f"✅ User {current_user.id} successfully blocked user {user_id}")
         
         return {"message": "User blocked successfully"}
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid user ID format"
-        )
+        
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"❌ Failed to block user {user_id}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to block user: {str(e)}"
+        )
+
+@router.delete("/{user_id}/unfriend")
+async def unfriend_user(
+    user_id: str,
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
+):
+    """Unfriend a user"""
+    try:
+        logger.info(f"👋 User {current_user.display_name} ({current_user.id}) unfriending user: {user_id}")
+        
+        # Convert string ID to UUID
+        try:
+            target_user_uuid = UUID(user_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid user ID format"
+            )
+        
+        # Check if trying to unfriend self
+        if target_user_uuid == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot unfriend yourself"
+            )
+        
+        # Unfriend the user
+        success = friend_repo.unfriend_user(current_user.id, target_user_uuid)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to unfriend user"
+            )
+        
+        logger.info(f"✅ User {current_user.id} successfully unfriended user {user_id}")
+        
+        return {"message": "User unfriended successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to unfriend user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to unfriend user: {str(e)}"
+        )
+
+@router.delete("/{user_id}/unblock")
+async def unblock_user(
+    user_id: str,
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
+):
+    """Unblock a user"""
+    try:
+        logger.info(f"🔓 User {current_user.display_name} ({current_user.id}) unblocking user: {user_id}")
+        
+        # Convert string ID to UUID
+        try:
+            target_user_uuid = UUID(user_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid user ID format"
+            )
+        
+        # Check if trying to unblock self
+        if target_user_uuid == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot unblock yourself"
+            )
+        
+        # Unblock the user
+        success = friend_repo.unblock_user(current_user.id, target_user_uuid)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to unblock user"
+            )
+        
+        logger.info(f"✅ User {current_user.id} successfully unblocked user {user_id}")
+        
+        return {"message": "User unblocked successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to unblock user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to unblock user: {str(e)}"
         )
 
 @router.get("/search")
@@ -456,26 +554,31 @@ async def search_users(
             ]
             logger.info(f"🔍 Backend: Fallback search returned {len(search_results)} users")
         
-        # Get friendship status for each user
+        # Get different friendship relationships
+        accepted_friendships = friend_repo.find_friendships_by_user_id(current_user.id)
+        pending_received = friend_repo.find_pending_requests_by_user_id(current_user.id)
+        pending_sent = friend_repo.find_pending_sent_requests_by_user_id(current_user.id)
+
+        # Build lookup map for quick status checks
+        friendship_map = {}
+        for friendship in accepted_friendships:
+            other_user_id = friendship.friend_id if friendship.user_id == current_user.id else friendship.user_id
+            friendship_map[other_user_id] = ("friends", friendship)
+
+        for friendship in pending_sent:
+            friendship_map[friendship.friend_id] = ("pending_sent", friendship)
+
+        for friendship in pending_received:
+            friendship_map[friendship.user_id] = ("pending_received", friendship)
+
+        # Determine friendship status for each search result
         user_responses = []
         for user in search_results:
-            # Check if there's an existing friendship
             friendship_status = "none"  # Default: no relationship
-            
-            # Check for existing friendship in both directions
-            friendships = friend_repo.find_friendships_by_user_id(current_user.id)
-            for friendship in friendships:
-                if friendship.friend_id == user.id or friendship.user_id == user.id:
-                    if friendship.status.name.lower() == "accepted":
-                        friendship_status = "friends"
-                    elif friendship.status.name.lower() == "pending":
-                        if friendship.user_id == current_user.id:
-                            friendship_status = "pending_sent"  # Current user sent request
-                        else:
-                            friendship_status = "pending_received"  # Current user received request
-                    elif friendship.status.name.lower() == "blocked":
-                        friendship_status = "blocked"
-                    break
+
+            friendship_info = friendship_map.get(user.id)
+            if friendship_info:
+                friendship_status, _ = friendship_info
             
             # Build user response
             profile_image_url = user.profile_image_url
@@ -639,4 +742,167 @@ async def unblock_user(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
+        ) 
+
+@router.get("/find-people-by-topics")
+async def find_people_by_topics(
+    limit: int = 20,
+    min_common_topics: int = 1,
+    current_user: User = Depends(get_current_user),
+    user_repo = Depends(get_user_repository),
+    friend_repo = Depends(get_friend_repository)
+):
+    """Find people based on common topic preferences - called when user clicks 'Start Finding People'"""
+    try:
+        logger.info(f"🎯 User {current_user.display_name} ({current_user.id}) is finding people by topics")
+        
+        # Get current user's topic preferences
+        user_topics = current_user.topic_preferences or []
+        
+        if not user_topics:
+            logger.info(f"ℹ️ User {current_user.display_name} has no topic preferences yet")
+            return {
+                "users": [],
+                "total": 0,
+                "message": "You don't have any topic preferences yet. Start some voice chats to build your interest profile!"
+            }
+        
+        logger.info(f"🔍 Finding people with common topics: {user_topics[:5]}..." if len(user_topics) > 5 else f"🔍 Finding people with common topics: {user_topics}")
+        
+        # Find users with similar topic preferences
+        similar_users_data = user_repo.find_users_by_topic_preferences(
+            user_topics=user_topics,
+            exclude_user_id=current_user.id,
+            limit=limit + 10,  # Get extra to account for filtering
+            min_common_topics=min_common_topics
+        )
+        
+        logger.info(f"🔍 Found {len(similar_users_data)} users with similar topic preferences")
+        
+        # Get friendship relationships for current user
+        accepted_friendships = friend_repo.find_friendships_by_user_id(current_user.id)
+        pending_received = friend_repo.find_pending_requests_by_user_id(current_user.id)
+        pending_sent = friend_repo.find_pending_sent_requests_by_user_id(current_user.id)
+        
+        # Build friendship lookup map
+        friendship_map = {}
+        for friendship in accepted_friendships:
+            other_user_id = friendship.friend_id if friendship.user_id == current_user.id else friendship.user_id
+            friendship_map[other_user_id] = ("friends", friendship)
+        
+        for friendship in pending_sent:
+            friendship_map[friendship.friend_id] = ("pending_sent", friendship)
+        
+        for friendship in pending_received:
+            friendship_map[other_user_id] = ("pending_received", friendship)
+        
+        # Build user responses with topic information
+        user_responses = []
+        for user_data in similar_users_data:
+            user = user_data["user"]
+            common_topics = user_data["common_interests"]
+            similarity_score = user_data["similarity_score"]
+            total_common = user_data["total_common"]
+            
+            # Determine friendship status
+            friendship_status = "none"
+            friendship_info = friendship_map.get(user.id)
+            if friendship_info:
+                friendship_status, _ = friendship_info
+            
+            # Build profile image URL
+            profile_image_url = user.profile_image_url
+            if profile_image_url and profile_image_url.startswith("/"):
+                from infrastructure.config import settings
+                profile_image_url = f"{settings.BASE_URL}{profile_image_url}"
+            
+            # Build user response with topic matching details
+            user_responses.append({
+                "user_id": str(user.id),
+                "display_name": user.display_name,
+                "profile_image_url": profile_image_url,
+                "bio": user.bio,
+                "status": "online" if user.status.name.lower() == "online" else "offline",
+                "friendship_status": friendship_status,
+                "topic_preferences": user.topic_preferences[:8] if user.topic_preferences else [],  # Show more topics
+                "common_topics": common_topics,  # Topics in common with current user
+                "similarity_score": round(similarity_score, 3),  # How similar their interests are
+                "total_common_topics": total_common,  # Number of topics in common
+                "match_quality": "high" if similarity_score > 0.7 else "medium" if similarity_score > 0.4 else "low"
+            })
+        
+        # Sort by similarity score (highest first) and then by number of common topics
+        user_responses.sort(key=lambda x: (x["similarity_score"], x["total_common_topics"]), reverse=True)
+        
+        # Limit results
+        final_results = user_responses[:limit]
+        
+        logger.info(f"✅ Returning {len(final_results)} people with common topic preferences")
+        for result in final_results[:3]:  # Log first 3 for debugging
+            logger.info(f"   👤 {result['display_name']}: {result['similarity_score']} similarity, {result['total_common_topics']} common topics")
+        
+        return {
+            "users": final_results,
+            "total": len(final_results),
+            "user_topics": user_topics,  # Current user's topics for context
+            "message": f"Found {len(final_results)} people with similar interests to yours!"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to find people by topics: {e}")
+        import traceback
+        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to find people by topics: {str(e)}"
+        )
+
+@router.get("/request-id/{other_user_id}")
+async def get_friendship_request_id(
+    other_user_id: str,
+    friend_repo = Depends(get_friend_repository),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get the friendship request ID between current user and another user
+    This is used to accept/decline friend requests from search results
+    """
+    try:
+        logger.info(f"🔍 User {current_user.display_name} getting friendship request ID for user {other_user_id}")
+        
+        other_user_uuid = UUID(other_user_id)
+        
+        # Find pending request between these users
+        friendship = friend_repo.find_pending_request_between_users(
+            user_id=current_user.id,
+            other_user_id=other_user_uuid
+        )
+        
+        if not friendship:
+            logger.info(f"ℹ️ No pending friendship request found between users")
+            return {
+                "friendship_id": None,
+                "status": "none",
+                "message": "No pending friendship request found"
+            }
+        
+        # Determine the relationship direction
+        if friendship.user_id == current_user.id:
+            status = "pending_sent"
+        else:
+            status = "pending_received"
+        
+        logger.info(f"✅ Found friendship request {friendship.id} with status {status}")
+        
+        return {
+            "friendship_id": str(friendship.id),
+            "status": status,
+            "message": "Friendship request found"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting friendship request ID: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get friendship request ID: {str(e)}"
         ) 

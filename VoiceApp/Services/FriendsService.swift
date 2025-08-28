@@ -82,6 +82,72 @@ class FriendsService: ObservableObject {
         isLoading = false
     }
     
+    func blockUser(_ userId: String) async -> Bool {
+        print("🚫 [FriendsService] Blocking user: \(userId)")
+        
+        do {
+            let endpoint = APIConfig.Endpoints.blockUser.replacingOccurrences(of: "{user_id}", with: userId)
+            let response: BlockResponse = try await APIService.shared.request(
+                endpoint: endpoint,
+                method: "POST"
+            )
+            
+            print("✅ [FriendsService] User blocked successfully: \(response.message)")
+            
+            // Refresh friends list to reflect changes
+            await fetchFriends()
+            
+            return true
+        } catch {
+            print("❌ [FriendsService] Failed to block user: \(error)")
+            return false
+        }
+    }
+    
+    func unfriendUser(_ userId: String) async -> Bool {
+        print("👋 [FriendsService] Unfriending user: \(userId)")
+        
+        do {
+            let endpoint = APIConfig.Endpoints.unfriendUser.replacingOccurrences(of: "{user_id}", with: userId)
+            let response: UnfriendResponse = try await APIService.shared.request(
+                endpoint: endpoint,
+                method: "DELETE"
+            )
+            
+            print("✅ [FriendsService] User unfriended successfully: \(response.message)")
+            
+            // Refresh friends list to reflect changes
+            await fetchFriends()
+            
+            return true
+        } catch {
+            print("❌ [FriendsService] Failed to unfriend user: \(error)")
+            return false
+        }
+    }
+    
+    func unblockUser(_ userId: String) async -> Bool {
+        print("🔓 [FriendsService] Unblocking user: \(userId)")
+        
+        do {
+            let endpoint = APIConfig.Endpoints.unblockUser.replacingOccurrences(of: "{user_id}", with: userId)
+            let response: UnblockResponse = try await APIService.shared.request(
+                endpoint: endpoint,
+                method: "DELETE"
+            )
+            
+            print("✅ [FriendsService] User unblocked successfully: \(response.message)")
+            
+            // Refresh friends list to reflect changes
+            await fetchFriends()
+            
+            return true
+        } catch {
+            print("❌ [FriendsService] Failed to unblock user: \(error)")
+            return false
+        }
+    }
+    
     private func ensureValidAuthToken() async {
         let authService = AuthService.shared
         
@@ -111,6 +177,18 @@ class FriendsService: ObservableObject {
 struct FriendsListResponse: Codable {
     let friends: [FriendData]
     let total: Int
+}
+
+struct BlockResponse: Codable {
+    let message: String
+}
+
+struct UnfriendResponse: Codable {
+    let message: String
+}
+
+struct UnblockResponse: Codable {
+    let message: String
 }
 
 struct FriendData: Codable, Identifiable {

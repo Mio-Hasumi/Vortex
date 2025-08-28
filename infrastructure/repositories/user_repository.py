@@ -3,7 +3,7 @@ User Repository implementation using Firebase
 """
 
 import logging
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime, timezone
 
@@ -362,6 +362,100 @@ class UserRepository:
             
         except Exception as e:
             logger.error(f"❌ Failed to find users by interests: {e}")
+            return []
+    
+    def find_users_by_topic_preferences(
+        self, 
+        user_topics: List[str], 
+        exclude_user_id: UUID = None, 
+        limit: int = 20, 
+        min_common_topics: int = 1
+    ) -> List[Dict[str, Any]]:
+        """
+        Find users with similar topic preferences from the main user database
+        
+        Args:
+            user_topics: List of topic strings to match
+            exclude_user_id: User ID to exclude from results
+            limit: Maximum number of results to return
+            min_common_topics: Minimum number of common topics required
+            
+        Returns:
+            List of user data with similarity scores and common topics
+        """
+        try:
+            logger.info(f"🎯 Finding users with similar topic preferences: {user_topics[:3]}..." if len(user_topics) > 3 else f"🎯 Finding users with similar topic preferences: {user_topics}")
+            
+            # Get all users from the main user database
+            all_users = self.firebase.query_documents(
+                self.collection_name,
+                limit=200  # Reasonable limit to avoid performance issues
+            )
+            
+            logger.info(f"🔍 Searching through {len(all_users)} total users in database")
+            
+            matching_users = []
+            user_topics_set = set(topic.lower() for topic in user_topics)
+            
+            for user_data in all_users:
+                try:
+                    user = self._dict_to_entity(user_data)
+                    
+                    # Exclude current user
+                    if exclude_user_id and user.id == exclude_user_id:
+                        continue
+                    
+                    # Get user's topic preferences
+                    user_topic_preferences = user.topic_preferences or []
+                    if not user_topic_preferences:
+                        continue  # Skip users with no topic preferences
+                    
+                    user_topics_set_lower = set(topic.lower() for topic in user_topic_preferences)
+                    
+                    # Calculate common topics
+                    common_topics = user_topics_set.intersection(user_topics_set_lower)
+                    
+                    if len(common_topics) >= min_common_topics:
+                        # Calculate similarity score (Jaccard similarity)
+                        union_topics = user_topics_set.union(user_topics_set_lower)
+                        similarity_score = len(common_topics) / len(union_topics) if union_topics else 0
+                        
+                        # Convert common topics back to original case
+                        common_topics_original = []
+                        for topic in user_topics:
+                            if topic.lower() in common_topics:
+                                common_topics_original.append(topic)
+                        
+                        matching_users.append({
+                            "user": user,
+                            "common_interests": common_topics_original,
+                            "similarity_score": similarity_score,
+                            "total_common": len(common_topics)
+                        })
+                        
+                        logger.info(f"   ✅ Found match: {user.display_name} - {len(common_topics)} common topics")
+                
+                except Exception as user_error:
+                    logger.warning(f"⚠️ Error processing user data: {user_error}")
+                    continue
+            
+            # Sort by similarity score (descending) and then by number of common topics
+            matching_users.sort(key=lambda x: (x["similarity_score"], x["total_common"]), reverse=True)
+            
+            # Limit results
+            results = matching_users[:limit]
+            
+            logger.info(f"✅ Found {len(results)} users with similar topic preferences")
+            for result in results[:3]:  # Log first 3 for debugging
+                user = result["user"]
+                logger.info(f"   👤 {user.display_name}: {result['similarity_score']:.3f} similarity, {result['total_common']} common topics")
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to find users by topic preferences: {e}")
+            import traceback
+            logger.error(f"❌ Full traceback: {traceback.format_exc()}")
             return []
     
     def update(self, user: User) -> User:

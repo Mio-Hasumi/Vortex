@@ -278,6 +278,44 @@ class AIHostService:
                 "conversation_style": topic_data["conversation_style"]
             })
             
+            # Save generated hashtags to user's topic_preferences
+            if topic_data.get("hashtags"):
+                try:
+                    from infrastructure.container import container
+                    user_repository = container.get_user_repository()
+                    
+                    # Get current user from database
+                    user = user_repository.find_by_id(session.user_id)
+                    if user:
+                        # Extract hashtag text without # symbol for storage
+                        hashtag_texts = []
+                        for hashtag in topic_data["hashtags"]:
+                            if hashtag.startswith('#'):
+                                hashtag_texts.append(hashtag[1:])  # Remove # prefix
+                            else:
+                                hashtag_texts.append(hashtag)
+                        
+                        # Add new hashtags to existing preferences (avoid duplicates)
+                        existing_preferences = set(user.topic_preferences or [])
+                        new_preferences = existing_preferences.union(set(hashtag_texts))
+                        
+                        # Update user's topic_preferences
+                        user.topic_preferences = list(new_preferences)
+                        user.update_profile()  # Update timestamp
+                        
+                        # Save to database
+                        user_repository.update(user)
+                        
+                        logger.info(f"✅ Saved {len(hashtag_texts)} hashtags to user {session.user_id} topic preferences")
+                        logger.info(f"🏷️ Updated topic preferences: {user.topic_preferences}")
+                    else:
+                        logger.warning(f"⚠️ User not found in database: {session.user_id}")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Failed to save hashtags to user preferences: {e}")
+                    # Don't fail the entire request if saving preferences fails
+                    # The topic extraction still succeeded
+            
             # Transition to matching
             session.state = "matching"
             

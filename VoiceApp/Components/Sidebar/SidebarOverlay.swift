@@ -43,7 +43,7 @@ struct SidebarOverlay: View {
             if isPresented || isDragging {
                 ZStack(alignment: .leading) {
                     // Background overlay (tap to close)
-                    Color.black.opacity(0.3)
+                    Color.black.opacity(0.2)
                         .ignoresSafeArea()
                         .onTapGesture {
                             withAnimation(.easeOut(duration: 0.3)) {
@@ -61,7 +61,7 @@ struct SidebarOverlay: View {
                                 .background(
                                     UnevenRoundedRectangle(bottomTrailingRadius: configuration.cornerRadius, topTrailingRadius: configuration.cornerRadius)
                                         .fill(.regularMaterial)
-                                        .opacity(0.3)
+                                        .opacity(0.2)
                                 )
                                 .background(
                                     UnevenRoundedRectangle(bottomTrailingRadius: configuration.cornerRadius, topTrailingRadius: configuration.cornerRadius)

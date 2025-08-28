@@ -55,6 +55,30 @@ class FriendRequestService: ObservableObject {
             method: "POST"
         )
     }
+    
+    func getFriendshipRequestId(for userId: String) async throws -> GetFriendshipRequestIdResponse {
+        return try await APIService.shared.request(
+            endpoint: APIConfig.Endpoints.getFriendshipRequestId + "/\(userId)"
+        )
+    }
+    
+    // Get friendship status for a specific user using search API
+    func getFriendshipStatus(for userId: String) async throws -> String {
+        do {
+            let response: UserSearchResponse = try await APIService.shared.request(
+                endpoint: APIConfig.Endpoints.searchUsers + "?q=\(userId)&limit=1"
+            )
+            
+            if let user = response.users.first {
+                return user.friendship_status
+            } else {
+                return "none"
+            }
+        } catch {
+            print("❌ Failed to get friendship status for user \(userId): \(error)")
+            return "none"
+        }
+    }
 }
 
 // MARK: - Request/Response Models
@@ -90,5 +114,11 @@ struct AcceptFriendRequestResponse: Codable {
 }
 
 struct RejectFriendRequestResponse: Codable {
+    let message: String
+}
+
+struct GetFriendshipRequestIdResponse: Codable {
+    let friendship_id: String?
+    let status: String
     let message: String
 }
