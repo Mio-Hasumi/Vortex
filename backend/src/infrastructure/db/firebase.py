@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
 
 import firebase_admin
 from firebase_admin import auth, credentials, firestore, storage
@@ -121,6 +121,25 @@ class FirebaseAdminService:
             self._storage_bucket = storage.bucket(app=self._app)
         return self._storage_bucket
 
+    def _resolve_collection(self, path: str):
+        """
+        Resolve nested collection path like 'recordings/{rid}/segments' into a CollectionReference.
+        """
+        parts = path.split("/")
+        if not parts:
+            raise ValueError("Empty collection path")
+        ref = self.db.collection(parts[0])
+        i = 1
+        # Walk as collection -> document -> collection -> document ...
+        while i < len(parts):
+            if i + 1 >= len(parts):
+                raise ValueError("Collection path must end with a collection name")
+            doc_id = parts[i]
+            coll_name = parts[i + 1]
+            ref = ref.document(doc_id).collection(coll_name)
+            i += 2
+        return ref
+
     def create_user(self, email: str, password: str, display_name: str) -> auth.UserRecord:
         """Create a new user in Firebase Auth"""
         try:
@@ -172,7 +191,7 @@ class FirebaseAdminService:
                 doc_ref = collection_ref.document(document_id)
                 doc_ref.set(data)
             else:
-                doc_ref = collection_ref.add(data)[1]
+                doc_ref = collection_ref.add(data)[0]
             
             logger.info(f"✅ Added document to {collection_name}: {doc_ref.id}")
             return doc_ref
@@ -201,59 +220,62 @@ class FirebaseAdminService:
         """Return server timestamp for Firestore (alias for server_timestamp)"""
         return firestore.SERVER_TIMESTAMP
 
-    def query_documents(self, collection_name: str, filters: Optional[List[Dict[str, Any]]] = None, 
-                       limit: Optional[int] = None, order_by: Optional[str] = None, 
-                       order_direction: Optional[str] = "asc") -> List[Dict[str, Any]]:
+    def query_documents(self, collection_name: str, filters: Optional[List[Dict[str, Any]]] = None,
+                        limit: Optional[int] = None, order_by: Optional[str] = None,
+                        order_direction: Optional[str] = "asc") -> List[Dict[str, Any]]:
         """
-        Query documents from Firestore collection with optional filters
-        
-        Args:
-            collection_name: Name of the collection
-            filters: List of filter dictionaries with keys: field, operator, value
-            limit: Maximum number of documents to return
-            order_by: Field to order by
-            order_direction: Direction to order by ("asc" or "desc")
-            
-        Returns:
-            List of document dictionaries
+        Query documents from Firestore collection (supports nested subcollection paths).
         """
         try:
-            collection_ref = self.db.collection(collection_name)
+            collection_ref = self._resolve_collection(collection_name) if "/" in collection_name else self.db.collection(collection_name)
             query = collection_ref
-            
+
             # Apply filters
             if filters:
-                for filter_dict in filters:
-                    field = filter_dict['field']
-                    operator = filter_dict['operator']
-                    value = filter_dict['value']
+                for f in filters:
+                    field = f["field"]
+                    operator = f["operator"]
+                    value = f["value"]
                     query = query.where(field, operator, value)
-            
+
             # Apply ordering
             if order_by:
                 from google.cloud.firestore import Query
-                direction = Query.DESCENDING if order_direction == "desc" else Query.ASCENDING
+                direction = Query.DESCENDING if str(order_direction).lower() == "desc" else Query.ASCENDING
                 query = query.order_by(order_by, direction=direction)
-            
+
             # Apply limit
             if limit:
                 query = query.limit(limit)
-            
-            # Execute query
+
+            # Execute
             docs = query.stream()
-            
-            results = []
+            results: List[Dict[str, Any]] = []
             for doc in docs:
-                doc_data = doc.to_dict()
-                doc_data['id'] = doc.id  # Include document ID
-                results.append(doc_data)
-            
+                d = doc.to_dict()
+                d["id"] = doc.id
+                results.append(d)
+
             logger.info(f"✅ Queried {len(results)} documents from {collection_name}")
             return results
-            
+        
         except Exception as e:
             logger.error(f"❌ Failed to query documents from {collection_name}: {e}")
             raise
+
+    def batch_upsert(self, items: List[Tuple[str, str, Dict[str, Any]]]) -> None:
+        """
+        Batch upsert documents. Each item is (collection_path, doc_id, data).
+        collection_path can be a nested subcollection path like 'recordings/{rid}/segments'.
+        """
+        if not items:
+            return
+        batch = self.db.batch()
+        for coll_path, doc_id, data in items:
+            coll_ref = self._resolve_collection(coll_path) if "/" in coll_path else self.db.collection(coll_path)
+            doc_ref = coll_ref.document(doc_id)
+            batch.set(doc_ref, data, merge=True)
+        batch.commit()
 
     def update_document(self, collection_name: str, document_id: str, data: Dict[str, Any]) -> None:
         """Update document in Firestore"""

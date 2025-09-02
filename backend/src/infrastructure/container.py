@@ -20,7 +20,7 @@ from infrastructure.repositories.friend_repository import FriendRepository
 from infrastructure.repositories.topic_repository import TopicRepository
 from infrastructure.repositories.matching_repository import MatchingRepository
 from infrastructure.repositories.room_repository import RoomRepository
-from infrastructure.repositories.recording_repository import RecordingRepository
+from infrastructure.repositories.recording_repository import RecordingRepository, RecordingSegmentRepository
 
 # AI Services
 from infrastructure.ai.openai_service import OpenAIService
@@ -99,6 +99,9 @@ class Container:
         )
         self._instances['room_repository'] = RoomRepository(db, livekit_service)
         self._instances['recording_repository'] = RecordingRepository(db)
+        self._instances['recording_segment_repository'] = RecordingSegmentRepository(db)
+    def get_recording_segment_repository(self) -> RecordingSegmentRepository:
+        return self._instances['recording_segment_repository']
         
         # Firebase Auth Middleware is handled directly in middleware file
         

@@ -509,3 +509,33 @@ def new_session(room_name: str, host_identity: str, user_a_id: UUID) -> CallSess
         host_identity=host_identity,
         user_a_id=user_a_id,
     )
+
+
+# Additional entity for recording segments
+
+@dataclass
+class RecordingSegment:
+    id: UUID
+    recording_id: UUID
+    segment_index: int
+    start_ms: int
+    end_ms: int
+    duration_ms: int
+    download_url: Optional[str]
+    created_at: datetime
+    updated_at: Optional[datetime]
+    meta: Dict[str, Any]
+
+def new_segment(recording_id: UUID, index: int, start_ms: int, end_ms: int, url: Optional[str], meta: Dict[str, Any]) -> "RecordingSegment":
+    return RecordingSegment(
+        id=uuid4(),
+        recording_id=recording_id,
+        segment_index=index,
+        start_ms=start_ms,
+        end_ms=end_ms,
+        duration_ms=max(0, end_ms - start_ms),
+        download_url=url,
+        created_at=datetime.now(timezone.utc),
+        updated_at=None,
+        meta=meta or {}
+    )

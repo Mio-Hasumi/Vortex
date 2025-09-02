@@ -7,7 +7,119 @@ from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime
 
-from domain.entities import Recording, RecordingStatus, new_recording
+from domain.entities import Recording, RecordingStatus, RecordingSegment
+# --- RecordingSegmentRepository for subcollections ---
+
+from datetime import datetime
+from uuid import UUID
+from typing import List, Dict, Any, Optional
+
+class RecordingSegmentRepository:
+    """
+    Firestore subcollection repository for recording segments.
+    Layout: recordings/{recording_id}/segments/{doc_id}
+    Idempotency: doc_id = 'seg-{segment_index}'
+    """
+    ROOT_COLLECTION = "recordings"
+    SUB_COLLECTION = "segments"
+
+    def __init__(self, firebase_service: FirebaseAdminService):
+        self.firebase = firebase_service
+        self.db = firebase_service.db
+
+    @staticmethod
+    def _seg_doc_id(segment_index: int) -> str:
+        return f"seg-{segment_index}"
+
+    def _segments_coll_ref(self, recording_id: UUID):
+        return self.db.collection(self.Root_COLLECTION if hasattr(self, 'Root_COLLECTION') else self.ROOT_COLLECTION).document(str(recording_id)).collection(self.SUB_COLLECTION)
+
+    @staticmethod
+    def _to_dict(seg: RecordingSegment) -> Dict[str, Any]:
+        return {
+            "id": str(seg.id),
+            "recording_id": str(seg.recording_id),
+            "segment_index": seg.segment_index,
+            "start_ms": seg.start_ms,
+            "end_ms": seg.end_ms,
+            "duration_ms": seg.duration_ms,
+            "download_url": seg.download_url,
+            "created_at": seg.created_at,
+            "updated_at": seg.updated_at,
+            "meta": seg.meta or {},
+        }
+
+    @staticmethod
+    def _from_dict(d: Dict[str, Any]) -> RecordingSegment:
+        return RecordingSegment(
+            id=UUID(d["id"]),
+            recording_id=UUID(d["recording_id"]),
+            segment_index=int(d["segment_index"]),
+            start_ms=int(d["start_ms"]),
+            end_ms=int(d["end_ms"]),
+            duration_ms=int(d.get("duration_ms", d["end_ms"] - d["start_ms"])),
+            download_url=d.get("download_url"),
+            created_at=datetime.fromisoformat(d["created_at"]) if isinstance(d.get("created_at"), str) else d.get("created_at"),
+            updated_at=datetime.fromisoformat(d["updated_at"]) if isinstance(d.get("updated_at"), str) and d.get("updated_at") else d.get("updated_at"),
+            meta=d.get("meta", {}),
+        )
+
+    def upsert_many(self, recording_id: UUID, segments: List[RecordingSegment]) -> None:
+        if not segments:
+            return
+        coll_ref = self._segments_coll_ref(recording_id)
+        batch_items = []
+        for seg in segments:
+            doc_id = self._seg_doc_id(seg.segment_index)
+            batch_items.append((coll_ref.path, doc_id, self._to_dict(seg)))
+        self.firebase.batch_upsert(batch_items)
+
+    def upsert_one(self, recording_id: UUID, segment: RecordingSegment) -> None:
+        coll_ref = self._segments_coll_ref(recording_id)
+        doc_id = self._seg_doc_id(segment.segment_index)
+        coll_ref.document(doc_id).set(self._to_dict(segment), merge=True)
+
+    def get_one(self, recording_id: UUID, segment_index: int) -> Optional[RecordingSegment]:
+        coll_ref = self._segments_coll_ref(recording_id)
+        doc = coll_ref.document(self._seg_doc_id(segment_index)).get()
+        if not doc.exists:
+            return None
+        return self._from_dict(doc.to_dict())
+
+    def list_by_recording(self, recording_id: UUID, limit: int = 50, offset: int = 0, order: str = "asc") -> List[RecordingSegment]:
+        coll_ref = self._segments_coll_ref(recording_id)
+        direction = "ASCENDING" if order == "asc" else "DESCENDING"
+        from google.cloud.firestore import Query
+        q = coll_ref.order_by("segment_index", direction=(Query.ASCENDING if order == "asc" else Query.DESCENDING))
+        if limit:
+            q = q.limit(limit + offset if offset else limit)
+        docs = list(q.stream())
+        rows = [d.to_dict() for d in docs]
+        if offset:
+            rows = rows[offset: offset + limit]
+        return [self._from_dict(d) for d in rows]
+
+    def delete_one(self, recording_id: UUID, segment_index: int) -> None:
+        coll_ref = self._segments_coll_ref(recording_id)
+        coll_ref.document(self._seg_doc_id(segment_index)).delete()
+
+    def delete_all_by_recording(self, recording_id: UUID) -> int:
+        coll_ref = self._segments_coll_ref(recording_id)
+        total = 0
+        while True:
+            docs = list(coll_ref.limit(300).stream())
+            if not docs:
+                break
+            batch = self.db.batch()
+            for d in docs:
+                batch.delete(d.reference)
+            batch.commit()
+            total += len(docs)
+        return total
+
+    def count_by_recording(self, recording_id: UUID) -> int:
+        coll_ref = self._segments_coll_ref(recording_id)
+        return sum(1 for _ in coll_ref.stream())
 from infrastructure.db.firebase import FirebaseAdminService
 
 logger = logging.getLogger(__name__)
