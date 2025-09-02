@@ -463,7 +463,7 @@ async def websocket_room_conversation(
         # 2) Get user repository to check AI status FIRST
         user_repo = get_user_repository()
         current_user = user_repo.find_by_id(UUID(user_id))
-        user_ai_enabled = current_user.ai_enabled if current_user else False  # AI starts disabled by default
+        user_ai_enabled = False  # Always start with AI disabled when joining any room
         
         # 3) Connect to LiveKit with livekit_name
         room_participants = [str(uid) for uid in room.current_participants]
