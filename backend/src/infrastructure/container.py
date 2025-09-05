@@ -21,11 +21,13 @@ from infrastructure.repositories.topic_repository import TopicRepository
 from infrastructure.repositories.matching_repository import MatchingRepository
 from infrastructure.repositories.room_repository import RoomRepository
 from infrastructure.repositories.recording_repository import RecordingRepository, RecordingSegmentRepository
+from infrastructure.repositories.smart_voice_clip_repository import SmartVoiceClipRepository
 
 # AI Services
 from infrastructure.ai.openai_service import OpenAIService
 from infrastructure.ai.ai_host_service import AIHostService
 from infrastructure.ai.agent_manager_service import AgentManagerService
+from infrastructure.ai.smart_voice_clipping_service import SmartVoiceClippingService
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +102,13 @@ class Container:
         self._instances['room_repository'] = RoomRepository(db, livekit_service)
         self._instances['recording_repository'] = RecordingRepository(db)
         self._instances['recording_segment_repository'] = RecordingSegmentRepository(db)
+        self._instances['smart_voice_clip_repository'] = SmartVoiceClipRepository(db)
+    
     def get_recording_segment_repository(self) -> RecordingSegmentRepository:
         return self._instances['recording_segment_repository']
+    
+    def get_smart_voice_clip_repository(self) -> SmartVoiceClipRepository:
+        return self._instances['smart_voice_clip_repository']
         
         # Firebase Auth Middleware is handled directly in middleware file
         
@@ -153,7 +160,14 @@ class Container:
                 ai_host_service=self._instances.get('ai_host_service')
             )
             
+            # Smart Voice Clipping Service
+            self._instances['smart_voice_clipping_service'] = SmartVoiceClippingService(
+                clip_repository=self._instances['smart_voice_clip_repository'],
+                openai_service=self._instances.get('openai_service')
+            )
+            
             logger.info("✅ CONTAINER DEBUG: AgentManagerService initialized successfully")
+            logger.info("✅ Smart Voice Clipping Service initialized successfully")
             logger.info("✅ AI services initialized successfully")
             
         except Exception as e:
@@ -219,6 +233,10 @@ class Container:
     def get_agent_manager_service(self) -> Optional[AgentManagerService]:
         """Get agent manager service for VortexAgent deployment"""
         return self._instances.get('agent_manager_service')
+    
+    def get_smart_voice_clipping_service(self) -> Optional[SmartVoiceClippingService]:
+        """Get smart voice clipping service for hashtag-based voice clips"""
+        return self._instances.get('smart_voice_clipping_service')
 
     # Lifecycle management methods
     async def start_websocket_services(self):

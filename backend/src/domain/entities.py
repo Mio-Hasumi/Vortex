@@ -177,6 +177,18 @@ class Room:
         """Resume chat"""
         if self.status == RoomStatus.PAUSED:
             self.status = RoomStatus.ACTIVE
+    
+    def get_room_hashtags(self) -> List[str]:
+        """Get hashtags for this room based on topic"""
+        # Extract hashtags from topic name (simplified)
+        # In production, you might want to store hashtags separately
+        topic_hashtags = []
+        if self.topic_id:
+            # This would typically look up the topic and extract hashtags
+            # For now, we'll create hashtags from the room name
+            topic_hashtags = [f"#{self.name.replace(' ', '')}"]
+        
+        return topic_hashtags
 
 
 @dataclass
@@ -537,5 +549,61 @@ def new_segment(recording_id: UUID, index: int, start_ms: int, end_ms: int, url:
         download_url=url,
         created_at=datetime.now(timezone.utc),
         updated_at=None,
+        meta=meta or {}
+    )
+
+
+@dataclass
+class SmartVoiceClip:
+    """
+    Smart voice clip created when hashtag topics are mentioned in chat rooms
+    """
+    id: UUID
+    room_id: UUID
+    hashtag: str  # The hashtag that triggered this clip
+    start_time_ms: int  # Start time in the original recording
+    end_time_ms: int  # End time in the original recording
+    duration_ms: int  # Always 30 seconds (30000ms)
+    audio_data: bytes  # The actual 30-second clip audio
+    transcription: str  # What was said in the clip
+    confidence: float  # How confident we are this relates to the hashtag
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    download_url: Optional[str] = None
+    meta: Dict[str, Any] = field(default_factory=dict)
+    
+    def get_duration_seconds(self) -> float:
+        """Get duration in seconds"""
+        return self.duration_ms / 1000.0
+    
+    def get_time_range_string(self) -> str:
+        """Get human-readable time range"""
+        start_sec = self.start_time_ms // 1000
+        end_sec = self.end_time_ms // 1000
+        return f"{start_sec//60:02d}:{start_sec%60:02d}-{end_sec//60:02d}:{end_sec%60:02d}"
+
+
+def new_smart_voice_clip(
+    room_id: UUID, 
+    hashtag: str, 
+    start_time_ms: int, 
+    audio_data: bytes, 
+    transcription: str, 
+    confidence: float,
+    meta: Dict[str, Any] = None
+) -> "SmartVoiceClip":
+    """Create a new smart voice clip"""
+    duration_ms = 30000  # 30 seconds
+    end_time_ms = start_time_ms + duration_ms
+    
+    return SmartVoiceClip(
+        id=uuid4(),
+        room_id=room_id,
+        hashtag=hashtag,
+        start_time_ms=start_time_ms,
+        end_time_ms=end_time_ms,
+        duration_ms=duration_ms,
+        audio_data=audio_data,
+        transcription=transcription,
+        confidence=confidence,
         meta=meta or {}
     )

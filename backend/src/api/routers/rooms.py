@@ -115,13 +115,23 @@ async def create_room(
         # Save to repository
         saved_room = await room_repo.save(room)
         
+        # NEW: Start smart voice recording for the room
+        try:
+            from infrastructure.container import container
+            clipping_service = container.get_smart_voice_clipping_service()
+            if clipping_service and saved_room.is_recording_enabled:
+                hashtags = saved_room.get_room_hashtags()
+                await clipping_service.start_room_recording(saved_room.id, hashtags)
+                logger.info(f"🎵 Started smart voice recording for room {saved_room.id} with hashtags: {hashtags}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to start smart voice recording: {e}")
+        
         # NEW: Automatically deploy VortexAgent to the room
         logger.info(f"🚀 ROOM CREATION DEBUG: Starting VortexAgent deployment for room: {saved_room.name}")
         logger.info(f"🚀 ROOM CREATION DEBUG: Room ID: {saved_room.id}")
         logger.info(f"🚀 ROOM CREATION DEBUG: LiveKit room name: {saved_room.livekit_room_name}")
         
         try:
-            from infrastructure.container import container
             logger.info(f"🔍 CONTAINER DEBUG: Container imported successfully")
             
             agent_manager = container.get_agent_manager_service()
@@ -266,6 +276,16 @@ async def leave_room(
         
         # Remove user from room
         room_repo.remove_participant(room_uuid, current_user_id)
+        
+        # NEW: Stop smart voice recording if room is empty
+        try:
+            from infrastructure.container import container
+            clipping_service = container.get_smart_voice_clipping_service()
+            if clipping_service and len(room.current_participants) <= 1:  # Last person leaving
+                summary = await clipping_service.stop_room_recording(room_uuid)
+                logger.info(f"🎵 Stopped smart voice recording for room {room_uuid}. Summary: {summary}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to stop smart voice recording: {e}")
         
         return {"message": "Left room successfully"}
     except ValueError:
@@ -571,6 +591,27 @@ async def handle_voice_message(
             "type": "voice"
         }
         conversation_context.append(user_context)
+        
+        # NEW: Process audio for smart voice clipping
+        try:
+            from infrastructure.container import container
+            clipping_service = container.get_smart_voice_clipping_service()
+            if clipping_service:
+                # Decode base64 audio data
+                import base64
+                audio_bytes = base64.b64decode(audio_data)
+                
+                # Process audio chunk for hashtag detection
+                current_time_ms = int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds() * 1000)
+                await clipping_service.process_audio_chunk(
+                    room_id=UUID(room_id),
+                    audio_chunk=audio_bytes,
+                    timestamp_ms=current_time_ms
+                )
+                logger.info(f"🎵 Processed audio chunk for smart voice clipping")
+        except Exception as e:
+            logger.warning(f"⚠️ Smart voice clipping failed: {e}")
+            # Don't fail the main audio processing if clipping fails
         
         # Use GPT-4o Audio to process and respond
         ai_response = await openai_service.moderate_room_conversation(

@@ -19,7 +19,7 @@ import uvicorn
 from dotenv import load_dotenv
 load_dotenv()
 
-from api.routers import auth, topics, matching, rooms, friends, recordings
+from api.routers import auth, topics, matching, rooms, friends, recordings, smart_voice_clips
 from infrastructure.container import container
 from infrastructure.config import Settings
 
@@ -121,6 +121,7 @@ app.include_router(matching.router, prefix="/api/matching", tags=["matching"])
 app.include_router(rooms.router, prefix="/api/rooms", tags=["rooms"])
 app.include_router(friends.router, prefix="/api/friends", tags=["friends"])
 app.include_router(recordings.router, prefix="/api/recordings", tags=["recordings"])
+app.include_router(smart_voice_clips.router, prefix="/api/smart-voice-clips", tags=["smart-voice-clips"])
 
 # AI-powered features
 from api.routers import ai_host, agents
